@@ -221,14 +221,20 @@
         logItem.textContent = '等待执行到此步骤';
         stepLogList.appendChild(logItem);
       }
-      const previousScroll = logScrollState.get(step.key);
-      if (previousScroll) {
-        stepLogList.scrollTop = previousScroll.nearBottom
-          ? stepLogList.scrollHeight
-          : previousScroll.top;
-      }
       steps.appendChild(item);
+      restoreLogScroll(stepLogList, logScrollState.get(step.key));
     }
+  }
+
+  function restoreLogScroll(list, previousScroll) {
+    if (!list || !previousScroll) {
+      return;
+    }
+    const targetTop = previousScroll.nearBottom ? list.scrollHeight : previousScroll.top;
+    list.scrollTop = targetTop;
+    window.requestAnimationFrame(() => {
+      list.scrollTop = previousScroll.nearBottom ? list.scrollHeight : targetTop;
+    });
   }
 
   function renderPipeline(planSteps) {
