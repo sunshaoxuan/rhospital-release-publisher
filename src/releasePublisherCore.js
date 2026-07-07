@@ -72,7 +72,8 @@ function createPlan(projectRoot, request, env = process.env) {
   const sshResolution = resolveSshTargetDetails(remoteSshTarget, env);
   const dockerContextResolution = resolveDockerContextDetails(dockerContext, env);
   const ideaDockerServerResolution = resolveIdeaDockerServerDetails(dockerContext, env);
-  const dockerTarget = resolveDockerCommandTarget(dockerContext, dockerContextResolution, ideaDockerServerResolution);
+  const dockerTarget = resolveDockerCommandTarget(dockerContext, dockerContextResolution);
+  const remoteImageTarget = resolveRemoteImageTarget(remoteSshTarget, ideaDockerServerResolution);
   const includeStackDeploy = Boolean(request.includeStackDeploy);
   const gitBranch = validateGitBranch(request.gitBranch || env.RELEASE_PUBLISHER_GIT_BRANCH || 'origin/master');
   const gitCommit = validateGitCommit(request.gitCommit || 'latest');
@@ -128,7 +129,7 @@ function createPlan(projectRoot, request, env = process.env) {
     releaseStep({
       key: 'compile-artifact',
       title: '编译应用产物',
-      summary: '执行 Dockerfile 的 Maven 构建阶段，确认 Java 产物可以完成编译',
+      summary: '在本机 Docker 执行 Maven 构建阶段，确认 Java 产物可以完成编译',
       command: dockerCommand(dockerTarget, [
         'build',
         '--target', 'build',
@@ -147,7 +148,7 @@ function createPlan(projectRoot, request, env = process.env) {
     releaseStep({
       key: 'build-image',
       title: '制作 Docker 镜像',
-      summary: '执行完整 Dockerfile，把已编译产物组装成可运行镜像',
+      summary: '在本机 Docker 执行完整 Dockerfile，把已编译产物组装成可运行镜像',
       command: dockerCommand(dockerTarget, [
         'build',
         '-f', config.dockerfile,
@@ -165,12 +166,10 @@ function createPlan(projectRoot, request, env = process.env) {
     releaseStep({
       key: 'publish-image',
       title: '发布到目标镜像池',
-      summary: '确认目标 Docker context 中已经存在本次 TAG 镜像，当前配置没有独立 docker push 仓库',
-      command: dockerCommand(dockerTarget, [
-        'image', 'inspect', imageTag,
-        '--format', '{{.Id}} {{.RepoTags}}'
-      ]),
-      validation: `${dockerTarget.description} 必须能 inspect 到 ${imageTag}`,
+      summary: '把本机已经构建好的镜像保存为 tar，经 SSH 上传到生产 Docker 主机并执行 docker load',
+      command: publishImageCommand(imageTag, remoteImageTarget),
+      validation: remoteSshCommand(remoteImageTarget,
+        `docker image inspect ${shellToken(imageTag)} --format '{{.Id}} {{.RepoTags}}'`),
       actionType: 'production',
       productionAction: true,
       executable: true
@@ -182,8 +181,10 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'resolve-ssh-target',
       title: '确认 SSH 连接配置',
       summary: '展开本机 SSH 配置，确认实际 HostName、User、Port 和密钥来源',
-      command: `ssh -G ${remoteSshTarget}`,
-      validation: sshResolution.resolved
+      command: `ssh -G ${shellToken(sshTargetValue(remoteImageTarget))}`,
+      validation: remoteImageTarget.host
+        ? `HostName=${remoteImageTarget.host}, User=${remoteImageTarget.user || '未解析'}, Port=${remoteImageTarget.port || '未解析'}, Key=${remoteImageTarget.keyPath || '默认 SSH key'}`
+        : sshResolution.resolved
         ? `HostName=${sshResolution.hostName || '未解析'}, User=${sshResolution.user || '未解析'}, Port=${sshResolution.port || '未解析'}`
         : sshResolution.note || 'SSH 目标未解析',
       actionType: 'local-check'
@@ -192,7 +193,7 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'read-remote-compose',
       title: '读取生产编排当前镜像',
       summary: '进入 hospital-stack 编排目录，确认当前 compose 中的 hospital-backend 镜像行',
-      command: remoteSshCommand(remoteSshTarget,
+      command: remoteSshCommand(remoteImageTarget,
         `cd ${shellToken(remoteComposeDir)} && grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:' docker-compose.yml`),
       validation: `必须能读到 image: hospital-backend:<TAG>`,
       actionType: 'remote-check',
@@ -202,13 +203,13 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'update-remote-compose',
       title: '备份并替换生产编排 TAG',
       summary: '备份 docker-compose.yml，然后把 image: hospital-backend:<TAG> 替换成本次 TAG',
-      command: remoteSshCommand(remoteSshTarget,
+      command: remoteSshCommand(remoteImageTarget,
         [
           `cd ${shellToken(remoteComposeDir)}`,
           `cp docker-compose.yml docker-compose.yml.bak.$(date +%Y%m%d%H%M%S)`,
           `sed -i -E "s#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\\\1${imageTag}#" docker-compose.yml`
         ].join(' && ')),
-      validation: remoteSshCommand(remoteSshTarget,
+      validation: remoteSshCommand(remoteImageTarget,
         `cd ${shellToken(remoteComposeDir)} && grep -nE '^[[:space:]]*image:[[:space:]]*${imageTag}$' docker-compose.yml`),
       actionType: 'production',
       productionAction: true,
@@ -218,9 +219,9 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'deploy-stack',
       title: '执行 Docker Stack 热发布',
       summary: '在生产编排目录执行 stack deploy，触发 Swarm 按 compose 新镜像滚动更新',
-      command: remoteSshCommand(remoteSshTarget,
+      command: remoteSshCommand(remoteImageTarget,
         `cd ${shellToken(remoteComposeDir)} && docker stack deploy -c docker-compose.yml ${config.stackName}`),
-      validation: remoteSshCommand(remoteSshTarget,
+      validation: remoteSshCommand(remoteImageTarget,
         `docker stack services ${config.stackName}`),
       actionType: 'production',
       productionAction: true,
@@ -230,7 +231,7 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'final-runtime-check',
       title: '最终运行校验',
       summary: '确认 stack 服务、任务状态和服务镜像都已经指向本次 TAG',
-      command: remoteSshCommand(remoteSshTarget,
+      command: remoteSshCommand(remoteImageTarget,
         [
           `docker stack services ${config.stackName}`,
           `docker stack ps ${config.stackName} --no-trunc`,
@@ -253,6 +254,7 @@ function createPlan(projectRoot, request, env = process.env) {
       dockerContextResolution,
       ideaDockerServerResolution,
       dockerCommandTarget: dockerTarget,
+      remoteImageTarget,
       executionEnabled: env.RELEASE_PUBLISHER_ALLOW_EXECUTE === 'true'
     },
     appTag,
@@ -797,39 +799,124 @@ function dockerCommand(target, args) {
   return parts.concat(args).map(shellToken).join(' ');
 }
 
-function resolveDockerCommandTarget(contextName, dockerContextResolution, ideaDockerServerResolution) {
-  if (dockerContextResolution && dockerContextResolution.resolved && contextName) {
+function resolveDockerCommandTarget(contextName, dockerContextResolution) {
+  if (dockerContextResolution && dockerContextResolution.resolved && contextName && dockerContextResolution.local === true) {
     return {
       mode: 'context',
       context: contextName,
       host: '',
-      source: 'Docker CLI context',
-      description: `Docker context ${contextName}`
-    };
-  }
-  if (ideaDockerServerResolution && ideaDockerServerResolution.resolved && ideaDockerServerResolution.dockerHost) {
-    return {
-      mode: 'host',
-      context: '',
-      host: ideaDockerServerResolution.dockerHost,
-      source: 'IDEA Docker Server',
-      description: `IDEA Docker Server ${ideaDockerServerResolution.name}`
+      source: 'Local Docker CLI context',
+      description: `本机 Docker context ${contextName}`
     };
   }
   return {
-    mode: 'context',
-    context: contextName || '',
+    mode: 'local',
+    context: '',
     host: '',
-    source: 'unresolved',
-    description: `Docker context ${contextName || 'default'}`
+    source: 'local-docker',
+    description: '本机 Docker'
   };
 }
 
+function resolveRemoteImageTarget(target, ideaDockerServerResolution) {
+  if (ideaDockerServerResolution && ideaDockerServerResolution.resolved) {
+    return {
+      mode: 'ssh',
+      name: ideaDockerServerResolution.name || target || '',
+      host: ideaDockerServerResolution.host,
+      user: ideaDockerServerResolution.username,
+      port: ideaDockerServerResolution.port || '22',
+      keyPath: ideaDockerServerResolution.keyPath || '',
+      target: `${ideaDockerServerResolution.username}@${ideaDockerServerResolution.host}`,
+      description: `生产 Docker 主机 ${ideaDockerServerResolution.username}@${ideaDockerServerResolution.host}:${ideaDockerServerResolution.port || '22'}`
+    };
+  }
+  return {
+    mode: 'ssh',
+    name: target || '',
+    host: '',
+    user: '',
+    port: '',
+    keyPath: '',
+    target,
+    description: target || '未设置 SSH 目标'
+  };
+}
+
+function publishImageCommand(imageTag, target) {
+  const safeName = imageTag.replace(/[^0-9A-Za-z_.-]/g, '-');
+  const remoteTar = `/tmp/${safeName}.tar`;
+  return [
+    `$imageTar = Join-Path $env:TEMP ${shellToken(`${safeName}.tar`)}`,
+    `if (Test-Path $imageTar) { Remove-Item -Force $imageTar }`,
+    `${dockerCommand(null, ['save', '-o'])} $imageTar ${shellToken(imageTag)}`,
+    `if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`,
+    scpUploadCommand('$imageTar', target, remoteTar),
+    `if ($LASTEXITCODE -ne 0) { Remove-Item -Force $imageTar -ErrorAction SilentlyContinue; exit $LASTEXITCODE }`,
+    remoteSshCommand(target, `docker load -i ${shellToken(remoteTar)} && rm -f ${shellToken(remoteTar)}`),
+    `$remoteLoadExit = $LASTEXITCODE`,
+    `Remove-Item -Force $imageTar -ErrorAction SilentlyContinue`,
+    `exit $remoteLoadExit`
+  ].join('; ');
+}
+
 function remoteSshCommand(target, remoteCommand) {
-  if (!target) {
+  const ssh = sshCommandParts(target);
+  if (!ssh.length) {
     throw new Error('缺少 SSH 目标');
   }
-  return ['ssh', target, remoteCommand].map(shellToken).join(' ');
+  return ssh.concat(remoteCommand).map(shellToken).join(' ');
+}
+
+function scpCommand(localPath, target, remotePath) {
+  const scp = scpCommandParts(target);
+  if (!scp.length) {
+    throw new Error('缺少 SSH 目标');
+  }
+  return scp.concat(localPath, `${sshTargetValue(target)}:${remotePath}`).map(shellToken).join(' ');
+}
+
+function scpUploadCommand(localExpression, target, remotePath) {
+  const scp = scpCommandParts(target);
+  if (!scp.length) {
+    throw new Error('缺少 SSH 目标');
+  }
+  return `${scp.map(shellToken).join(' ')} ${localExpression} ${shellToken(`${sshTargetValue(target)}:${remotePath}`)}`;
+}
+
+function sshCommandParts(target) {
+  if (target && typeof target === 'object') {
+    const parts = ['ssh'];
+    if (target.keyPath) {
+      parts.push('-i', target.keyPath);
+    }
+    if (target.port) {
+      parts.push('-p', target.port);
+    }
+    return parts.concat(sshTargetValue(target));
+  }
+  return target ? ['ssh', target] : [];
+}
+
+function scpCommandParts(target) {
+  if (target && typeof target === 'object') {
+    const parts = ['scp'];
+    if (target.keyPath) {
+      parts.push('-i', target.keyPath);
+    }
+    if (target.port) {
+      parts.push('-P', target.port);
+    }
+    return parts;
+  }
+  return target ? ['scp'] : [];
+}
+
+function sshTargetValue(target) {
+  if (target && typeof target === 'object') {
+    return target.target || (target.user && target.host ? `${target.user}@${target.host}` : target.name);
+  }
+  return target;
 }
 
 function resolveSshTargetDetails(target, env = process.env, sshRunner = spawnSync) {

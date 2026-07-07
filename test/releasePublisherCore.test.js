@@ -124,13 +124,19 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.title === '切换到分支最新提交'
     && step.command === 'git checkout origin/master'));
   assert.ok(plan.steps.some(step => step.key === 'compile-artifact'
-    && step.command.includes('docker --context SSH178 build --target build')
+    && step.command.includes('docker build --target build')
+    && !step.command.includes('-H')
+    && !step.command.includes('--context')
     && step.command.includes('hospital-backend:2026070702-buildcheck')));
   assert.ok(plan.steps.some(step => step.key === 'build-image'
-    && step.command.includes('docker --context SSH178 build')
+    && step.command.includes('docker build')
+    && !step.command.includes('-H')
+    && !step.command.includes('--context')
     && step.command.includes('-t hospital-backend:2026070702')));
   assert.ok(plan.steps.some(step => step.key === 'publish-image'
-    && step.command.includes('docker --context SSH178 image inspect hospital-backend:2026070702')));
+    && step.command.includes('docker save -o')
+    && step.command.includes('scp')
+    && step.command.includes('docker load -i')));
   assert.ok(plan.steps.some(step => step.key === 'read-remote-compose'
     && step.command.includes(`cd ${DEFAULT_REMOTE_COMPOSE_DIR}`)));
   assert.ok(plan.steps.some(step => step.key === 'update-remote-compose'
@@ -296,7 +302,7 @@ test('reports missing docker context for display', () => {
   assert.match(result.error, /context not found/);
 });
 
-test('resolves IDEA Docker Server and uses ssh docker host command target', () => {
+test('resolves IDEA Docker Server for SSH image upload while building locally', () => {
   const root = tempProject(sampleXml);
   const optionsDir = tempJetBrainsOptions();
   const plan = createPlan(root, {
@@ -313,10 +319,17 @@ test('resolves IDEA Docker Server and uses ssh docker host command target', () =
   assert.equal(plan.config.ideaDockerServerResolution.resolved, true);
   assert.equal(plan.config.ideaDockerServerResolution.host, '178.239.117.99');
   assert.equal(plan.config.ideaDockerServerResolution.keyPath, 'C:\\workspace\\Secure\\sunsxaws.pem');
-  assert.equal(plan.config.dockerCommandTarget.mode, 'host');
-  assert.equal(plan.config.dockerCommandTarget.host, 'ssh://root@178.239.117.99:22');
+  assert.equal(plan.config.dockerCommandTarget.mode, 'local');
+  assert.equal(plan.config.dockerCommandTarget.description, '本机 Docker');
+  assert.equal(plan.config.remoteImageTarget.host, '178.239.117.99');
+  assert.equal(plan.config.remoteImageTarget.keyPath, 'C:\\workspace\\Secure\\sunsxaws.pem');
   assert.ok(plan.steps.some(step => step.key === 'build-image'
-    && step.command.includes("docker -H 'ssh://root@178.239.117.99:22' build")));
+    && step.command.includes('docker build')
+    && !step.command.includes('178.239.117.99')));
+  assert.ok(plan.steps.some(step => step.key === 'publish-image'
+    && step.command.includes("scp -i 'C:\\workspace\\Secure\\sunsxaws.pem' -P 22")
+    && step.command.includes("ssh -i 'C:\\workspace\\Secure\\sunsxaws.pem' -p 22 'root@178.239.117.99'")
+    && step.command.includes('docker load -i')));
 });
 
 test('resolves IDEA Docker Server details directly', () => {
