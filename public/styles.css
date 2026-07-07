@@ -429,6 +429,7 @@ button.danger {
   display: grid;
   gap: 12px;
   margin-top: 18px;
+  overflow-anchor: none;
 }
 
 .subhead {

@@ -531,12 +531,32 @@
   }
 
   function renderJob(job) {
+    const pageScroll = capturePageScroll();
     if (job.plan) {
       renderPlan(job.plan);
     }
     renderLogs(job.logs || []);
     cancelBtn.disabled = !(job.status === 'RUNNING' || job.status === 'CANCELLING');
     setStatus(`执行状态: ${job.status}`, terminalStatusKind(job.status));
+    restorePageScroll(pageScroll);
+  }
+
+  function capturePageScroll() {
+    const scrollingElement = document.scrollingElement || document.documentElement;
+    return {
+      top: scrollingElement.scrollTop,
+      left: scrollingElement.scrollLeft
+    };
+  }
+
+  function restorePageScroll(position) {
+    if (!position) {
+      return;
+    }
+    window.scrollTo(position.left, position.top);
+    window.requestAnimationFrame(() => {
+      window.scrollTo(position.left, position.top);
+    });
   }
 
   function terminalStatusKind(status) {
