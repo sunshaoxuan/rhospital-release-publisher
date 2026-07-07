@@ -10,6 +10,9 @@ const {
   saveTag,
   executePlan,
   readReleaseHistory,
+  readReleaseHistoryPage,
+  deleteReleaseHistoryEntry,
+  clearReleaseHistory,
   listGitBranches,
   listGitCommits,
   proposeNextTag,
@@ -22,6 +25,7 @@ const {
 const projectRoot = defaultProjectRoot();
 const publicRoot = path.join(__dirname, 'public');
 const port = Number(process.env.RELEASE_PUBLISHER_PORT || 8787);
+const jobs = new Map();
 
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -32,17 +36,19 @@ const contentTypes = {
 
 const server = http.createServer(async (req, res) => {
   try {
-    if (req.url === '/' && req.method === 'GET') {
+    const requestUrl = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
+    const pathname = requestUrl.pathname;
+    if (pathname === '/' && req.method === 'GET') {
       return sendFile(res, path.join(publicRoot, 'index.html'));
     }
-    if (req.url.startsWith('/static/') && req.method === 'GET') {
-      const filePath = path.resolve(publicRoot, req.url.replace('/static/', ''));
+    if (pathname.startsWith('/static/') && req.method === 'GET') {
+      const filePath = path.resolve(publicRoot, pathname.replace('/static/', ''));
       if (!filePath.startsWith(publicRoot + path.sep)) {
         return sendJson(res, 403, {message: '路径越界'});
       }
       return sendFile(res, filePath);
     }
-    if (req.url === '/api/config' && req.method === 'GET') {
+    if (pathname === '/api/config' && req.method === 'GET') {
       const config = readConfig(projectRoot, DEFAULT_RUN_CONFIG);
       const remoteSshTarget = process.env.RELEASE_PUBLISHER_SSH_TARGET
         || process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT
@@ -62,33 +68,49 @@ const server = http.createServer(async (req, res) => {
         executionEnabled: process.env.RELEASE_PUBLISHER_ALLOW_EXECUTE === 'true'
       });
     }
-    if (req.url === '/api/history' && req.method === 'GET') {
-      return sendJson(res, 200, {
-        history: readReleaseHistory(projectRoot, 20)
-      });
+    if (pathname === '/api/history' && req.method === 'GET') {
+      return sendJson(res, 200, readReleaseHistoryPage(projectRoot, {
+        page: requestUrl.searchParams.get('page') || 1,
+        limit: requestUrl.searchParams.get('limit') || 10
+      }));
     }
-    if (req.url === '/api/git/branches' && req.method === 'GET') {
+    if (pathname === '/api/history' && req.method === 'DELETE') {
+      return sendJson(res, 200, clearReleaseHistory(projectRoot));
+    }
+    if (pathname.startsWith('/api/history/') && req.method === 'DELETE') {
+      const id = decodeURIComponent(pathname.slice('/api/history/'.length));
+      return sendJson(res, 200, deleteReleaseHistoryEntry(projectRoot, id));
+    }
+    if (pathname === '/api/git/branches' && req.method === 'GET') {
       return sendJson(res, 200, listGitBranches(projectRoot, process.env));
     }
-    if (req.url.startsWith('/api/git/commits') && req.method === 'GET') {
-      const requestUrl = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
+    if (pathname === '/api/git/commits' && req.method === 'GET') {
       return sendJson(res, 200, listGitCommits(
         projectRoot,
         requestUrl.searchParams.get('branch') || 'origin/master',
         requestUrl.searchParams.get('limit') || 60
       ));
     }
-    if (req.url === '/api/plan' && req.method === 'POST') {
+    if (pathname === '/api/plan' && req.method === 'POST') {
       const body = await readBody(req);
       return sendJson(res, 200, createPlan(projectRoot, body));
     }
-    if (req.url === '/api/save-tag' && req.method === 'POST') {
+    if (pathname === '/api/save-tag' && req.method === 'POST') {
       const body = await readBody(req);
       return sendJson(res, 200, saveTag(projectRoot, body));
     }
-    if (req.url === '/api/execute' && req.method === 'POST') {
+    if (pathname === '/api/execute' && req.method === 'POST') {
       const body = await readBody(req);
-      return sendJson(res, 200, await executePlan(projectRoot, body));
+      const job = createExecutionJob(body);
+      return sendJson(res, 202, job);
+    }
+    if (pathname.startsWith('/api/jobs/') && req.method === 'GET') {
+      const id = decodeURIComponent(pathname.slice('/api/jobs/'.length));
+      const job = jobs.get(id);
+      if (!job) {
+        return sendJson(res, 404, {message: '执行任务不存在或已过期'});
+      }
+      return sendJson(res, 200, job);
     }
     return sendJson(res, 404, {message: 'Not found'});
   } catch (error) {
@@ -138,4 +160,56 @@ function readBody(req) {
     });
     req.on('error', reject);
   });
+}
+
+function createExecutionJob(body) {
+  const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const createdAt = new Date().toISOString();
+  const job = {
+    id,
+    createdAt,
+    updatedAt: createdAt,
+    status: 'RUNNING',
+    plan: null,
+    logs: ['任务已创建，等待执行输出'],
+    completedStepKeys: []
+  };
+  jobs.set(id, job);
+  executePlan(projectRoot, body, process.env, {
+    onProgress(progress) {
+      Object.assign(job, {
+        ...progress,
+        id,
+        createdAt,
+        updatedAt: new Date().toISOString()
+      });
+    }
+  }).then(result => {
+    Object.assign(job, {
+      ...result,
+      id,
+      createdAt,
+      updatedAt: new Date().toISOString()
+    });
+  }).catch(error => {
+    Object.assign(job, {
+      id,
+      createdAt,
+      updatedAt: new Date().toISOString(),
+      status: 'ERROR',
+      logs: (job.logs || []).concat(`ERROR: ${error.message}`)
+    });
+  });
+  pruneJobs();
+  return job;
+}
+
+function pruneJobs() {
+  const entries = Array.from(jobs.entries());
+  if (entries.length <= 20) {
+    return;
+  }
+  for (const [id] of entries.slice(0, entries.length - 20)) {
+    jobs.delete(id);
+  }
 }

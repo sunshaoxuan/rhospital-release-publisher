@@ -17,6 +17,11 @@ const {
   parseIdeaRunConfig,
   proposeNextTag,
   readReleaseHistory,
+  readReleaseHistoryPage,
+  deleteReleaseHistoryEntry,
+  clearReleaseHistory,
+  appendReleaseHistory,
+  buildHistoryEntry,
   saveTag,
   updateIdeaRunConfigTag,
   validateTag,
@@ -362,6 +367,73 @@ test('execute without dry run is blocked before mutating file when execution is 
   assert.equal(history.length, 1);
   assert.equal(history[0].status, 'BLOCKED');
   assert.equal(history[0].completedStepCount, 0);
+});
+
+test('execute errors are written to history with partial progress', async () => {
+  const root = tempProject(sampleXml);
+  const historyPath = path.join(root, 'history.json');
+  const progress = [];
+  const result = await executePlan(root, {
+    appTag: '2026070702',
+    dryRun: false,
+    dockerContext: 'SSH178',
+    includeStackDeploy: false
+  }, {
+    RELEASE_PUBLISHER_ALLOW_EXECUTE: 'true',
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  }, {
+    onProgress(update) {
+      progress.push(update);
+    }
+  });
+
+  assert.equal(result.status, 'ERROR');
+  assert.match(result.logs.join('\n'), /git status/);
+  assert.ok(progress.some(update => update.currentStepKey === 'git-status-before-update'));
+  const history = readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
+  assert.equal(history.length, 1);
+  assert.equal(history[0].status, 'ERROR');
+  assert.equal(history[0].completedStepCount, 0);
+});
+
+test('release history supports pagination and deletion', () => {
+  const root = tempProject(sampleXml);
+  const historyPath = path.join(root, 'history.json');
+  for (let index = 1; index <= 12; index += 1) {
+    const plan = createPlan(root, {
+      appTag: `20260707${String(index).padStart(2, '0')}`,
+      dryRun: true,
+      dockerContext: 'SSH178',
+      includeStackDeploy: false
+    }, {
+      RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+      RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+      RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+    });
+    appendReleaseHistory(root, buildHistoryEntry('DRY_RUN', plan, [], []), {
+      RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+    });
+  }
+
+  const page = readReleaseHistoryPage(root, {page: 2, limit: 5}, {
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  });
+  assert.equal(page.total, 12);
+  assert.equal(page.page, 2);
+  assert.equal(page.items.length, 5);
+  const deleteResult = deleteReleaseHistoryEntry(root, page.items[0].id, {
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  });
+  assert.equal(deleteResult.deleted, true);
+  assert.equal(deleteResult.total, 11);
+  const clearResult = clearReleaseHistory(root, {
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  });
+  assert.equal(clearResult.total, 0);
+  assert.equal(readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath}).length, 0);
 });
 
 test('rejects invalid app tag', () => {

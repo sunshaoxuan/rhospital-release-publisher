@@ -188,6 +188,24 @@ p {
   background: #cde4ff;
 }
 
+.flow-node.running {
+  outline: 3px solid var(--blue);
+  outline-offset: -6px;
+}
+
+.flow-node.running .flow-mark {
+  color: var(--ink);
+  background: var(--paper-strong);
+}
+
+.flow-node.failed {
+  background: #ffd8cf;
+}
+
+.flow-node.failed .flow-mark {
+  background: #d64d3c;
+}
+
 .flow-mark {
   display: flex;
   align-items: center;
@@ -318,6 +336,16 @@ button {
 button.primary {
   color: #ffffff;
   background: var(--green);
+}
+
+button.slim {
+  min-height: 34px;
+  padding: 7px 12px;
+  font-size: 12px;
+}
+
+button.danger {
+  color: #9f1d12;
 }
 
 .status {
@@ -476,6 +504,8 @@ button.primary {
   list-style: none;
   display: grid;
   gap: 8px;
+  max-height: 360px;
+  overflow: auto;
 }
 
 .logs li {
@@ -491,6 +521,14 @@ button.primary {
   display: grid;
   gap: 12px;
   margin-top: 18px;
+}
+
+.history-tools {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .history-empty,
@@ -538,6 +576,21 @@ button.primary {
   background: #ffffff;
   font-size: 12px;
   font-weight: 900;
+}
+
+.history-top div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.history-delete {
+  min-height: 30px;
+  padding: 4px 9px;
+  box-shadow: 2px 2px 0 var(--line);
+  font-size: 12px;
 }
 
 .history-grid {

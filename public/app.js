@@ -13,6 +13,9 @@
   const logs = document.getElementById('logs');
   const history = document.getElementById('history');
   const historyCount = document.getElementById('history-count');
+  const historyPrev = document.getElementById('history-prev');
+  const historyNext = document.getElementById('history-next');
+  const historyClear = document.getElementById('history-clear');
   const executionState = document.getElementById('execution-state');
 
   const fields = {
@@ -48,6 +51,9 @@
   let latestConfig = null;
   let gitBranches = [];
   let gitCommits = [];
+  let historyPage = 1;
+  let historyPageCount = 1;
+  let activeJobTimer = null;
 
   async function requestJson(url, options) {
     const response = await fetch(url, {
@@ -194,7 +200,7 @@
       const status = step.status || 'pending';
       const done = status === 'done' || status === 'dry-run-checked';
       const node = document.createElement('article');
-      node.className = `flow-node ${done ? 'checked' : ''} ${step.finalCheck ? 'final-node' : ''}`;
+      node.className = `flow-node ${done ? 'checked' : ''} ${status === 'running' ? 'running' : ''} ${status === 'failed' ? 'failed' : ''} ${step.finalCheck ? 'final-node' : ''}`;
       node.innerHTML = `
         <div class="flow-mark">${done ? '✓' : String(index + 1).padStart(2, '0')}</div>
         <div class="flow-copy">
@@ -213,6 +219,12 @@
     }
     if (status === 'dry-run-checked') {
       return 'dry run 已校验';
+    }
+    if (status === 'running') {
+      return '执行中';
+    }
+    if (status === 'failed') {
+      return '失败';
     }
     return '待执行';
   }
@@ -247,16 +259,26 @@
 
   function renderLogs(result) {
     logs.innerHTML = '';
-    for (const line of result.logs || []) {
+    const lines = Array.isArray(result) ? result : result.logs || [];
+    for (const line of lines) {
       const item = document.createElement('li');
       item.textContent = line;
       logs.appendChild(item);
     }
+    logs.scrollTop = logs.scrollHeight;
   }
 
-  function renderHistory(items) {
-    const entries = Array.isArray(items) ? items : [];
-    historyCount.textContent = `${entries.length} 条`;
+  function renderHistory(pageResult) {
+    const entries = Array.isArray(pageResult)
+      ? pageResult
+      : pageResult.items || [];
+    const total = Array.isArray(pageResult) ? entries.length : pageResult.total || 0;
+    historyPage = Array.isArray(pageResult) ? 1 : pageResult.page || 1;
+    historyPageCount = Array.isArray(pageResult) ? 1 : pageResult.pageCount || 1;
+    historyCount.textContent = `${total} 条 · ${historyPage}/${historyPageCount}`;
+    historyPrev.disabled = historyPage <= 1;
+    historyNext.disabled = historyPage >= historyPageCount;
+    historyClear.disabled = total === 0;
     history.innerHTML = '';
     if (!entries.length) {
       const empty = document.createElement('div');
@@ -274,7 +296,10 @@
       card.innerHTML = `
         <div class="history-top">
           <strong>${escapeHtml(item.imageTag || item.appTag || '未知镜像')}</strong>
-          <span>${escapeHtml(item.status || 'UNKNOWN')}</span>
+          <div>
+            <span>${escapeHtml(item.status || 'UNKNOWN')}</span>
+            <button type="button" class="history-delete" data-id="${escapeHtml(item.id || '')}">删除</button>
+          </div>
         </div>
         <div class="history-grid">
           <div><span>时间</span><b>${escapeHtml(formatDateTime(item.createdAt))}</b></div>
@@ -286,6 +311,9 @@
         </div>
       `;
       history.appendChild(card);
+    }
+    for (const button of history.querySelectorAll('.history-delete')) {
+      button.addEventListener('click', () => deleteHistory(button.dataset.id));
     }
   }
 
@@ -357,8 +385,8 @@
   }
 
   async function loadHistory() {
-    const result = await requestJson('/api/history');
-    renderHistory(result.history);
+    const result = await requestJson(`/api/history?page=${historyPage}&limit=10`);
+    renderHistory(result);
   }
 
   async function plan() {
@@ -371,15 +399,55 @@
   }
 
   async function execute() {
+    if (activeJobTimer) {
+      clearTimeout(activeJobTimer);
+      activeJobTimer = null;
+    }
     setStatus('执行请求处理中', '');
-    const result = await requestJson('/api/execute', {
+    renderLogs(['任务提交中']);
+    const job = await requestJson('/api/execute', {
       method: 'POST',
       body: JSON.stringify(payload())
     });
-    renderPlan(result.plan);
-    renderLogs(result);
+    setStatus(`执行任务已创建: ${job.id}`, '');
+    renderJob(job);
+    pollJob(job.id);
+  }
+
+  async function pollJob(jobId) {
+    const job = await requestJson(`/api/jobs/${encodeURIComponent(jobId)}`);
+    renderJob(job);
+    if (job.status === 'RUNNING') {
+      activeJobTimer = setTimeout(() => {
+        pollJob(jobId).catch(error => setStatus(error.message, 'error'));
+      }, 1000);
+      return;
+    }
+    activeJobTimer = null;
     await loadHistory();
-    setStatus(`执行状态: ${result.status}`, result.status === 'DRY_RUN' ? 'success' : '');
+    setStatus(`执行状态: ${job.status}`, job.status === 'DRY_RUN' || job.status === 'EXECUTED' ? 'success' : 'error');
+  }
+
+  function renderJob(job) {
+    if (job.plan) {
+      renderPlan(job.plan);
+    }
+    renderLogs(job.logs || []);
+    setStatus(`执行状态: ${job.status}`, job.status === 'RUNNING' ? '' : job.status === 'ERROR' ? 'error' : 'success');
+  }
+
+  async function deleteHistory(id) {
+    if (!id) {
+      return;
+    }
+    await requestJson(`/api/history/${encodeURIComponent(id)}`, {method: 'DELETE'});
+    await loadHistory();
+  }
+
+  async function clearHistory() {
+    await requestJson('/api/history', {method: 'DELETE'});
+    historyPage = 1;
+    await loadHistory();
   }
 
   document.getElementById('reload-btn').addEventListener('click', () => {
@@ -387,6 +455,21 @@
   });
   document.getElementById('execute-btn').addEventListener('click', () => {
     execute().catch(error => setStatus(error.message, 'error'));
+  });
+  historyPrev.addEventListener('click', () => {
+    if (historyPage > 1) {
+      historyPage -= 1;
+      loadHistory().catch(error => setStatus(error.message, 'error'));
+    }
+  });
+  historyNext.addEventListener('click', () => {
+    if (historyPage < historyPageCount) {
+      historyPage += 1;
+      loadHistory().catch(error => setStatus(error.message, 'error'));
+    }
+  });
+  historyClear.addEventListener('click', () => {
+    clearHistory().catch(error => setStatus(error.message, 'error'));
   });
   appTag.addEventListener('change', () => {
     plan().catch(error => setStatus(error.message, 'error'));

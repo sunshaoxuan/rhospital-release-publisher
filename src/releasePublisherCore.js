@@ -335,10 +335,21 @@ function updateIdeaRunConfigTag(xml, imageTag, appTag) {
   return xml.slice(0, selected.index) + block + xml.slice(selected.index + selected[0].length);
 }
 
-async function executePlan(projectRoot, request, env = process.env) {
+async function executePlan(projectRoot, request, env = process.env, options = {}) {
+  const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
   const plan = createPlan(projectRoot, request, env);
   const logs = [];
   const completedStepKeys = [];
+  let currentStepKey = '';
+  const updateStep = (stepKey, status, output) => {
+    onProgress({
+      plan: markStepStatus(plan, completedStepKeys, stepKey, status),
+      logs: output === undefined ? logs.slice() : logs.concat(output),
+      completedStepKeys: completedStepKeys.slice(),
+      currentStepKey: stepKey,
+      status: 'RUNNING'
+    });
+  };
   if (plan.dryRun) {
     const saved = saveTag(projectRoot, {
       appTag: plan.appTag,
@@ -356,22 +367,42 @@ async function executePlan(projectRoot, request, env = process.env) {
     appendReleaseHistory(projectRoot, buildHistoryEntry('BLOCKED', plan, blockedLogs, completedStepKeys), env);
     return {status: 'BLOCKED', plan, logs: blockedLogs};
   }
-  for (const step of plan.steps) {
-    if (step.key === 'save-run-config') {
-      const saved = saveTag(projectRoot, {
-        appTag: plan.appTag,
-        runConfigPath: request.runConfigPath,
-        dryRun: false
-      });
-      logs.push(`${saved.status}: ${plan.imageTag}`);
+  try {
+    for (const step of plan.steps) {
+      currentStepKey = step.key;
+      updateStep(step.key, 'running');
+      if (step.key === 'save-run-config') {
+        const saved = saveTag(projectRoot, {
+          appTag: plan.appTag,
+          runConfigPath: request.runConfigPath,
+          dryRun: false
+        });
+        logs.push(`${saved.status}: ${plan.imageTag}`);
+        completedStepKeys.push(step.key);
+        updateStep(step.key, 'done');
+        continue;
+      }
+      if (step.executable) {
+        logs.push(`[RUN] ${step.command}`);
+        await runPowerShell(projectRoot, step.command, chunk => {
+          const line = chunk.trim();
+          if (line) {
+            logs.push(line);
+            updateStep(step.key, 'running');
+          }
+        });
+        completedStepKeys.push(step.key);
+        updateStep(step.key, 'done');
+        continue;
+      }
       completedStepKeys.push(step.key);
-      continue;
+      updateStep(step.key, 'done');
     }
-    if (step.executable) {
-      logs.push(`[RUN] ${step.command}`);
-      logs.push(await runPowerShell(projectRoot, step.command));
-      completedStepKeys.push(step.key);
-    }
+  } catch (error) {
+    const errorLogs = logs.concat(`ERROR: ${error.message}`);
+    const failedPlan = markStepStatus(plan, completedStepKeys, currentStepKey, 'failed');
+    appendReleaseHistory(projectRoot, buildHistoryEntry('ERROR', failedPlan, errorLogs, completedStepKeys), env);
+    return {status: 'ERROR', plan: failedPlan, logs: errorLogs, completedStepKeys};
   }
   const markedPlan = markCompletedSteps(plan, completedStepKeys, 'done');
   appendReleaseHistory(projectRoot, buildHistoryEntry('EXECUTED', markedPlan, logs, completedStepKeys), env);
@@ -385,14 +416,18 @@ function historyFile(env = process.env) {
 }
 
 function readReleaseHistory(projectRoot, limit = 20, env = process.env) {
+  const entries = readReleaseHistoryAll(projectRoot, env);
+  return entries.slice(0, Math.max(1, Number(limit) || 20));
+}
+
+function readReleaseHistoryAll(projectRoot, env = process.env) {
   const filePath = historyFile(env);
   if (!fs.existsSync(filePath)) {
     return [];
   }
   try {
     const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    const entries = Array.isArray(parsed) ? parsed : [];
-    return entries.slice(0, Math.max(1, Number(limit) || 20));
+    return Array.isArray(parsed) ? parsed : [];
   } catch (error) {
     return [{
       id: 'history-read-error',
@@ -409,6 +444,34 @@ function appendReleaseHistory(projectRoot, entry, env = process.env, limit = 100
   const nextEntries = [entry].concat(entries).slice(0, limit);
   fs.writeFileSync(filePath, `${JSON.stringify(nextEntries, null, 2)}\n`, 'utf8');
   return nextEntries;
+}
+
+function readReleaseHistoryPage(projectRoot, request = {}, env = process.env) {
+  const entries = readReleaseHistoryAll(projectRoot, env);
+  const limit = Math.max(1, Math.min(50, Number(request.limit) || 10));
+  const page = Math.max(1, Number(request.page) || 1);
+  const offset = (page - 1) * limit;
+  return {
+    items: entries.slice(offset, offset + limit),
+    total: entries.length,
+    page,
+    limit,
+    pageCount: Math.max(1, Math.ceil(entries.length / limit))
+  };
+}
+
+function deleteReleaseHistoryEntry(projectRoot, id, env = process.env) {
+  const filePath = historyFile(env);
+  const entries = readReleaseHistoryAll(projectRoot, env).filter(item => item.id !== 'history-read-error');
+  const nextEntries = entries.filter(item => item.id !== id);
+  fs.writeFileSync(filePath, `${JSON.stringify(nextEntries, null, 2)}\n`, 'utf8');
+  return {deleted: nextEntries.length !== entries.length, total: nextEntries.length};
+}
+
+function clearReleaseHistory(projectRoot, env = process.env) {
+  const filePath = historyFile(env);
+  fs.writeFileSync(filePath, '[]\n', 'utf8');
+  return {deleted: true, total: 0};
 }
 
 function buildHistoryEntry(status, plan, logs, completedStepKeys) {
@@ -439,6 +502,19 @@ function markCompletedSteps(plan, completedStepKeys, status) {
   return {
     ...plan,
     steps: plan.steps.map(step => completed.has(step.key) ? {...step, status} : step)
+  };
+}
+
+function markStepStatus(plan, completedStepKeys, stepKey, status) {
+  const completed = new Set(completedStepKeys);
+  return {
+    ...plan,
+    steps: plan.steps.map(step => {
+      if (step.key === stepKey) {
+        return {...step, status};
+      }
+      return completed.has(step.key) ? {...step, status: 'done'} : step;
+    })
   };
 }
 
@@ -852,7 +928,7 @@ function findSshConfig(xml, id) {
   return null;
 }
 
-function runPowerShell(cwd, command) {
+function runPowerShell(cwd, command, onChunk) {
   return new Promise((resolve, reject) => {
     const child = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], {
       cwd,
@@ -860,10 +936,18 @@ function runPowerShell(cwd, command) {
     });
     let output = '';
     child.stdout.on('data', data => {
-      output += data.toString();
+      const text = data.toString();
+      output += text;
+      if (onChunk) {
+        onChunk(text);
+      }
     });
     child.stderr.on('data', data => {
-      output += data.toString();
+      const text = data.toString();
+      output += text;
+      if (onChunk) {
+        onChunk(text);
+      }
     });
     child.on('error', reject);
     child.on('close', code => {
@@ -968,6 +1052,9 @@ module.exports = {
   updateIdeaRunConfigTag,
   executePlan,
   readReleaseHistory,
+  readReleaseHistoryPage,
+  deleteReleaseHistoryEntry,
+  clearReleaseHistory,
   appendReleaseHistory,
   buildHistoryEntry,
   resolveSshTargetDetails,
