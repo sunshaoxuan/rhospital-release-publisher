@@ -111,6 +111,18 @@ function createPlan(projectRoot, request, env = process.env) {
       executable: true
     }),
     releaseStep({
+      key: 'capture-release-commit',
+      title: '记录发布提交',
+      summary: '记录本次实际发布使用的 Git HEAD，作为历史审计证据',
+      command: chainPowerShellCommands([
+        'git rev-parse HEAD',
+        'git log -1 --format="%h%x09%ci%x09%s"'
+      ]),
+      validation: '历史记录必须包含实际提交 hash、提交时间和提交说明',
+      actionType: 'local-check',
+      executable: true
+    }),
+    releaseStep({
       key: 'validate-release-input',
       title: '读取配置并校验 TAG',
       summary: '确认 IDEA 配置、镜像 TAG 和 APP_TAG 使用同一个版本号',
@@ -533,6 +545,7 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
   const slowestStep = completedDurations
     .slice()
     .sort((left, right) => right.durationMs - left.durationMs)[0] || null;
+  const commitEvidence = extractCommitEvidence(plan);
   return {
     id: `${new Date().toISOString()}-${plan.appTag}`,
     createdAt: new Date().toISOString(),
@@ -542,18 +555,56 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
     imageTag: plan.imageTag,
     gitBranch: plan.gitBranch,
     gitCommit: plan.gitCommit,
+    releaseCommit: commitEvidence.commit,
+    releaseCommitShort: commitEvidence.shortCommit,
+    releaseCommitDate: commitEvidence.date,
+    releaseCommitSubject: commitEvidence.subject,
     includeStackDeploy: plan.includeStackDeploy,
     projectRoot: plan.config.projectRoot,
     dockerTarget: plan.config.dockerCommandTarget
       ? plan.config.dockerCommandTarget.description
       : plan.config.dockerContext,
+    imageUploadTarget: plan.config.remoteImageTarget
+      ? plan.config.remoteImageTarget.description
+      : plan.config.remoteSshTarget,
     sshTarget: plan.config.remoteSshTarget,
     remoteComposeDir: plan.config.remoteComposeDir,
     stepCount: plan.steps.length,
     completedStepCount: completedStepKeys.length,
     totalDurationMs,
     slowestStep,
+    stepSummary: plan.steps.map(step => ({
+      key: step.key,
+      title: step.title,
+      status: step.status || 'pending',
+      durationMs: Number.isFinite(step.durationMs) ? step.durationMs : null,
+      actionType: step.actionType,
+      productionAction: Boolean(step.productionAction),
+      command: step.command,
+      validation: step.validation,
+      logs: Array.isArray(step.logs) ? step.logs.slice(-8) : []
+    })),
     logs: logs.slice(0, 12)
+  };
+}
+
+function extractCommitEvidence(plan) {
+  const step = plan.steps.find(item => item.key === 'capture-release-commit');
+  const lines = (step && Array.isArray(step.logs) ? step.logs : [])
+    .map(line => String(line || '').trim())
+    .filter(line => line
+      && !line.startsWith('[START]')
+      && !line.startsWith('[RUN]')
+      && !line.startsWith('[DONE]')
+      && !line.startsWith('[RUNNING]'));
+  const commit = lines.find(line => /^[0-9a-f]{40}$/i.test(line)) || '';
+  const detail = lines.find(line => /^[0-9a-f]{7,40}\t/.test(line)) || '';
+  const [shortCommit, date, ...subjectParts] = detail.split('\t');
+  return {
+    commit,
+    shortCommit: shortCommit || (commit ? commit.slice(0, 12) : ''),
+    date: date || '',
+    subject: subjectParts.join('\t')
   };
 }
 

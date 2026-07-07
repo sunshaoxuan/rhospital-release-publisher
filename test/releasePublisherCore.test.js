@@ -381,6 +381,42 @@ test('execute dry run marks every pipeline step checked without mutating file', 
   assert.equal(history[0].completedStepCount, result.plan.steps.length);
 });
 
+test('history entry records release commit evidence and step summary', () => {
+  const root = tempProject(sampleXml);
+  const plan = createPlan(root, {
+    appTag: '2026070702',
+    dryRun: true,
+    dockerContext: 'SSH178',
+    includeStackDeploy: false
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+  });
+  const commitStep = plan.steps.find(step => step.key === 'capture-release-commit');
+  commitStep.status = 'done';
+  commitStep.durationMs = 123;
+  commitStep.logs = [
+    '[START] 记录发布提交',
+    '[RUN] git rev-parse HEAD',
+    '0123456789abcdef0123456789abcdef01234567',
+    '0123456\t2026-07-07 20:30:40 +0900\tRelease hospital backend',
+    '[DONE] 记录发布提交，用时 123ms'
+  ];
+
+  const entry = buildHistoryEntry('EXECUTED', plan, commitStep.logs, ['capture-release-commit']);
+
+  assert.equal(entry.releaseCommit, '0123456789abcdef0123456789abcdef01234567');
+  assert.equal(entry.releaseCommitShort, '0123456');
+  assert.equal(entry.releaseCommitDate, '2026-07-07 20:30:40 +0900');
+  assert.equal(entry.releaseCommitSubject, 'Release hospital backend');
+  assert.ok(entry.stepSummary.some(step => step.key === 'capture-release-commit'
+    && step.status === 'done'
+    && step.durationMs === 123
+    && step.command.includes('git rev-parse HEAD')
+    && step.logs.includes('0123456789abcdef0123456789abcdef01234567')));
+});
+
 test('execute without dry run is blocked before mutating file when execution is not enabled', async () => {
   const root = tempProject(sampleXml);
   const configPath = path.join(root, '.run', '148.135.9.123.run.xml');

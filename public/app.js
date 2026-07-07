@@ -383,6 +383,9 @@
       const codeSource = item.gitCommit && item.gitCommit !== 'latest'
         ? `${item.gitBranch || '未选择'} @ ${item.gitCommit}`
         : `${item.gitBranch || '未选择'} 最新提交`;
+      const actualCommit = item.releaseCommitShort
+        ? `${item.releaseCommitShort}${item.releaseCommitSubject ? ` ${item.releaseCommitSubject}` : ''}`
+        : '未记录';
       card.innerHTML = `
         <div class="history-top">
           <strong>${escapeHtml(item.imageTag || item.appTag || '未知镜像')}</strong>
@@ -393,8 +396,11 @@
         </div>
         <div class="history-grid">
           <div><span>时间</span><b>${escapeHtml(formatDateTime(item.createdAt))}</b></div>
-          <div><span>代码来源</span><b>${escapeHtml(codeSource)}</b></div>
+          <div><span>选择代码</span><b>${escapeHtml(codeSource)}</b></div>
+          <div><span>实际提交</span><b>${escapeHtml(actualCommit)}</b></div>
+          <div><span>提交时间</span><b>${escapeHtml(item.releaseCommitDate || '未记录')}</b></div>
           <div><span>Docker 目标</span><b>${escapeHtml(item.dockerTarget || '未解析')}</b></div>
+          <div><span>上传目标</span><b>${escapeHtml(item.imageUploadTarget || item.sshTarget || '未设置')}</b></div>
           <div><span>SSH 目标</span><b>${escapeHtml(item.sshTarget || '未设置')}</b></div>
           <div><span>编排目录</span><b>${escapeHtml(item.remoteComposeDir || '未设置')}</b></div>
           <div><span>节点</span><b>${escapeHtml(`${item.completedStepCount || 0}/${item.stepCount || 0}`)}</b></div>
