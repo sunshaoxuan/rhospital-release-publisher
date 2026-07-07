@@ -1,8 +1,8 @@
 (function () {
   const status = document.getElementById('status');
   const appTag = document.getElementById('app-tag');
-  const gitMode = document.getElementById('git-mode');
-  const gitRef = document.getElementById('git-ref');
+  const gitBranch = document.getElementById('git-branch');
+  const gitCommit = document.getElementById('git-commit');
   const dockerContext = document.getElementById('docker-context');
   const remoteSshTarget = document.getElementById('remote-ssh-target');
   const remoteComposeDir = document.getElementById('remote-compose-dir');
@@ -20,8 +20,8 @@
     runConfig: document.getElementById('run-config'),
     currentImage: document.getElementById('current-image'),
     currentTag: document.getElementById('current-tag'),
-    gitModeCurrent: document.getElementById('git-mode-current'),
-    gitRefCurrent: document.getElementById('git-ref-current'),
+    gitBranchCurrent: document.getElementById('git-branch-current'),
+    gitCommitCurrent: document.getElementById('git-commit-current'),
     serverName: document.getElementById('server-name'),
     dockerContextSource: document.getElementById('docker-context-source'),
     dockerEndpoint: document.getElementById('docker-endpoint'),
@@ -46,6 +46,8 @@
   };
 
   let latestConfig = null;
+  let gitBranches = [];
+  let gitCommits = [];
 
   async function requestJson(url, options) {
     const response = await fetch(url, {
@@ -67,8 +69,8 @@
   function payload() {
     return {
       appTag: appTag.value.trim(),
-      gitMode: gitMode.value,
-      gitRef: gitRef.value.trim(),
+      gitBranch: gitBranch.value,
+      gitCommit: gitCommit.value,
       dockerContext: dockerContext.value.trim(),
       remoteSshTarget: remoteSshTarget.value.trim(),
       remoteComposeDir: remoteComposeDir.value.trim(),
@@ -94,8 +96,8 @@
     fields.runConfig.textContent = config.runConfigPath || '';
     fields.currentImage.textContent = config.imageTag || '';
     fields.currentTag.textContent = config.appTag || '';
-    fields.gitModeCurrent.textContent = gitMode.value === 'ref' ? '指定 Git ref' : '当前分支最新';
-    fields.gitRefCurrent.textContent = gitMode.value === 'ref' ? gitRef.value.trim() || '未指定' : '当前分支';
+    fields.gitBranchCurrent.textContent = gitBranch.value || '未选择';
+    fields.gitCommitCurrent.textContent = commitLabel(gitCommit.value);
     fields.serverName.textContent = config.serverName || '';
     fields.sshTarget.textContent = config.remoteSshTarget || config.serverName || '';
     renderDockerContextResolution(config.dockerContextResolution);
@@ -108,15 +110,7 @@
     remoteSshTarget.value = remoteSshTarget.value || config.remoteSshTarget || config.serverName || '';
     remoteComposeDir.value = remoteComposeDir.value || config.remoteComposeDir || '';
     appTag.value = appTag.value || config.suggestedTag || config.appTag || '';
-    gitRef.value = gitRef.value || 'origin/master';
-    updateGitRefState();
     renderExecutionState(config);
-  }
-
-  function updateGitRefState() {
-    const usesRef = gitMode.value === 'ref';
-    gitRef.disabled = !usesRef;
-    gitRef.closest('.field').classList.toggle('muted-field', !usesRef);
   }
 
   function renderSshResolution(sshResolution) {
@@ -246,9 +240,9 @@
     for (const item of entries) {
       const card = document.createElement('article');
       card.className = `history-card ${String(item.status || '').toLowerCase()}`;
-      const codeSource = item.gitMode === 'ref'
-        ? `指定 Git ref: ${item.gitRef || '未指定'}`
-        : '当前分支最新';
+      const codeSource = item.gitCommit && item.gitCommit !== 'latest'
+        ? `${item.gitBranch || '未选择'} @ ${item.gitCommit}`
+        : `${item.gitBranch || '未选择'} 最新提交`;
       card.innerHTML = `
         <div class="history-top">
           <strong>${escapeHtml(item.imageTag || item.appTag || '未知镜像')}</strong>
@@ -280,9 +274,58 @@
     setStatus('读取配置中', '');
     const config = await requestJson('/api/config');
     renderConfig(config);
+    await loadBranches();
     await plan();
     await loadHistory();
     setStatus('配置已读取', 'success');
+  }
+
+  async function loadBranches() {
+    const result = await requestJson('/api/git/branches');
+    gitBranches = result.branches || [];
+    const currentValue = gitBranch.dataset.loaded === 'true' && gitBranch.value
+      ? gitBranch.value
+      : result.defaultBranch || 'origin/master';
+    gitBranch.innerHTML = '';
+    for (const branch of gitBranches) {
+      const option = document.createElement('option');
+      option.value = branch.name;
+      option.textContent = `${branch.name}${branch.current ? ' 当前' : ''}`;
+      gitBranch.appendChild(option);
+    }
+    if (!gitBranches.length) {
+      const option = document.createElement('option');
+      option.value = currentValue;
+      option.textContent = currentValue;
+      gitBranch.appendChild(option);
+    }
+    gitBranch.value = gitBranches.some(branch => branch.name === currentValue)
+      ? currentValue
+      : result.defaultBranch || gitBranch.options[0].value;
+    gitBranch.dataset.loaded = 'true';
+    await loadCommits(false);
+  }
+
+  async function loadCommits(shouldPlan = true) {
+    const result = await requestJson(`/api/git/commits?branch=${encodeURIComponent(gitBranch.value)}&limit=80`);
+    gitCommits = result.commits || [];
+    const previousValue = gitCommit.value || 'latest';
+    gitCommit.innerHTML = '';
+    const latestOption = document.createElement('option');
+    latestOption.value = 'latest';
+    latestOption.textContent = '最新提交';
+    gitCommit.appendChild(latestOption);
+    for (const commit of gitCommits) {
+      const option = document.createElement('option');
+      option.value = commit.hash;
+      option.textContent = `${commit.shortHash} ${commit.subject}`;
+      gitCommit.appendChild(option);
+    }
+    gitCommit.value = gitCommits.some(commit => commit.hash === previousValue) ? previousValue : 'latest';
+    renderConfig(latestConfig || {});
+    if (shouldPlan) {
+      await plan();
+    }
   }
 
   async function loadHistory() {
@@ -320,14 +363,11 @@
   appTag.addEventListener('change', () => {
     plan().catch(error => setStatus(error.message, 'error'));
   });
-  gitMode.addEventListener('change', () => {
-    updateGitRefState();
-    plan().catch(error => setStatus(error.message, 'error'));
+  gitBranch.addEventListener('change', () => {
+    loadCommits(true).catch(error => setStatus(error.message, 'error'));
   });
-  gitRef.addEventListener('change', () => {
-    plan().catch(error => setStatus(error.message, 'error'));
-  });
-  gitRef.addEventListener('input', () => {
+  gitCommit.addEventListener('change', () => {
+    renderConfig(latestConfig || {});
     plan().catch(error => setStatus(error.message, 'error'));
   });
   dockerContext.addEventListener('change', () => {
@@ -358,5 +398,13 @@
       return value;
     }
     return date.toLocaleString('zh-CN', {hour12: false});
+  }
+
+  function commitLabel(value) {
+    if (!value || value === 'latest') {
+      return '最新提交';
+    }
+    const commit = gitCommits.find(item => item.hash === value);
+    return commit ? `${commit.shortHash} ${commit.subject}` : value;
   }
 })();

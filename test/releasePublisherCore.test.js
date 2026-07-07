@@ -11,6 +11,8 @@ const {
   executePlan,
   resolveDockerContextDetails,
   resolveIdeaDockerServerDetails,
+  listGitBranches,
+  listGitCommits,
   parseSshGOutput,
   parseIdeaRunConfig,
   proposeNextTag,
@@ -18,7 +20,8 @@ const {
   saveTag,
   updateIdeaRunConfigTag,
   validateTag,
-  validateGitRef
+  validateGitBranch,
+  validateGitCommit
 } = require('../src/releasePublisherCore');
 
 const sampleXml = `<component name="ProjectRunConfigurationManager">
@@ -103,7 +106,8 @@ test('creates dry run command plan without production execution enabled', () => 
 
   assert.equal(plan.imageTag, 'hospital-backend:2026070702');
   assert.equal(plan.dryRun, true);
-  assert.equal(plan.gitMode, 'latest');
+  assert.equal(plan.gitBranch, 'origin/master');
+  assert.equal(plan.gitCommit, 'latest');
   assert.equal(plan.config.executionEnabled, false);
   assert.equal(plan.config.dockerContextResolution.note, '已跳过 Docker context 解析');
   assert.ok(plan.steps.some(step => step.key === 'git-status-before-update'
@@ -111,7 +115,8 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(plan.steps.some(step => step.key === 'git-fetch'
     && step.command === 'git fetch --prune origin'));
   assert.ok(plan.steps.some(step => step.key === 'git-update'
-    && step.command === 'git pull --ff-only'));
+    && step.title === '切换到分支最新提交'
+    && step.command === 'git checkout origin/master'));
   assert.ok(plan.steps.some(step => step.key === 'compile-artifact'
     && step.command.includes('docker --context SSH178 build --target build')
     && step.command.includes('hospital-backend:2026070702-buildcheck')));
@@ -134,13 +139,13 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.validation.includes('hospital-backend:2026070702')));
 });
 
-test('creates specified Git ref update plan', () => {
+test('creates specified branch latest update plan', () => {
   const root = tempProject(sampleXml);
   const plan = createPlan(root, {
     appTag: '2026070702',
     dryRun: true,
-    gitMode: 'ref',
-    gitRef: 'origin/release/20260707',
+    gitBranch: 'origin/release/20260707',
+    gitCommit: 'latest',
     dockerContext: 'SSH178',
     includeStackDeploy: false
   }, {
@@ -149,11 +154,35 @@ test('creates specified Git ref update plan', () => {
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
   });
 
-  assert.equal(plan.gitMode, 'ref');
-  assert.equal(plan.gitRef, 'origin/release/20260707');
+  assert.equal(plan.gitBranch, 'origin/release/20260707');
+  assert.equal(plan.gitCommit, 'latest');
   assert.ok(plan.steps.some(step => step.key === 'git-update'
-    && step.title === '切换到指定代码'
+    && step.title === '切换到分支最新提交'
     && step.command === 'git checkout origin/release/20260707'));
+});
+
+test('creates specified branch commit update plan', () => {
+  const root = tempProject(sampleXml);
+  const commit = '0123456789abcdef0123456789abcdef01234567';
+  const plan = createPlan(root, {
+    appTag: '2026070702',
+    dryRun: true,
+    gitBranch: 'origin/release/20260707',
+    gitCommit: commit,
+    dockerContext: 'SSH178',
+    includeStackDeploy: false
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+  });
+
+  assert.equal(plan.gitBranch, 'origin/release/20260707');
+  assert.equal(plan.gitCommit, commit);
+  assert.ok(plan.steps.some(step => step.key === 'git-update'
+    && step.title === '切换到指定提交'
+    && step.command === `git checkout ${commit}`
+    && step.validation.includes(`git merge-base --is-ancestor ${commit} origin/release/20260707`)));
 });
 
 test('uses explicit SSH target and remote compose directory in hot deploy plan', () => {
@@ -326,9 +355,27 @@ test('rejects invalid app tag', () => {
   assert.throws(() => validateTag('20260707;rm'), /APP_TAG/);
 });
 
-test('rejects invalid git ref', () => {
-  assert.throws(() => validateGitRef('origin/master;rm'), /Git ref/);
-  assert.throws(() => validateGitRef('../master'), /Git ref/);
+test('lists branches and commits from a git project', () => {
+  const root = tempGitProject();
+  runGit(root, ['checkout', '-b', 'release/demo']);
+  fs.writeFileSync(path.join(root, 'release.txt'), 'release\n', 'utf8');
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'release commit']);
+
+  const branches = listGitBranches(root, {});
+  assert.ok(branches.branches.some(branch => branch.name === 'release/demo' && branch.current));
+
+  const commits = listGitCommits(root, 'release/demo', 10);
+  assert.equal(commits.branch, 'release/demo');
+  assert.ok(commits.commits.length >= 1);
+  assert.match(commits.commits[0].subject, /release commit/);
+});
+
+test('rejects invalid git branch and commit', () => {
+  assert.throws(() => validateGitBranch('origin/master;rm'), /Git 分支/);
+  assert.throws(() => validateGitBranch('../master'), /Git 分支/);
+  assert.throws(() => validateGitCommit('not-a-sha'), /Git 提交/);
+  assert.equal(validateGitCommit('latest'), 'latest');
 });
 
 test('default project root points to sibling hospital backend unless overridden', () => {
@@ -350,6 +397,27 @@ function tempProject(xml) {
   fs.mkdirSync(runDir, {recursive: true});
   fs.writeFileSync(path.join(runDir, '148.135.9.123.run.xml'), xml, 'utf8');
   return root;
+}
+
+function tempGitProject() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-git-'));
+  runGit(root, ['init']);
+  fs.writeFileSync(path.join(root, 'README.md'), 'demo\n', 'utf8');
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'initial commit']);
+  return root;
+}
+
+function runGit(cwd, args) {
+  const result = require('node:child_process').spawnSync('git', args, {
+    cwd,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  if (result.status !== 0) {
+    throw new Error(result.stderr || result.stdout || `git ${args.join(' ')} failed`);
+  }
+  return result.stdout;
 }
 
 function tempJetBrainsOptions() {

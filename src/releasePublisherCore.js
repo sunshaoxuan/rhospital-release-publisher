@@ -12,6 +12,7 @@ const DEFAULT_JETBRAINS_PRODUCT_DIR = 'IntelliJIdea2026.1';
 const DEFAULT_HISTORY_FILE = '.release-history.json';
 const TAG_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
 const GIT_REF_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._/@:-]{0,127}$/;
+const GIT_COMMIT_PATTERN = /^[0-9a-fA-F]{7,40}$/;
 
 function defaultProjectRoot() {
   return process.env.RHOSPITAL_PROJECT_ROOT
@@ -73,8 +74,9 @@ function createPlan(projectRoot, request, env = process.env) {
   const ideaDockerServerResolution = resolveIdeaDockerServerDetails(dockerContext, env);
   const dockerTarget = resolveDockerCommandTarget(dockerContext, dockerContextResolution, ideaDockerServerResolution);
   const includeStackDeploy = Boolean(request.includeStackDeploy);
-  const gitMode = request.gitMode === 'ref' ? 'ref' : 'latest';
-  const gitRef = validateGitRef(request.gitRef || env.RELEASE_PUBLISHER_GIT_REF || 'origin/master');
+  const gitBranch = validateGitBranch(request.gitBranch || env.RELEASE_PUBLISHER_GIT_BRANCH || 'origin/master');
+  const gitCommit = validateGitCommit(request.gitCommit || 'latest');
+  const gitUpdate = gitUpdateStep(gitBranch, gitCommit);
 
   const steps = [
     releaseStep({
@@ -97,16 +99,10 @@ function createPlan(projectRoot, request, env = process.env) {
     }),
     releaseStep({
       key: 'git-update',
-      title: gitMode === 'ref' ? '切换到指定代码' : '更新到最新代码',
-      summary: gitMode === 'ref'
-        ? `切换到指定 Git ref: ${gitRef}`
-        : '在当前分支执行 fast-forward 更新，避免产生自动合并提交',
-      command: gitMode === 'ref'
-        ? `git checkout ${shellToken(gitRef)}`
-        : 'git pull --ff-only',
-      validation: gitMode === 'ref'
-        ? `git rev-parse --verify ${shellToken(gitRef)}`
-        : 'git status --short --branch && git rev-parse --short HEAD',
+      title: gitUpdate.title,
+      summary: gitUpdate.summary,
+      command: gitUpdate.command,
+      validation: gitUpdate.validation,
       productionAction: true,
       actionScope: 'local'
     }),
@@ -248,8 +244,8 @@ function createPlan(projectRoot, request, env = process.env) {
     },
     appTag,
     imageTag,
-    gitMode,
-    gitRef: gitMode === 'ref' ? gitRef : '',
+    gitBranch,
+    gitCommit,
     includeStackDeploy,
     dryRun: request.dryRun !== false,
     steps,
@@ -401,8 +397,8 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
     dryRun: plan.dryRun,
     appTag: plan.appTag,
     imageTag: plan.imageTag,
-    gitMode: plan.gitMode,
-    gitRef: plan.gitRef || '',
+    gitBranch: plan.gitBranch,
+    gitCommit: plan.gitCommit,
     includeStackDeploy: plan.includeStackDeploy,
     projectRoot: plan.config.projectRoot,
     dockerTarget: plan.config.dockerCommandTarget
@@ -445,12 +441,128 @@ function validateTag(tag) {
   return value;
 }
 
-function validateGitRef(ref) {
+function validateGitBranch(ref) {
   const value = String(ref || '').trim();
   if (!GIT_REF_PATTERN.test(value) || value.includes('..') || value.endsWith('.lock')) {
-    throw new Error('Git ref 只能包含字母、数字、点、下划线、斜杠、@、冒号和连字符，长度不超过 128');
+    throw new Error('Git 分支只能包含字母、数字、点、下划线、斜杠、@、冒号和连字符，长度不超过 128');
   }
   return value;
+}
+
+function validateGitCommit(commit) {
+  const value = String(commit || 'latest').trim();
+  if (value === 'latest') {
+    return value;
+  }
+  if (!GIT_COMMIT_PATTERN.test(value)) {
+    throw new Error('Git 提交只能是 latest 或 7 到 40 位十六进制提交号');
+  }
+  return value;
+}
+
+function gitUpdateStep(branch, commit) {
+  if (commit !== 'latest') {
+    return {
+      title: '切换到指定提交',
+      summary: `在分支 ${branch} 下选择提交 ${commit}`,
+      command: `git checkout ${shellToken(commit)}`,
+      validation: `git merge-base --is-ancestor ${shellToken(commit)} ${shellToken(branch)} && git rev-parse --verify ${shellToken(commit)}`
+    };
+  }
+  if (isRemoteBranch(branch)) {
+    return {
+      title: '切换到分支最新提交',
+      summary: `使用远端分支 ${branch} 的最新提交`,
+      command: `git checkout ${shellToken(branch)}`,
+      validation: `git rev-parse --verify ${shellToken(branch)}`
+    };
+  }
+  return {
+    title: '更新到分支最新提交',
+    summary: `切换到本地分支 ${branch} 并执行 fast-forward 更新`,
+    command: `git checkout ${shellToken(branch)} && git pull --ff-only`,
+    validation: 'git status --short --branch && git rev-parse --short HEAD'
+  };
+}
+
+function isRemoteBranch(branch) {
+  return String(branch || '').startsWith('origin/');
+}
+
+function listGitBranches(projectRoot, env = process.env, gitRunner = spawnSync) {
+  if (env.RELEASE_PUBLISHER_DISABLE_GIT_LIST === 'true') {
+    return {branches: [], defaultBranch: env.RELEASE_PUBLISHER_GIT_BRANCH || 'origin/master'};
+  }
+  const current = runGit(projectRoot, ['rev-parse', '--abbrev-ref', 'HEAD'], gitRunner).trim();
+  const output = runGit(projectRoot, [
+    'for-each-ref',
+    '--format=%(refname:short)',
+    'refs/heads',
+    'refs/remotes/origin'
+  ], gitRunner);
+  const seen = new Set();
+  const branches = [];
+  for (const raw of output.split(/\r?\n/)) {
+    const name = raw.trim();
+    if (!name || name === 'origin/HEAD' || seen.has(name)) {
+      continue;
+    }
+    seen.add(name);
+    branches.push({
+      name,
+      type: name.startsWith('origin/') ? 'remote' : 'local',
+      current: name === current
+    });
+  }
+  branches.sort((a, b) => {
+    if (a.current !== b.current) {
+      return a.current ? -1 : 1;
+    }
+    if (a.type !== b.type) {
+      return a.type === 'local' ? -1 : 1;
+    }
+    return a.name.localeCompare(b.name);
+  });
+  const defaultBranch = current && current !== 'HEAD' && seen.has(current)
+    ? current
+    : branches.find(branch => branch.name === 'origin/master')?.name || branches[0]?.name || 'origin/master';
+  return {branches, defaultBranch};
+}
+
+function listGitCommits(projectRoot, branch, limit = 60, gitRunner = spawnSync) {
+  const selectedBranch = validateGitBranch(branch || 'origin/master');
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 60));
+  const output = runGit(projectRoot, [
+    'log',
+    `-${safeLimit}`,
+    '--format=%H%x09%h%x09%ci%x09%s',
+    selectedBranch
+  ], gitRunner);
+  const commits = output.split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => {
+      const [hash, shortHash, date, ...subjectParts] = line.split('\t');
+      return {
+        hash,
+        shortHash,
+        date,
+        subject: subjectParts.join('\t')
+      };
+    });
+  return {branch: selectedBranch, commits};
+}
+
+function runGit(projectRoot, args, gitRunner = spawnSync) {
+  const git = gitRunner('git', args, {
+    cwd: projectRoot,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  if (git.status !== 0) {
+    throw new Error((git.stderr || git.stdout || `git ${args.join(' ')} 执行失败`).trim());
+  }
+  return git.stdout || '';
 }
 
 function dockerCommand(target, args) {
@@ -840,8 +952,11 @@ module.exports = {
   resolveDockerContextDetails,
   resolveIdeaDockerServerDetails,
   resolveDockerCommandTarget,
+  listGitBranches,
+  listGitCommits,
   parseSshGOutput,
   proposeNextTag,
   validateTag,
-  validateGitRef
+  validateGitBranch,
+  validateGitCommit
 };

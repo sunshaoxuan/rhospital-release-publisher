@@ -5,7 +5,7 @@
 ## 作用
 
 - 读取开发环境中的 `hospital-backend/.run/148.135.9.123.run.xml`
-- 支持按当前分支拉取最新代码，或切换到指定 Git ref
+- 支持从分支列表选择发布分支，并从该分支提交列表选择最新提交或指定提交
 - 解析当前 `hospital-backend:<TAG>` 和 `APP_TAG`
 - 默认把页面 TAG 输入框初始化为下一个建议 `APP_TAG`
 - 同步更新 IDEA 配置中的镜像 TAG 和 `APP_TAG`
@@ -72,7 +72,7 @@ npm start
 
 1. 检查本地代码状态
 2. 获取远端代码
-3. 更新到最新代码或切换到指定 Git ref
+3. 更新到分支最新提交或切换到指定提交
 4. 读取配置并校验 TAG
 5. 更新本地 IDEA 发布配置
 6. 编译应用产物
@@ -108,12 +108,12 @@ $env:RELEASE_PUBLISHER_ALLOW_EXECUTE='true'
 npm start
 ```
 
-代码来源支持两种模式：
+代码来源按两级选择：
 
-- `拉取当前分支最新`：执行 `git fetch --prune origin` 后执行 `git pull --ff-only`
-- `指定 Git ref`：执行 `git fetch --prune origin` 后执行 `git checkout <ref>`
+- `发布分支`：页面从本地仓库读取分支列表，包含本地分支和 `origin/*` 远端分支
+- `发布提交`：选择分支后，页面读取该分支最近提交，默认是 `最新提交`
 
-`Git ref` 可以是分支、远端分支、标签或提交号。发布器会先显示 Git 状态检查节点，正式执行时按页面流程顺序执行。
+执行流程会先显示 Git 状态检查节点，再执行 `git fetch --prune origin`。如果选择 `最新提交`，发布器会切换到所选分支的最新提交；如果选择具体提交，发布器会执行 `git checkout <commit>`，并用 `git merge-base --is-ancestor <commit> <branch>` 校验该提交属于所选分支。
 
 当前 IDEA 配置中的 `server-name="SSH178"` 是 JetBrains Docker Server 名称。发布器会优先读取 JetBrains 用户配置：
 

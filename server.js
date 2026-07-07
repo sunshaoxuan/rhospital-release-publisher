@@ -10,6 +10,8 @@ const {
   saveTag,
   executePlan,
   readReleaseHistory,
+  listGitBranches,
+  listGitCommits,
   proposeNextTag,
   resolveSshTargetDetails,
   resolveDockerContextDetails,
@@ -64,6 +66,17 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         history: readReleaseHistory(projectRoot, 20)
       });
+    }
+    if (req.url === '/api/git/branches' && req.method === 'GET') {
+      return sendJson(res, 200, listGitBranches(projectRoot, process.env));
+    }
+    if (req.url.startsWith('/api/git/commits') && req.method === 'GET') {
+      const requestUrl = new URL(req.url, `http://${req.headers.host || '127.0.0.1'}`);
+      return sendJson(res, 200, listGitCommits(
+        projectRoot,
+        requestUrl.searchParams.get('branch') || 'origin/master',
+        requestUrl.searchParams.get('limit') || 60
+      ));
     }
     if (req.url === '/api/plan' && req.method === 'POST') {
       const body = await readBody(req);
