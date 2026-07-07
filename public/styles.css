@@ -251,6 +251,10 @@ p {
   font-weight: 900;
 }
 
+.flow-node.running .flow-copy span {
+  background: var(--paper-strong);
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(340px, 0.72fr) minmax(0, 1.28fr);
@@ -482,6 +486,27 @@ button.danger {
   margin-top: 6px;
   color: var(--muted);
   font-size: 13px;
+}
+
+.step-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 160px;
+}
+
+.step-timer {
+  flex: 0 0 auto;
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: var(--paper-strong);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1.2;
+  white-space: nowrap;
 }
 
 .badge {
@@ -743,8 +768,12 @@ button.danger {
   }
 
   .step-title .badge {
-    grid-column: 1 / -1;
     width: fit-content;
+  }
+
+  .step-meta {
+    grid-column: 1 / -1;
+    justify-content: flex-start;
   }
 }
 

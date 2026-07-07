@@ -419,6 +419,9 @@ test('execute errors are written to history with partial progress', async () => 
   assert.ok(progress.some(update => update.currentStepKey === 'git-status-before-update'));
   const failedStep = result.plan.steps.find(step => step.key === 'git-status-before-update');
   assert.equal(failedStep.status, 'failed');
+  assert.ok(Number.isFinite(failedStep.durationMs));
+  assert.ok(failedStep.startedAt);
+  assert.ok(failedStep.finishedAt);
   assert.ok(failedStep.logs.some(line => line.includes('[START] 检查本地代码状态')));
   assert.ok(failedStep.logs.some(line => line.includes('[RUN] git status')));
   assert.ok(failedStep.logs.some(line => line.includes('ERROR:')));
@@ -426,6 +429,8 @@ test('execute errors are written to history with partial progress', async () => 
   assert.equal(history.length, 1);
   assert.equal(history[0].status, 'ERROR');
   assert.equal(history[0].completedStepCount, 0);
+  assert.ok(Number.isFinite(history[0].totalDurationMs));
+  assert.equal(history[0].slowestStep.key, 'git-status-before-update');
 });
 
 test('execute can be cancelled before running commands', async () => {

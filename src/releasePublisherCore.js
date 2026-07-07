@@ -346,9 +346,10 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
   const completedStepKeys = [];
   let currentStepKey = '';
   const stepLogs = {};
+  const stepTiming = {};
   const updateStep = (stepKey, status, output) => {
     onProgress({
-      plan: markStepStatus(plan, completedStepKeys, stepKey, status, stepLogs),
+      plan: markStepStatus(plan, completedStepKeys, stepKey, status, stepLogs, stepTiming),
       logs: output === undefined ? logs.slice() : logs.concat(output),
       completedStepKeys: completedStepKeys.slice(),
       currentStepKey: stepKey,
@@ -367,7 +368,7 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
     for (const step of plan.steps) {
       stepLogs[step.key] = step.key === 'save-run-config' ? logs.slice() : [];
     }
-    const markedPlan = markCompletedSteps(plan, completedStepKeys, 'dry-run-checked', stepLogs);
+    const markedPlan = markCompletedSteps(plan, completedStepKeys, 'dry-run-checked', stepLogs, {});
     appendReleaseHistory(projectRoot, buildHistoryEntry('DRY_RUN', markedPlan, logs, completedStepKeys), env);
     return {status: 'DRY_RUN', plan: markedPlan, logs, completedStepKeys};
   }
@@ -391,6 +392,7 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
     for (const step of plan.steps) {
       assertNotCancelled();
       currentStepKey = step.key;
+      startStepTimer(step.key, stepTiming);
       pushStepLog(step.key, `[START] ${step.title}`);
       updateStep(step.key, 'running');
       if (step.key === 'save-run-config') {
@@ -401,7 +403,8 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
         });
         pushStepLog(step.key, `${saved.status}: ${plan.imageTag}`);
         completedStepKeys.push(step.key);
-        pushStepLog(step.key, `[DONE] ${step.title}`);
+        const durationMs = finishStepTimer(step.key, stepTiming);
+        pushStepLog(step.key, `[DONE] ${step.title}，用时 ${formatDurationMs(durationMs)}`);
         updateStep(step.key, 'done');
         continue;
       }
@@ -415,35 +418,42 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
             updateStep(step.key, 'running');
           }
         }, elapsedSeconds => {
-          pushStepLog(step.key, `[RUNNING] ${step.title} 已运行 ${elapsedSeconds} 秒，等待命令输出`);
+          refreshStepElapsed(step.key, stepTiming);
+          if (elapsedSeconds % 10 === 0) {
+            pushStepLog(step.key, `[RUNNING] ${step.title} 已运行 ${elapsedSeconds} 秒，等待命令输出`);
+          }
           updateStep(step.key, 'running');
         }, signal);
         assertNotCancelled();
         completedStepKeys.push(step.key);
-        pushStepLog(step.key, `[DONE] ${step.title}`);
+        const durationMs = finishStepTimer(step.key, stepTiming);
+        pushStepLog(step.key, `[DONE] ${step.title}，用时 ${formatDurationMs(durationMs)}`);
         updateStep(step.key, 'done');
         continue;
       }
       pushStepLog(step.key, `[CHECK] ${step.validation}`);
       completedStepKeys.push(step.key);
-      pushStepLog(step.key, `[DONE] ${step.title}`);
+      const durationMs = finishStepTimer(step.key, stepTiming);
+      pushStepLog(step.key, `[DONE] ${step.title}，用时 ${formatDurationMs(durationMs)}`);
       updateStep(step.key, 'done');
     }
   } catch (error) {
     if (error.name === 'CancellationError') {
+      finishStepTimer(currentStepKey, stepTiming);
       pushStepLog(currentStepKey, `CANCELLED: ${error.message}`);
       const cancelledLogs = logs.slice();
-      const cancelledPlan = markStepStatus(plan, completedStepKeys, currentStepKey, 'cancelled', stepLogs);
+      const cancelledPlan = markStepStatus(plan, completedStepKeys, currentStepKey, 'cancelled', stepLogs, stepTiming);
       appendReleaseHistory(projectRoot, buildHistoryEntry('CANCELLED', cancelledPlan, cancelledLogs, completedStepKeys), env);
       return {status: 'CANCELLED', plan: cancelledPlan, logs: cancelledLogs, completedStepKeys};
     }
+    finishStepTimer(currentStepKey, stepTiming);
     pushStepLog(currentStepKey, `ERROR: ${error.message}`);
     const errorLogs = logs.slice();
-    const failedPlan = markStepStatus(plan, completedStepKeys, currentStepKey, 'failed', stepLogs);
+    const failedPlan = markStepStatus(plan, completedStepKeys, currentStepKey, 'failed', stepLogs, stepTiming);
     appendReleaseHistory(projectRoot, buildHistoryEntry('ERROR', failedPlan, errorLogs, completedStepKeys), env);
     return {status: 'ERROR', plan: failedPlan, logs: errorLogs, completedStepKeys};
   }
-  const markedPlan = markCompletedSteps(plan, completedStepKeys, 'done', stepLogs);
+  const markedPlan = markCompletedSteps(plan, completedStepKeys, 'done', stepLogs, stepTiming);
   appendReleaseHistory(projectRoot, buildHistoryEntry('EXECUTED', markedPlan, logs, completedStepKeys), env);
   return {status: 'EXECUTED', plan: markedPlan, logs, completedStepKeys};
 }
@@ -514,6 +524,13 @@ function clearReleaseHistory(projectRoot, env = process.env) {
 }
 
 function buildHistoryEntry(status, plan, logs, completedStepKeys) {
+  const completedDurations = plan.steps
+    .filter(step => Number.isFinite(step.durationMs))
+    .map(step => ({key: step.key, title: step.title, durationMs: step.durationMs}));
+  const totalDurationMs = completedDurations.reduce((sum, step) => sum + step.durationMs, 0);
+  const slowestStep = completedDurations
+    .slice()
+    .sort((left, right) => right.durationMs - left.durationMs)[0] || null;
   return {
     id: `${new Date().toISOString()}-${plan.appTag}`,
     createdAt: new Date().toISOString(),
@@ -532,33 +549,84 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
     remoteComposeDir: plan.config.remoteComposeDir,
     stepCount: plan.steps.length,
     completedStepCount: completedStepKeys.length,
+    totalDurationMs,
+    slowestStep,
     logs: logs.slice(0, 12)
   };
 }
 
-function markCompletedSteps(plan, completedStepKeys, status, stepLogs = {}) {
+function markCompletedSteps(plan, completedStepKeys, status, stepLogs = {}, stepTiming = {}) {
   const completed = new Set(completedStepKeys);
   return {
     ...plan,
     steps: plan.steps.map(step => completed.has(step.key)
-      ? {...step, status, logs: stepLogs[step.key] || step.logs || []}
-      : {...step, logs: stepLogs[step.key] || step.logs || []})
+      ? withStepRuntime({...step, status, logs: stepLogs[step.key] || step.logs || []}, stepTiming)
+      : withStepRuntime({...step, logs: stepLogs[step.key] || step.logs || []}, stepTiming))
   };
 }
 
-function markStepStatus(plan, completedStepKeys, stepKey, status, stepLogs = {}) {
+function markStepStatus(plan, completedStepKeys, stepKey, status, stepLogs = {}, stepTiming = {}) {
   const completed = new Set(completedStepKeys);
   return {
     ...plan,
     steps: plan.steps.map(step => {
       if (step.key === stepKey) {
-        return {...step, status, logs: stepLogs[step.key] || step.logs || []};
+        return withStepRuntime({...step, status, logs: stepLogs[step.key] || step.logs || []}, stepTiming);
       }
       return completed.has(step.key)
-        ? {...step, status: 'done', logs: stepLogs[step.key] || step.logs || []}
-        : {...step, logs: stepLogs[step.key] || step.logs || []};
+        ? withStepRuntime({...step, status: 'done', logs: stepLogs[step.key] || step.logs || []}, stepTiming)
+        : withStepRuntime({...step, logs: stepLogs[step.key] || step.logs || []}, stepTiming);
     })
   };
+}
+
+function withStepRuntime(step, stepTiming) {
+  const timing = stepTiming[step.key];
+  return timing ? {...step, ...timing} : step;
+}
+
+function startStepTimer(stepKey, stepTiming, now = Date.now()) {
+  stepTiming[stepKey] = {
+    startedAt: new Date(now).toISOString(),
+    finishedAt: '',
+    elapsedMs: 0,
+    durationMs: null
+  };
+}
+
+function refreshStepElapsed(stepKey, stepTiming, now = Date.now()) {
+  const timing = stepTiming[stepKey];
+  if (!timing || timing.durationMs !== null) {
+    return null;
+  }
+  timing.elapsedMs = Math.max(0, now - Date.parse(timing.startedAt));
+  return timing.elapsedMs;
+}
+
+function finishStepTimer(stepKey, stepTiming, now = Date.now()) {
+  const timing = stepTiming[stepKey];
+  if (!timing || timing.durationMs !== null) {
+    return timing ? timing.durationMs : 0;
+  }
+  const durationMs = Math.max(0, now - Date.parse(timing.startedAt));
+  timing.elapsedMs = durationMs;
+  timing.durationMs = durationMs;
+  timing.finishedAt = new Date(now).toISOString();
+  return durationMs;
+}
+
+function formatDurationMs(value) {
+  const ms = Math.max(0, Number(value) || 0);
+  if (ms < 1000) {
+    return `${ms}ms`;
+  }
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (!minutes) {
+    return `${seconds}s`;
+  }
+  return `${minutes}m ${seconds}s`;
 }
 
 function proposeNextTag(currentTag, now = new Date()) {
@@ -1060,7 +1128,7 @@ function runPowerShell(cwd, command, onChunk, onHeartbeat, signal) {
     if (onHeartbeat) {
       heartbeat = setInterval(() => {
         onHeartbeat(Math.max(1, Math.round((Date.now() - startedAt) / 1000)));
-      }, 10000);
+      }, 1000);
     }
   });
 }

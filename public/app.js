@@ -192,7 +192,10 @@
             <h3>${escapeHtml(step.title)}</h3>
             <p>${escapeHtml(step.summary || '')}</p>
           </div>
-          <span class="badge ${badgeClass(step)}">${badge}</span>
+          <div class="step-meta">
+            <span class="step-timer">${escapeHtml(stepTimerLabel(step))}</span>
+            <span class="badge ${badgeClass(step)}">${badge}</span>
+          </div>
         </div>
         <div class="command-block">
           <span>动作</span>
@@ -249,11 +252,16 @@
         <div class="flow-copy">
           <h3>${escapeHtml(step.title)}</h3>
           <p>${escapeHtml(step.validation || '')}</p>
-          <span>${statusLabel(status)}</span>
+          <span>${escapeHtml(statusWithDuration(step, status))}</span>
         </div>
       `;
       pipeline.appendChild(node);
     }
+  }
+
+  function statusWithDuration(step, status) {
+    const timer = stepTimerLabel(step);
+    return `${statusLabel(status)} · ${timer}`;
   }
 
   function statusLabel(status) {
@@ -276,6 +284,39 @@
       return '已中断';
     }
     return '待执行';
+  }
+
+  function stepTimerLabel(step) {
+    if (Number.isFinite(step.durationMs)) {
+      return `用时 ${formatDuration(step.durationMs)}`;
+    }
+    if (Number.isFinite(step.elapsedMs) && step.elapsedMs > 0) {
+      return `已运行 ${formatDuration(step.elapsedMs)}`;
+    }
+    if (step.startedAt && step.status === 'running') {
+      const elapsed = Date.now() - Date.parse(step.startedAt);
+      return `已运行 ${formatDuration(elapsed)}`;
+    }
+    return '计时待开始';
+  }
+
+  function formatDuration(value) {
+    const ms = Math.max(0, Number(value) || 0);
+    if (ms < 1000) {
+      return `${ms}ms`;
+    }
+    const totalSeconds = Math.round(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    if (!minutes) {
+      return `${seconds}s`;
+    }
+    const hours = Math.floor(minutes / 60);
+    const remainingMinutes = minutes % 60;
+    if (!hours) {
+      return `${minutes}m ${seconds}s`;
+    }
+    return `${hours}h ${remainingMinutes}m ${seconds}s`;
   }
 
   function actionTypeLabel(step) {
@@ -357,6 +398,8 @@
           <div><span>SSH 目标</span><b>${escapeHtml(item.sshTarget || '未设置')}</b></div>
           <div><span>编排目录</span><b>${escapeHtml(item.remoteComposeDir || '未设置')}</b></div>
           <div><span>节点</span><b>${escapeHtml(`${item.completedStepCount || 0}/${item.stepCount || 0}`)}</b></div>
+          <div><span>总耗时</span><b>${escapeHtml(formatDuration(item.totalDurationMs || 0))}</b></div>
+          <div><span>最慢步骤</span><b>${escapeHtml(slowestStepLabel(item.slowestStep))}</b></div>
         </div>
       `;
       history.appendChild(card);
@@ -373,6 +416,13 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  function slowestStepLabel(step) {
+    if (!step || !step.title) {
+      return '暂无';
+    }
+    return `${step.title} · ${formatDuration(step.durationMs || 0)}`;
   }
 
   async function loadConfig() {
