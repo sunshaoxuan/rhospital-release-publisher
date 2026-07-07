@@ -20,6 +20,10 @@
     dockerContextSource: document.getElementById('docker-context-source'),
     dockerEndpoint: document.getElementById('docker-endpoint'),
     dockerContextNote: document.getElementById('docker-context-note'),
+    ideaDockerServer: document.getElementById('idea-docker-server'),
+    ideaDockerSsh: document.getElementById('idea-docker-ssh'),
+    ideaDockerKey: document.getElementById('idea-docker-key'),
+    dockerCommandTarget: document.getElementById('docker-command-target'),
     sshTarget: document.getElementById('ssh-target'),
     sshTargetSource: document.getElementById('ssh-target-source'),
     sshHostName: document.getElementById('ssh-hostname'),
@@ -85,6 +89,7 @@
     fields.serverName.textContent = config.serverName || '';
     fields.sshTarget.textContent = config.remoteSshTarget || config.serverName || '';
     renderDockerContextResolution(config.dockerContextResolution);
+    renderIdeaDockerServer(config.ideaDockerServerResolution, config.dockerCommandTarget);
     renderSshResolution(config.sshResolution);
     fields.dockerfile.textContent = config.dockerfile || '';
     fields.volumePath.textContent = config.volumeHostPath || '';
@@ -118,6 +123,20 @@
     fields.dockerContextNote.textContent = info.error
       ? `${info.note || '解析失败'}: ${info.error}`
       : info.note || (info.resolved ? '已解析' : '未解析');
+  }
+
+  function renderIdeaDockerServer(serverResolution, commandTarget) {
+    const info = serverResolution || {};
+    fields.ideaDockerServer.textContent = info.resolved ? `${info.name} (${info.note})` : info.note || '未解析';
+    fields.ideaDockerSsh.textContent = info.host
+      ? `${info.username || '未指定'}@${info.host}:${info.port || '22'}`
+      : '未解析';
+    fields.ideaDockerKey.textContent = info.keyPath || '未指定';
+    fields.dockerCommandTarget.textContent = commandTarget && commandTarget.mode === 'host'
+      ? `${commandTarget.source}: ${commandTarget.host}`
+      : commandTarget && commandTarget.mode === 'context'
+        ? `${commandTarget.source}: ${commandTarget.context || 'default'}`
+        : '未解析';
   }
 
   function renderPlan(plan) {

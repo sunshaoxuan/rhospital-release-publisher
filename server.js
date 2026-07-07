@@ -11,7 +11,9 @@ const {
   executePlan,
   proposeNextTag,
   resolveSshTargetDetails,
-  resolveDockerContextDetails
+  resolveDockerContextDetails,
+  resolveIdeaDockerServerDetails,
+  resolveDockerCommandTarget
 } = require('./src/releasePublisherCore');
 
 const projectRoot = defaultProjectRoot();
@@ -42,16 +44,18 @@ const server = http.createServer(async (req, res) => {
       const remoteSshTarget = process.env.RELEASE_PUBLISHER_SSH_TARGET
         || process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT
         || config.serverName;
+      const dockerServerName = process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT || config.serverName;
+      const dockerContextResolution = resolveDockerContextDetails(dockerServerName, process.env);
+      const ideaDockerServerResolution = resolveIdeaDockerServerDetails(dockerServerName, process.env);
       return sendJson(res, 200, {
         ...config,
         suggestedTag: proposeNextTag(config.appTag),
         remoteSshTarget,
         remoteComposeDir: process.env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR,
         sshResolution: resolveSshTargetDetails(remoteSshTarget, process.env),
-        dockerContextResolution: resolveDockerContextDetails(
-          process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT || config.serverName,
-          process.env
-        ),
+        dockerContextResolution,
+        ideaDockerServerResolution,
+        dockerCommandTarget: resolveDockerCommandTarget(dockerServerName, dockerContextResolution, ideaDockerServerResolution),
         executionEnabled: process.env.RELEASE_PUBLISHER_ALLOW_EXECUTE === 'true'
       });
     }

@@ -88,19 +88,32 @@ $env:RELEASE_PUBLISHER_ALLOW_EXECUTE='true'
 npm start
 ```
 
-当前 IDEA 配置中的 `server-name="SSH178"` 会作为 Docker context 使用。若本机 Docker context 名称不同，可在页面里修改 `Docker context`，也可以通过环境变量指定：
+当前 IDEA 配置中的 `server-name="SSH178"` 是 JetBrains Docker Server 名称。发布器会优先读取 JetBrains 用户配置：
+
+```text
+%APPDATA%\JetBrains\IntelliJIdea2026.1\options\remote-servers.xml
+%APPDATA%\JetBrains\IntelliJIdea2026.1\options\sshConfigs.xml
+```
+
+如果能解析到 IDEA Docker Server，Docker 命令会使用等价的 SSH Docker endpoint，例如：
+
+```powershell
+docker -H ssh://root@178.239.117.99:22 build -f Dockerfile --build-arg APP_TAG=2026070702 -t hospital-backend:2026070702 .
+```
+
+如果本机存在同名 Docker CLI context，发布器也会显示该 context 信息。若需要手工指定 Docker 目标名称，可在页面里修改 `Docker context`，也可以通过环境变量指定：
 
 ```powershell
 $env:RELEASE_PUBLISHER_DOCKER_CONTEXT='SSH178'
 ```
 
-页面会用只读命令解析 Docker context：
+页面会用只读命令解析 Docker CLI context：
 
 ```powershell
 docker context inspect SSH178
 ```
 
-如果本机 Docker 没有这个 context，页面会显示 `Docker 未找到 context SSH178`。这表示 Docker 编译和镜像池写入步骤目前不能用 `--context SSH178` 执行，需要先在本机 Docker 中创建或切换到正确 context。
+如果本机 Docker 没有这个 context，页面会显示 `Docker 未找到 context SSH178`。这只表示 Docker CLI context 不存在。只要 IDEA Docker Server 能解析到 SSH 主机和密钥，发布器仍会显示 IDEA Docker Server 信息，并生成 `docker -H ssh://...` 命令。
 
 SSH 热发布默认也使用 `SSH178` 作为 SSH 目标。如果你的 SSH 目标不同，可在页面里修改 `SSH 目标`，也可以通过环境变量指定：
 

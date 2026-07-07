@@ -10,6 +10,7 @@ const {
   defaultProjectRoot,
   executePlan,
   resolveDockerContextDetails,
+  resolveIdeaDockerServerDetails,
   parseSshGOutput,
   parseIdeaRunConfig,
   proposeNextTag,
@@ -94,7 +95,8 @@ test('creates dry run command plan without production execution enabled', () => 
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
-    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true'
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
   });
 
   assert.equal(plan.imageTag, 'hospital-backend:2026070702');
@@ -134,7 +136,8 @@ test('uses explicit SSH target and remote compose directory in hot deploy plan',
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
-    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true'
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
   });
 
   assert.equal(plan.config.dockerContext, 'docker-prod');
@@ -191,6 +194,41 @@ test('reports missing docker context for display', () => {
   assert.match(result.error, /context not found/);
 });
 
+test('resolves IDEA Docker Server and uses ssh docker host command target', () => {
+  const root = tempProject(sampleXml);
+  const optionsDir = tempJetBrainsOptions();
+  const plan = createPlan(root, {
+    appTag: '2026070702',
+    dryRun: true,
+    dockerContext: 'SSH178',
+    includeStackDeploy: false
+  }, {
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_JETBRAINS_OPTIONS_DIR: optionsDir
+  });
+
+  assert.equal(plan.config.ideaDockerServerResolution.resolved, true);
+  assert.equal(plan.config.ideaDockerServerResolution.host, '178.239.117.99');
+  assert.equal(plan.config.ideaDockerServerResolution.keyPath, 'C:\\workspace\\Secure\\sunsxaws.pem');
+  assert.equal(plan.config.dockerCommandTarget.mode, 'host');
+  assert.equal(plan.config.dockerCommandTarget.host, 'ssh://root@178.239.117.99:22');
+  assert.ok(plan.steps.some(step => step.key === 'build-image'
+    && step.command.includes("docker -H 'ssh://root@178.239.117.99:22' build")));
+});
+
+test('resolves IDEA Docker Server details directly', () => {
+  const optionsDir = tempJetBrainsOptions();
+  const result = resolveIdeaDockerServerDetails('SSH178', {
+    RELEASE_PUBLISHER_JETBRAINS_OPTIONS_DIR: optionsDir
+  });
+
+  assert.equal(result.resolved, true);
+  assert.equal(result.sshConfigId, 'e4ab0b3b-0051-4923-9eeb-03c207819bed');
+  assert.equal(result.dockerExePath, '/usr/bin/docker');
+  assert.equal(result.dockerHost, 'ssh://root@178.239.117.99:22');
+});
+
 test('save tag dry run returns preview and does not mutate file', () => {
   const root = tempProject(sampleXml);
   const configPath = path.join(root, '.run', '148.135.9.123.run.xml');
@@ -211,7 +249,8 @@ test('execute dry run marks every pipeline step checked without mutating file', 
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
-    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true'
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
   });
 
   assert.equal(result.status, 'DRY_RUN');
@@ -230,7 +269,8 @@ test('execute without dry run is blocked before mutating file when execution is 
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
-    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true'
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
   });
 
   assert.equal(result.status, 'BLOCKED');
@@ -261,4 +301,28 @@ function tempProject(xml) {
   fs.mkdirSync(runDir, {recursive: true});
   fs.writeFileSync(path.join(runDir, '148.135.9.123.run.xml'), xml, 'utf8');
   return root;
+}
+
+function tempJetBrainsOptions() {
+  const optionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-jetbrains-'));
+  fs.writeFileSync(path.join(optionsDir, 'remote-servers.xml'), `<application>
+  <component name="RemoteServers">
+    <remote-server name="SSH178" type="docker">
+      <configuration>
+        <entry contributedKey="DockerSshConnectionConfigurator.SshConfigId" value="e4ab0b3b-0051-4923-9eeb-03c207819bed" />
+        <option name="customConfiguratorId" value="DockerSshConnectionConfigurator" />
+        <option name="dockerComposeExePath" value="/usr/bin/docker" />
+        <option name="dockerExePath" value="/usr/bin/docker" />
+      </configuration>
+    </remote-server>
+  </component>
+</application>`, 'utf8');
+  fs.writeFileSync(path.join(optionsDir, 'sshConfigs.xml'), `<application>
+  <component name="SshConfigs">
+    <configs>
+      <sshConfig host="178.239.117.99" id="e4ab0b3b-0051-4923-9eeb-03c207819bed" keyPath="C:\\workspace\\Secure\\sunsxaws.pem" port="22" username="root" />
+    </configs>
+  </component>
+</application>`, 'utf8');
+  return optionsDir;
 }

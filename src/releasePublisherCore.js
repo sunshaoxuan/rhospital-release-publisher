@@ -8,6 +8,7 @@ const DEFAULT_IMAGE_NAME = 'hospital-backend';
 const DEFAULT_COMPOSE_FILE = 'docker-compose.yml';
 const DEFAULT_STACK_NAME = 'hospital_stack';
 const DEFAULT_REMOTE_COMPOSE_DIR = '/opt/1panel/docker/compose/hospital-stack';
+const DEFAULT_JETBRAINS_PRODUCT_DIR = 'IntelliJIdea2026.1';
 const TAG_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
 
 function defaultProjectRoot() {
@@ -67,6 +68,8 @@ function createPlan(projectRoot, request, env = process.env) {
   const remoteComposeDir = request.remoteComposeDir || env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR;
   const sshResolution = resolveSshTargetDetails(remoteSshTarget, env);
   const dockerContextResolution = resolveDockerContextDetails(dockerContext, env);
+  const ideaDockerServerResolution = resolveIdeaDockerServerDetails(dockerContext, env);
+  const dockerTarget = resolveDockerCommandTarget(dockerContext, dockerContextResolution, ideaDockerServerResolution);
   const includeStackDeploy = Boolean(request.includeStackDeploy);
 
   const steps = [
@@ -90,7 +93,7 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'compile-artifact',
       title: '编译应用产物',
       summary: '执行 Dockerfile 的 Maven 构建阶段，确认 Java 产物可以完成编译',
-      command: dockerCommand(dockerContext, [
+      command: dockerCommand(dockerTarget, [
         'build',
         '--target', 'build',
         '-f', config.dockerfile,
@@ -98,7 +101,7 @@ function createPlan(projectRoot, request, env = process.env) {
         '-t', `${imageTag}-buildcheck`,
         '.'
       ]),
-      validation: dockerCommand(dockerContext, [
+      validation: dockerCommand(dockerTarget, [
         'image', 'inspect', `${imageTag}-buildcheck`,
         '--format', '{{.Id}} {{.RepoTags}}'
       ]),
@@ -108,14 +111,14 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'build-image',
       title: '制作 Docker 镜像',
       summary: '执行完整 Dockerfile，把已编译产物组装成可运行镜像',
-      command: dockerCommand(dockerContext, [
+      command: dockerCommand(dockerTarget, [
         'build',
         '-f', config.dockerfile,
         '--build-arg', `APP_TAG=${appTag}`,
         '-t', imageTag,
         '.'
       ]),
-      validation: dockerCommand(dockerContext, [
+      validation: dockerCommand(dockerTarget, [
         'image', 'inspect', imageTag,
         '--format', '{{.Id}} {{.RepoTags}}'
       ]),
@@ -125,11 +128,11 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'publish-image',
       title: '发布到目标镜像池',
       summary: '确认目标 Docker context 中已经存在本次 TAG 镜像，当前配置没有独立 docker push 仓库',
-      command: dockerCommand(dockerContext, [
+      command: dockerCommand(dockerTarget, [
         'image', 'inspect', imageTag,
         '--format', '{{.Id}} {{.RepoTags}}'
       ]),
-      validation: `目标 Docker context ${dockerContext || 'default'} 必须能 inspect 到 ${imageTag}`,
+      validation: `${dockerTarget.description} 必须能 inspect 到 ${imageTag}`,
       productionAction: true
     })
   ];
@@ -202,6 +205,8 @@ function createPlan(projectRoot, request, env = process.env) {
       remoteComposeDir,
       sshResolution,
       dockerContextResolution,
+      ideaDockerServerResolution,
+      dockerCommandTarget: dockerTarget,
       executionEnabled: env.RELEASE_PUBLISHER_ALLOW_EXECUTE === 'true'
     },
     appTag,
@@ -333,12 +338,44 @@ function validateTag(tag) {
   return value;
 }
 
-function dockerCommand(context, args) {
+function dockerCommand(target, args) {
   const parts = ['docker'];
-  if (context) {
-    parts.push('--context', context);
+  if (target && target.mode === 'host' && target.host) {
+    parts.push('-H', target.host);
+  } else if (target && target.mode === 'context' && target.context) {
+    parts.push('--context', target.context);
+  } else if (typeof target === 'string' && target) {
+    parts.push('--context', target);
   }
   return parts.concat(args).map(shellToken).join(' ');
+}
+
+function resolveDockerCommandTarget(contextName, dockerContextResolution, ideaDockerServerResolution) {
+  if (dockerContextResolution && dockerContextResolution.resolved && contextName) {
+    return {
+      mode: 'context',
+      context: contextName,
+      host: '',
+      source: 'Docker CLI context',
+      description: `Docker context ${contextName}`
+    };
+  }
+  if (ideaDockerServerResolution && ideaDockerServerResolution.resolved && ideaDockerServerResolution.dockerHost) {
+    return {
+      mode: 'host',
+      context: '',
+      host: ideaDockerServerResolution.dockerHost,
+      source: 'IDEA Docker Server',
+      description: `IDEA Docker Server ${ideaDockerServerResolution.name}`
+    };
+  }
+  return {
+    mode: 'context',
+    context: contextName || '',
+    host: '',
+    source: 'unresolved',
+    description: `Docker context ${contextName || 'default'}`
+  };
 }
 
 function remoteSshCommand(target, remoteCommand) {
@@ -464,6 +501,108 @@ function resolveDockerContextDetails(contextName, env = process.env, dockerRunne
   }
 }
 
+function resolveIdeaDockerServerDetails(serverName, env = process.env) {
+  const productDir = env.RELEASE_PUBLISHER_JETBRAINS_PRODUCT_DIR || DEFAULT_JETBRAINS_PRODUCT_DIR;
+  const optionsDir = env.RELEASE_PUBLISHER_JETBRAINS_OPTIONS_DIR
+    || path.join(env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming'), 'JetBrains', productDir, 'options');
+  const remoteServersPath = path.join(optionsDir, 'remote-servers.xml');
+  const sshConfigsPath = path.join(optionsDir, 'sshConfigs.xml');
+  const result = {
+    name: serverName || '',
+    source: 'JetBrains options',
+    optionsDir,
+    remoteServersPath,
+    sshConfigsPath,
+    resolved: false,
+    sshConfigId: '',
+    host: '',
+    username: '',
+    port: '',
+    keyPath: '',
+    dockerExePath: '',
+    dockerComposeExePath: '',
+    dockerHost: '',
+    note: '',
+    error: ''
+  };
+  if (!serverName) {
+    result.note = '未设置 IDEA Docker Server 名称';
+    return result;
+  }
+  if (env.RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE === 'true') {
+    result.note = '已跳过 IDEA Docker Server 解析';
+    return result;
+  }
+  if (!fs.existsSync(remoteServersPath)) {
+    result.note = '未找到 JetBrains remote-servers.xml';
+    return result;
+  }
+  const remoteServersXml = fs.readFileSync(remoteServersPath, 'utf8');
+  const remoteServerBlock = findRemoteServerBlock(remoteServersXml, serverName);
+  if (!remoteServerBlock) {
+    result.note = `JetBrains 未找到 Docker Server ${serverName}`;
+    return result;
+  }
+  result.sshConfigId = contributedValue(remoteServerBlock, 'DockerSshConnectionConfigurator.SshConfigId');
+  result.dockerExePath = optionValue(remoteServerBlock, 'dockerExePath');
+  result.dockerComposeExePath = optionValue(remoteServerBlock, 'dockerComposeExePath');
+  if (!result.sshConfigId) {
+    result.note = `Docker Server ${serverName} 未配置 SSH Config ID`;
+    return result;
+  }
+  if (!fs.existsSync(sshConfigsPath)) {
+    result.note = '未找到 JetBrains sshConfigs.xml';
+    return result;
+  }
+  const sshConfigsXml = fs.readFileSync(sshConfigsPath, 'utf8');
+  const sshConfig = findSshConfig(sshConfigsXml, result.sshConfigId);
+  if (!sshConfig) {
+    result.note = `未找到 SSH Config ID ${result.sshConfigId}`;
+    return result;
+  }
+  result.host = sshConfig.host || '';
+  result.username = sshConfig.username || '';
+  result.port = sshConfig.port || '22';
+  result.keyPath = sshConfig.keyPath || '';
+  result.dockerHost = result.username && result.host
+    ? `ssh://${result.username}@${result.host}${result.port ? `:${result.port}` : ''}`
+    : '';
+  result.resolved = Boolean(result.dockerHost);
+  result.note = result.resolved ? '已读取 IDEA Docker Server SSH 配置' : 'IDEA Docker Server SSH 配置不完整';
+  return result;
+}
+
+function findRemoteServerBlock(xml, name) {
+  for (const match of String(xml || '').matchAll(/<remote-server\b[\s\S]*?<\/remote-server>/g)) {
+    const block = match[0];
+    if (attr(block, 'name') === name && attr(block, 'type') === 'docker') {
+      return block;
+    }
+  }
+  return '';
+}
+
+function contributedValue(xml, key) {
+  const match = String(xml || '').match(new RegExp(`<entry\\s+contributedKey="${escapeRegExp(key)}"\\s+value="([^"]*)"\\s*\\/>`));
+  return match ? decodeXml(match[1]) : '';
+}
+
+function findSshConfig(xml, id) {
+  for (const match of String(xml || '').matchAll(/<sshConfig\b[^>]*\/>/g)) {
+    const block = match[0];
+    if (attr(block, 'id') === id) {
+      return {
+        id,
+        host: attr(block, 'host'),
+        username: attr(block, 'username'),
+        port: attr(block, 'port'),
+        keyPath: attr(block, 'keyPath')
+      };
+    }
+  }
+  return null;
+}
+
 function runPowerShell(cwd, command) {
   return new Promise((resolve, reject) => {
     const child = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], {
@@ -581,6 +720,8 @@ module.exports = {
   executePlan,
   resolveSshTargetDetails,
   resolveDockerContextDetails,
+  resolveIdeaDockerServerDetails,
+  resolveDockerCommandTarget,
   parseSshGOutput,
   proposeNextTag,
   validateTag
