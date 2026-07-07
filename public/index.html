@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>本地版本发布器</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<main class="page">
+  <header class="topbar">
+    <div>
+      <h1>本地版本发布器</h1>
+      <p>读取 IDEA Docker 配置，生成等价 Docker 发布命令。</p>
+    </div>
+    <div class="state" id="execution-state">dry run only</div>
+  </header>
+
+  <section class="layout">
+    <form class="panel" id="release-form">
+      <h2>版本输入</h2>
+      <div class="field">
+        <label for="app-tag">APP_TAG</label>
+        <input id="app-tag" name="appTag" required maxlength="64">
+      </div>
+      <div class="field">
+        <label for="docker-context">Docker context</label>
+        <input id="docker-context" name="dockerContext">
+      </div>
+      <label class="check-row">
+        <input id="dry-run" type="checkbox" checked>
+        dry run
+      </label>
+      <label class="check-row">
+        <input id="include-stack" type="checkbox">
+        生成 Docker Stack 发布命令
+      </label>
+      <div class="actions">
+        <button type="button" class="secondary" id="reload-btn">刷新</button>
+        <button type="button" class="secondary" id="suggest-btn">建议 TAG</button>
+        <button type="button" class="secondary" id="save-btn">保存 TAG</button>
+        <button type="button" class="primary" id="execute-btn">执行流程</button>
+      </div>
+      <div class="status" id="status" role="status"></div>
+    </form>
+
+    <aside class="panel">
+      <h2>当前配置</h2>
+      <div class="metrics">
+        <div class="metric"><span>项目目录</span><strong id="project-root">读取中</strong></div>
+        <div class="metric"><span>配置文件</span><strong id="run-config">读取中</strong></div>
+        <div class="metric"><span>当前镜像</span><strong id="current-image">读取中</strong></div>
+        <div class="metric"><span>当前 APP_TAG</span><strong id="current-tag">读取中</strong></div>
+        <div class="metric"><span>目标服务器</span><strong id="server-name">读取中</strong></div>
+        <div class="metric"><span>Dockerfile</span><strong id="dockerfile">读取中</strong></div>
+        <div class="metric"><span>数据目录</span><strong id="volume-path">读取中</strong></div>
+      </div>
+    </aside>
+  </section>
+
+  <section class="panel">
+    <div class="plan-head">
+      <h2>Dry Run 计划</h2>
+      <strong id="target-image">未生成</strong>
+    </div>
+    <div id="steps" class="steps"></div>
+    <ul id="logs" class="logs"></ul>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
