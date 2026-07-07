@@ -66,12 +66,17 @@ p {
 }
 
 h1 {
-  max-width: 720px;
+  max-width: none;
   font-family: Impact, Haettenschweiler, "Arial Black", sans-serif;
-  font-size: clamp(52px, 9vw, 128px);
+  font-size: 92px;
   font-weight: 900;
-  line-height: 0.86;
+  line-height: 0.92;
   letter-spacing: 0;
+  white-space: nowrap;
+}
+
+h1 span {
+  display: inline;
 }
 
 h2 {
@@ -488,7 +493,13 @@ button.secondary:nth-child(3) {
   }
 
   h1 {
-    font-size: clamp(46px, 17vw, 78px);
+    font-size: 70px;
+    line-height: 0.9;
+    white-space: normal;
+  }
+
+  h1 span {
+    display: block;
   }
 
   .flow-panel,
@@ -503,5 +514,11 @@ button.secondary:nth-child(3) {
   .step-title .badge {
     grid-column: 1 / -1;
     width: fit-content;
+  }
+}
+
+@media (max-width: 460px) {
+  h1 {
+    font-size: 50px;
   }
 }
