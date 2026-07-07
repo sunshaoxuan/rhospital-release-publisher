@@ -86,9 +86,27 @@ function createPlan(projectRoot, request, env = process.env) {
       productionAction: false
     }),
     releaseStep({
+      key: 'compile-artifact',
+      title: '编译应用产物',
+      summary: '执行 Dockerfile 的 Maven 构建阶段，确认 Java 产物可以完成编译',
+      command: dockerCommand(dockerContext, [
+        'build',
+        '--target', 'build',
+        '-f', config.dockerfile,
+        '--build-arg', `APP_TAG=${appTag}`,
+        '-t', `${imageTag}-buildcheck`,
+        '.'
+      ]),
+      validation: dockerCommand(dockerContext, [
+        'image', 'inspect', `${imageTag}-buildcheck`,
+        '--format', '{{.Id}} {{.RepoTags}}'
+      ]),
+      productionAction: true
+    }),
+    releaseStep({
       key: 'build-image',
-      title: '编译 Docker 镜像',
-      summary: '通过 Docker context 在目标 Docker 环境构建镜像并写入镜像池',
+      title: '制作 Docker 镜像',
+      summary: '执行完整 Dockerfile，把已编译产物组装成可运行镜像',
       command: dockerCommand(dockerContext, [
         'build',
         '-f', config.dockerfile,
@@ -100,6 +118,17 @@ function createPlan(projectRoot, request, env = process.env) {
         'image', 'inspect', imageTag,
         '--format', '{{.Id}} {{.RepoTags}}'
       ]),
+      productionAction: true
+    }),
+    releaseStep({
+      key: 'publish-image',
+      title: '发布到目标镜像池',
+      summary: '确认目标 Docker context 中已经存在本次 TAG 镜像，当前配置没有独立 docker push 仓库',
+      command: dockerCommand(dockerContext, [
+        'image', 'inspect', imageTag,
+        '--format', '{{.Id}} {{.RepoTags}}'
+      ]),
+      validation: `目标 Docker context ${dockerContext || 'default'} 必须能 inspect 到 ${imageTag}`,
       productionAction: true
     })
   ];

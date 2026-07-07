@@ -96,7 +96,14 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.equal(plan.imageTag, 'hospital-backend:2026070702');
   assert.equal(plan.dryRun, true);
   assert.equal(plan.config.executionEnabled, false);
-  assert.ok(plan.steps.some(step => step.command.includes('docker --context SSH178 build')));
+  assert.ok(plan.steps.some(step => step.key === 'compile-artifact'
+    && step.command.includes('docker --context SSH178 build --target build')
+    && step.command.includes('hospital-backend:2026070702-buildcheck')));
+  assert.ok(plan.steps.some(step => step.key === 'build-image'
+    && step.command.includes('docker --context SSH178 build')
+    && step.command.includes('-t hospital-backend:2026070702')));
+  assert.ok(plan.steps.some(step => step.key === 'publish-image'
+    && step.command.includes('docker --context SSH178 image inspect hospital-backend:2026070702')));
   assert.ok(plan.steps.some(step => step.key === 'read-remote-compose'
     && step.command.includes(`cd ${DEFAULT_REMOTE_COMPOSE_DIR}`)));
   assert.ok(plan.steps.some(step => step.key === 'update-remote-compose'

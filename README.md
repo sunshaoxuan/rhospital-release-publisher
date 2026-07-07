@@ -8,8 +8,9 @@
 - 解析当前 `hospital-backend:<TAG>` 和 `APP_TAG`
 - 建议下一个 `APP_TAG`
 - 同步更新 IDEA 配置中的镜像 TAG 和 `APP_TAG`
-- 生成 Docker 镜像编译命令
-- 使用 Docker context 将镜像写入生产 Docker 镜像池
+- 生成应用编译命令
+- 生成 Docker 镜像制作命令
+- 使用 Docker context 确认镜像写入生产 Docker 镜像池
 - 通过 SSH 预览生产端 `hospital-stack/docker-compose.yml` 的 TAG 替换
 - 生成进入生产编排目录后执行 `docker stack deploy` 的热发布命令
 - 默认只执行 dry run
@@ -61,12 +62,14 @@ npm start
 
 1. 读取配置并校验 TAG
 2. 更新本地 IDEA 发布配置
-3. 编译 Docker 镜像
-4. 确认 SSH 连接配置
-5. 读取生产编排当前镜像
-6. 备份并替换生产编排 TAG
-7. 执行 Docker Stack 热发布
-8. 最终运行校验
+3. 编译应用产物
+4. 制作 Docker 镜像
+5. 发布到目标镜像池
+6. 确认 SSH 连接配置
+7. 读取生产编排当前镜像
+8. 备份并替换生产编排 TAG
+9. 执行 Docker Stack 热发布
+10. 最终运行校验
 
 每一步都有动作命令和校验命令。最终运行校验会检查 stack 服务、任务状态和服务镜像是否指向本次 `hospital-backend:<TAG>`。
 
@@ -117,10 +120,24 @@ ssh -G SSH178
 $env:RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR='/opt/1panel/docker/compose/hospital-stack'
 ```
 
-当 `APP_TAG=2026070702` 时，核心命令类似：
+当前 `Dockerfile` 是多阶段构建。第一阶段使用 Maven 编译，第二阶段制作运行镜像。由于 IDEA 配置使用 Docker context，镜像会直接写入该 Docker context 对应的目标 Docker 环境。页面会把它拆成三个独立节点显示。
+
+当 `APP_TAG=2026070702` 时，编译应用产物命令类似：
+
+```powershell
+docker --context SSH178 build --target build -f Dockerfile --build-arg APP_TAG=2026070702 -t hospital-backend:2026070702-buildcheck .
+```
+
+制作 Docker 镜像命令类似：
 
 ```powershell
 docker --context SSH178 build -f Dockerfile --build-arg APP_TAG=2026070702 -t hospital-backend:2026070702 .
+```
+
+发布到目标镜像池校验命令类似：
+
+```powershell
+docker --context SSH178 image inspect hospital-backend:2026070702 --format '{{.Id}} {{.RepoTags}}'
 ```
 
 勾选 SSH 热发布计划时，会追加远端检查命令：
