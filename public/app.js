@@ -1,6 +1,8 @@
 (function () {
   const status = document.getElementById('status');
   const appTag = document.getElementById('app-tag');
+  const gitMode = document.getElementById('git-mode');
+  const gitRef = document.getElementById('git-ref');
   const dockerContext = document.getElementById('docker-context');
   const remoteSshTarget = document.getElementById('remote-ssh-target');
   const remoteComposeDir = document.getElementById('remote-compose-dir');
@@ -16,6 +18,8 @@
     runConfig: document.getElementById('run-config'),
     currentImage: document.getElementById('current-image'),
     currentTag: document.getElementById('current-tag'),
+    gitModeCurrent: document.getElementById('git-mode-current'),
+    gitRefCurrent: document.getElementById('git-ref-current'),
     serverName: document.getElementById('server-name'),
     dockerContextSource: document.getElementById('docker-context-source'),
     dockerEndpoint: document.getElementById('docker-endpoint'),
@@ -61,6 +65,8 @@
   function payload() {
     return {
       appTag: appTag.value.trim(),
+      gitMode: gitMode.value,
+      gitRef: gitRef.value.trim(),
       dockerContext: dockerContext.value.trim(),
       remoteSshTarget: remoteSshTarget.value.trim(),
       remoteComposeDir: remoteComposeDir.value.trim(),
@@ -86,6 +92,8 @@
     fields.runConfig.textContent = config.runConfigPath || '';
     fields.currentImage.textContent = config.imageTag || '';
     fields.currentTag.textContent = config.appTag || '';
+    fields.gitModeCurrent.textContent = gitMode.value === 'ref' ? '指定 Git ref' : '当前分支最新';
+    fields.gitRefCurrent.textContent = gitMode.value === 'ref' ? gitRef.value.trim() || '未指定' : '当前分支';
     fields.serverName.textContent = config.serverName || '';
     fields.sshTarget.textContent = config.remoteSshTarget || config.serverName || '';
     renderDockerContextResolution(config.dockerContextResolution);
@@ -98,7 +106,15 @@
     remoteSshTarget.value = remoteSshTarget.value || config.remoteSshTarget || config.serverName || '';
     remoteComposeDir.value = remoteComposeDir.value || config.remoteComposeDir || '';
     appTag.value = appTag.value || config.suggestedTag || config.appTag || '';
+    gitRef.value = gitRef.value || 'origin/master';
+    updateGitRefState();
     renderExecutionState(config);
+  }
+
+  function updateGitRefState() {
+    const usesRef = gitMode.value === 'ref';
+    gitRef.disabled = !usesRef;
+    gitRef.closest('.field').classList.toggle('muted-field', !usesRef);
   }
 
   function renderSshResolution(sshResolution) {
@@ -277,6 +293,16 @@
     execute().catch(error => setStatus(error.message, 'error'));
   });
   appTag.addEventListener('change', () => {
+    plan().catch(error => setStatus(error.message, 'error'));
+  });
+  gitMode.addEventListener('change', () => {
+    updateGitRefState();
+    plan().catch(error => setStatus(error.message, 'error'));
+  });
+  gitRef.addEventListener('change', () => {
+    plan().catch(error => setStatus(error.message, 'error'));
+  });
+  gitRef.addEventListener('input', () => {
     plan().catch(error => setStatus(error.message, 'error'));
   });
   dockerContext.addEventListener('change', () => {

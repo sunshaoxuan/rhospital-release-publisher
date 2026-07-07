@@ -258,7 +258,8 @@ label {
   font-weight: 900;
 }
 
-input {
+input,
+select {
   width: 100%;
   border: 2px solid var(--line);
   border-radius: 0;
@@ -269,8 +270,13 @@ input {
   min-height: 44px;
 }
 
-input:focus {
+input:focus,
+select:focus {
   outline: 3px solid rgba(47, 99, 255, 0.26);
+}
+
+.muted-field {
+  opacity: 0.62;
 }
 
 .check-row {

@@ -10,6 +10,7 @@ const DEFAULT_STACK_NAME = 'hospital_stack';
 const DEFAULT_REMOTE_COMPOSE_DIR = '/opt/1panel/docker/compose/hospital-stack';
 const DEFAULT_JETBRAINS_PRODUCT_DIR = 'IntelliJIdea2026.1';
 const TAG_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
+const GIT_REF_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._/@:-]{0,127}$/;
 
 function defaultProjectRoot() {
   return process.env.RHOSPITAL_PROJECT_ROOT
@@ -71,8 +72,43 @@ function createPlan(projectRoot, request, env = process.env) {
   const ideaDockerServerResolution = resolveIdeaDockerServerDetails(dockerContext, env);
   const dockerTarget = resolveDockerCommandTarget(dockerContext, dockerContextResolution, ideaDockerServerResolution);
   const includeStackDeploy = Boolean(request.includeStackDeploy);
+  const gitMode = request.gitMode === 'ref' ? 'ref' : 'latest';
+  const gitRef = validateGitRef(request.gitRef || env.RELEASE_PUBLISHER_GIT_REF || 'origin/master');
 
   const steps = [
+    releaseStep({
+      key: 'git-status-before-update',
+      title: '检查本地代码状态',
+      summary: '读取当前分支、当前提交和工作区状态，确认发布前代码来源',
+      command: 'git status --short --branch && git rev-parse --short HEAD',
+      validation: '确认工作区状态可接受，避免拉取代码时覆盖未处理改动',
+      productionAction: true,
+      actionScope: 'local'
+    }),
+    releaseStep({
+      key: 'git-fetch',
+      title: '获取远端代码',
+      summary: '从 origin 拉取远端引用，供最新发布或指定 ref 发布使用',
+      command: 'git fetch --prune origin',
+      validation: 'git fetch 必须成功，远端引用必须可解析',
+      productionAction: true,
+      actionScope: 'local'
+    }),
+    releaseStep({
+      key: 'git-update',
+      title: gitMode === 'ref' ? '切换到指定代码' : '更新到最新代码',
+      summary: gitMode === 'ref'
+        ? `切换到指定 Git ref: ${gitRef}`
+        : '在当前分支执行 fast-forward 更新，避免产生自动合并提交',
+      command: gitMode === 'ref'
+        ? `git checkout ${shellToken(gitRef)}`
+        : 'git pull --ff-only',
+      validation: gitMode === 'ref'
+        ? `git rev-parse --verify ${shellToken(gitRef)}`
+        : 'git status --short --branch && git rev-parse --short HEAD',
+      productionAction: true,
+      actionScope: 'local'
+    }),
     releaseStep({
       key: 'validate-release-input',
       title: '读取配置并校验 TAG',
@@ -211,6 +247,8 @@ function createPlan(projectRoot, request, env = process.env) {
     },
     appTag,
     imageTag,
+    gitMode,
+    gitRef: gitMode === 'ref' ? gitRef : '',
     includeStackDeploy,
     dryRun: request.dryRun !== false,
     steps,
@@ -295,16 +333,22 @@ async function executePlan(projectRoot, request, env = process.env) {
   if (env.RELEASE_PUBLISHER_ALLOW_EXECUTE !== 'true') {
     return {status: 'BLOCKED', plan, logs: logs.concat('RELEASE_PUBLISHER_ALLOW_EXECUTE is not true')};
   }
-  const saved = saveTag(projectRoot, {
-    appTag: plan.appTag,
-    runConfigPath: request.runConfigPath,
-    dryRun: false
-  });
-  logs.push(`${saved.status}: ${plan.imageTag}`);
-  for (const step of plan.steps.filter(step => step.productionAction)) {
-    logs.push(`[RUN] ${step.command}`);
-    logs.push(await runPowerShell(projectRoot, step.command));
-    completedStepKeys.push(step.key);
+  for (const step of plan.steps) {
+    if (step.key === 'save-run-config') {
+      const saved = saveTag(projectRoot, {
+        appTag: plan.appTag,
+        runConfigPath: request.runConfigPath,
+        dryRun: false
+      });
+      logs.push(`${saved.status}: ${plan.imageTag}`);
+      completedStepKeys.push(step.key);
+      continue;
+    }
+    if (step.productionAction) {
+      logs.push(`[RUN] ${step.command}`);
+      logs.push(await runPowerShell(projectRoot, step.command));
+      completedStepKeys.push(step.key);
+    }
   }
   return {status: 'EXECUTED', plan: markCompletedSteps(plan, completedStepKeys, 'done'), logs, completedStepKeys};
 }
@@ -334,6 +378,14 @@ function validateTag(tag) {
   const value = String(tag || '').trim();
   if (!TAG_PATTERN.test(value)) {
     throw new Error('APP_TAG 只能包含字母、数字、点、下划线和连字符，长度不超过 64');
+  }
+  return value;
+}
+
+function validateGitRef(ref) {
+  const value = String(ref || '').trim();
+  if (!GIT_REF_PATTERN.test(value) || value.includes('..') || value.endsWith('.lock')) {
+    throw new Error('Git ref 只能包含字母、数字、点、下划线、斜杠、@、冒号和连字符，长度不超过 128');
   }
   return value;
 }
@@ -724,5 +776,6 @@ module.exports = {
   resolveDockerCommandTarget,
   parseSshGOutput,
   proposeNextTag,
-  validateTag
+  validateTag,
+  validateGitRef
 };

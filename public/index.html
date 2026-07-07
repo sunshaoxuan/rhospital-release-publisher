@@ -36,6 +36,17 @@
         <input id="app-tag" name="appTag" required maxlength="64">
       </div>
       <div class="field">
+        <label for="git-mode">代码来源</label>
+        <select id="git-mode" name="gitMode">
+          <option value="latest">拉取当前分支最新</option>
+          <option value="ref">指定 Git ref</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="git-ref">Git ref</label>
+        <input id="git-ref" name="gitRef" placeholder="origin/master">
+      </div>
+      <div class="field">
         <label for="docker-context">Docker Server / context</label>
         <input id="docker-context" name="dockerContext">
       </div>
@@ -71,6 +82,8 @@
         <div class="metric"><span>配置文件</span><strong id="run-config">读取中</strong></div>
         <div class="metric"><span>当前镜像</span><strong id="current-image">读取中</strong></div>
         <div class="metric"><span>当前 APP_TAG</span><strong id="current-tag">读取中</strong></div>
+        <div class="metric"><span>代码来源模式</span><strong id="git-mode-current">读取中</strong></div>
+        <div class="metric"><span>指定 Git ref</span><strong id="git-ref-current">读取中</strong></div>
         <div class="metric"><span>目标服务器</span><strong id="server-name">读取中</strong></div>
         <div class="metric"><span>Docker context 来源</span><strong id="docker-context-source">读取中</strong></div>
         <div class="metric"><span>Docker endpoint</span><strong id="docker-endpoint">读取中</strong></div>

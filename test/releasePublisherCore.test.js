@@ -16,7 +16,8 @@ const {
   proposeNextTag,
   saveTag,
   updateIdeaRunConfigTag,
-  validateTag
+  validateTag,
+  validateGitRef
 } = require('../src/releasePublisherCore');
 
 const sampleXml = `<component name="ProjectRunConfigurationManager">
@@ -101,8 +102,15 @@ test('creates dry run command plan without production execution enabled', () => 
 
   assert.equal(plan.imageTag, 'hospital-backend:2026070702');
   assert.equal(plan.dryRun, true);
+  assert.equal(plan.gitMode, 'latest');
   assert.equal(plan.config.executionEnabled, false);
   assert.equal(plan.config.dockerContextResolution.note, '已跳过 Docker context 解析');
+  assert.ok(plan.steps.some(step => step.key === 'git-status-before-update'
+    && step.command.includes('git status --short --branch')));
+  assert.ok(plan.steps.some(step => step.key === 'git-fetch'
+    && step.command === 'git fetch --prune origin'));
+  assert.ok(plan.steps.some(step => step.key === 'git-update'
+    && step.command === 'git pull --ff-only'));
   assert.ok(plan.steps.some(step => step.key === 'compile-artifact'
     && step.command.includes('docker --context SSH178 build --target build')
     && step.command.includes('hospital-backend:2026070702-buildcheck')));
@@ -123,6 +131,28 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(plan.steps.some(step => step.key === 'final-runtime-check'
     && step.finalCheck
     && step.validation.includes('hospital-backend:2026070702')));
+});
+
+test('creates specified Git ref update plan', () => {
+  const root = tempProject(sampleXml);
+  const plan = createPlan(root, {
+    appTag: '2026070702',
+    dryRun: true,
+    gitMode: 'ref',
+    gitRef: 'origin/release/20260707',
+    dockerContext: 'SSH178',
+    includeStackDeploy: false
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+  });
+
+  assert.equal(plan.gitMode, 'ref');
+  assert.equal(plan.gitRef, 'origin/release/20260707');
+  assert.ok(plan.steps.some(step => step.key === 'git-update'
+    && step.title === '切换到指定代码'
+    && step.command === 'git checkout origin/release/20260707'));
 });
 
 test('uses explicit SSH target and remote compose directory in hot deploy plan', () => {
@@ -280,6 +310,11 @@ test('execute without dry run is blocked before mutating file when execution is 
 
 test('rejects invalid app tag', () => {
   assert.throws(() => validateTag('20260707;rm'), /APP_TAG/);
+});
+
+test('rejects invalid git ref', () => {
+  assert.throws(() => validateGitRef('origin/master;rm'), /Git ref/);
+  assert.throws(() => validateGitRef('../master'), /Git ref/);
 });
 
 test('default project root points to sibling hospital backend unless overridden', () => {

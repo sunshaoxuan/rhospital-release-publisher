@@ -5,6 +5,7 @@
 ## 作用
 
 - 读取开发环境中的 `hospital-backend/.run/148.135.9.123.run.xml`
+- 支持按当前分支拉取最新代码，或切换到指定 Git ref
 - 解析当前 `hospital-backend:<TAG>` 和 `APP_TAG`
 - 建议下一个 `APP_TAG`
 - 同步更新 IDEA 配置中的镜像 TAG 和 `APP_TAG`
@@ -49,6 +50,7 @@ npm start
 页面默认勾选 `dry run`。此模式只做以下动作：
 
 - 读取配置
+- 生成 Git 状态检查、fetch、pull 或 checkout 命令
 - 建议 TAG
 - 生成命令计划
 - 预览配置写入结果
@@ -66,16 +68,19 @@ npm start
 
 页面按发布流水线展示：
 
-1. 读取配置并校验 TAG
-2. 更新本地 IDEA 发布配置
-3. 编译应用产物
-4. 制作 Docker 镜像
-5. 发布到目标镜像池
-6. 确认 SSH 连接配置
-7. 读取生产编排当前镜像
-8. 备份并替换生产编排 TAG
-9. 执行 Docker Stack 热发布
-10. 最终运行校验
+1. 检查本地代码状态
+2. 获取远端代码
+3. 更新到最新代码或切换到指定 Git ref
+4. 读取配置并校验 TAG
+5. 更新本地 IDEA 发布配置
+6. 编译应用产物
+7. 制作 Docker 镜像
+8. 发布到目标镜像池
+9. 确认 SSH 连接配置
+10. 读取生产编排当前镜像
+11. 备份并替换生产编排 TAG
+12. 执行 Docker Stack 热发布
+13. 最终运行校验
 
 每一步都有动作命令和校验命令。最终运行校验会检查 stack 服务、任务状态和服务镜像是否指向本次 `hospital-backend:<TAG>`。
 
@@ -87,6 +92,13 @@ npm start
 $env:RELEASE_PUBLISHER_ALLOW_EXECUTE='true'
 npm start
 ```
+
+代码来源支持两种模式：
+
+- `拉取当前分支最新`：执行 `git fetch --prune origin` 后执行 `git pull --ff-only`
+- `指定 Git ref`：执行 `git fetch --prune origin` 后执行 `git checkout <ref>`
+
+`Git ref` 可以是分支、远端分支、标签或提交号。发布器会先显示 Git 状态检查节点，正式执行时按页面流程顺序执行。
 
 当前 IDEA 配置中的 `server-name="SSH178"` 是 JetBrains Docker Server 名称。发布器会优先读取 JetBrains 用户配置：
 
