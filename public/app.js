@@ -8,6 +8,7 @@
   const remoteComposeDir = document.getElementById('remote-compose-dir');
   const dryRun = document.getElementById('dry-run');
   const includeStack = document.getElementById('include-stack');
+  const cancelBtn = document.getElementById('cancel-btn');
   const pipeline = document.getElementById('pipeline');
   const steps = document.getElementById('steps');
   const logs = document.getElementById('logs');
@@ -54,6 +55,7 @@
   let historyPage = 1;
   let historyPageCount = 1;
   let activeJobTimer = null;
+  let activeJobId = '';
 
   async function requestJson(url, options) {
     const response = await fetch(url, {
@@ -158,6 +160,17 @@
   }
 
   function renderPlan(plan) {
+    const logScrollState = new Map();
+    for (const existing of steps.querySelectorAll('.step[data-step-key]')) {
+      const key = existing.dataset.stepKey;
+      const list = existing.querySelector('.step-logs');
+      if (key && list) {
+        logScrollState.set(key, {
+          top: list.scrollTop,
+          nearBottom: list.scrollTop + list.clientHeight >= list.scrollHeight - 8
+        });
+      }
+    }
     renderConfig({
       ...plan.config,
       suggestedTag: latestConfig ? latestConfig.suggestedTag : plan.appTag
@@ -168,7 +181,8 @@
     steps.innerHTML = '';
     for (const [index, step] of plan.steps.entries()) {
       const item = document.createElement('article');
-      item.className = `step ${step.finalCheck ? 'final-step' : ''} ${step.status === 'running' ? 'running' : ''} ${step.status === 'failed' ? 'failed' : ''}`;
+      item.className = `step ${step.finalCheck ? 'final-step' : ''} ${step.status === 'running' ? 'running' : ''} ${step.status === 'failed' || step.status === 'cancelled' || step.status === 'interrupted' ? 'failed' : ''}`;
+      item.dataset.stepKey = step.key;
       const badge = actionTypeLabel(step);
       const stepLogs = Array.isArray(step.logs) ? step.logs : [];
       item.innerHTML = `
@@ -207,6 +221,12 @@
         logItem.textContent = '等待执行到此步骤';
         stepLogList.appendChild(logItem);
       }
+      const previousScroll = logScrollState.get(step.key);
+      if (previousScroll) {
+        stepLogList.scrollTop = previousScroll.nearBottom
+          ? stepLogList.scrollHeight
+          : previousScroll.top;
+      }
       steps.appendChild(item);
     }
   }
@@ -217,7 +237,7 @@
       const status = step.status || 'pending';
       const done = status === 'done' || status === 'dry-run-checked';
       const node = document.createElement('article');
-      node.className = `flow-node ${done ? 'checked' : ''} ${status === 'running' ? 'running' : ''} ${status === 'failed' ? 'failed' : ''} ${step.finalCheck ? 'final-node' : ''}`;
+      node.className = `flow-node ${done ? 'checked' : ''} ${status === 'running' ? 'running' : ''} ${status === 'failed' || status === 'cancelled' || status === 'interrupted' ? 'failed' : ''} ${step.finalCheck ? 'final-node' : ''}`;
       node.innerHTML = `
         <div class="flow-mark">${done ? '✓' : String(index + 1).padStart(2, '0')}</div>
         <div class="flow-copy">
@@ -242,6 +262,12 @@
     }
     if (status === 'failed') {
       return '失败';
+    }
+    if (status === 'cancelled') {
+      return '已取消';
+    }
+    if (status === 'interrupted') {
+      return '已中断';
     }
     return '待执行';
   }
@@ -426,6 +452,7 @@
       method: 'POST',
       body: JSON.stringify(payload())
     });
+    activeJobId = job.id;
     setStatus(`执行任务已创建: ${job.id}`, '');
     renderJob(job);
     pollJob(job.id);
@@ -441,8 +468,10 @@
       return;
     }
     activeJobTimer = null;
+    activeJobId = '';
+    cancelBtn.disabled = true;
     await loadHistory();
-    setStatus(`执行状态: ${job.status}`, job.status === 'DRY_RUN' || job.status === 'EXECUTED' ? 'success' : 'error');
+    setStatus(`执行状态: ${job.status}`, terminalStatusKind(job.status));
   }
 
   function renderJob(job) {
@@ -450,7 +479,30 @@
       renderPlan(job.plan);
     }
     renderLogs(job.logs || []);
-    setStatus(`执行状态: ${job.status}`, job.status === 'RUNNING' ? '' : job.status === 'ERROR' ? 'error' : 'success');
+    cancelBtn.disabled = !(job.status === 'RUNNING' || job.status === 'CANCELLING');
+    setStatus(`执行状态: ${job.status}`, terminalStatusKind(job.status));
+  }
+
+  function terminalStatusKind(status) {
+    if (status === 'DRY_RUN' || status === 'EXECUTED') {
+      return 'success';
+    }
+    if (status === 'RUNNING' || status === 'CANCELLING') {
+      return '';
+    }
+    if (status === 'CANCELLED' || status === 'INTERRUPTED') {
+      return 'error';
+    }
+    return 'error';
+  }
+
+  async function cancelActiveJob() {
+    if (!activeJobId) {
+      return;
+    }
+    cancelBtn.disabled = true;
+    const job = await requestJson(`/api/jobs/${encodeURIComponent(activeJobId)}`, {method: 'DELETE'});
+    renderJob(job);
   }
 
   async function deleteHistory(id) {
@@ -472,6 +524,9 @@
   });
   document.getElementById('execute-btn').addEventListener('click', () => {
     execute().catch(error => setStatus(error.message, 'error'));
+  });
+  cancelBtn.addEventListener('click', () => {
+    cancelActiveJob().catch(error => setStatus(error.message, 'error'));
   });
   historyPrev.addEventListener('click', () => {
     if (historyPage > 1) {

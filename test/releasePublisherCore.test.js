@@ -428,6 +428,32 @@ test('execute errors are written to history with partial progress', async () => 
   assert.equal(history[0].completedStepCount, 0);
 });
 
+test('execute can be cancelled before running commands', async () => {
+  const root = tempProject(sampleXml);
+  const historyPath = path.join(root, 'history.json');
+  const controller = new AbortController();
+  controller.abort();
+  const result = await executePlan(root, {
+    appTag: '2026070702',
+    dryRun: false,
+    dockerContext: 'SSH178',
+    includeStackDeploy: false
+  }, {
+    RELEASE_PUBLISHER_ALLOW_EXECUTE: 'true',
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  }, {
+    signal: controller.signal
+  });
+
+  assert.equal(result.status, 'CANCELLED');
+  assert.ok(result.logs.some(line => line.includes('CANCELLED')));
+  const history = readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
+  assert.equal(history[0].status, 'CANCELLED');
+});
+
 test('release history supports pagination and deletion', () => {
   const root = tempProject(sampleXml);
   const historyPath = path.join(root, 'history.json');

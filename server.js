@@ -9,6 +9,8 @@ const {
   createPlan,
   saveTag,
   executePlan,
+  appendReleaseHistory,
+  buildHistoryEntry,
   readReleaseHistory,
   readReleaseHistoryPage,
   deleteReleaseHistoryEntry,
@@ -26,6 +28,8 @@ const projectRoot = defaultProjectRoot();
 const publicRoot = path.join(__dirname, 'public');
 const port = Number(process.env.RELEASE_PUBLISHER_PORT || 8787);
 const jobs = new Map();
+const jobControllers = new Map();
+const jobStorePath = path.resolve(process.env.RELEASE_PUBLISHER_JOBS_FILE || path.join(__dirname, '.release-jobs.json'));
 
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -112,11 +116,21 @@ const server = http.createServer(async (req, res) => {
       }
       return sendJson(res, 200, job);
     }
+    if (pathname.startsWith('/api/jobs/') && req.method === 'DELETE') {
+      const id = decodeURIComponent(pathname.slice('/api/jobs/'.length));
+      const job = cancelExecutionJob(id);
+      if (!job) {
+        return sendJson(res, 404, {message: '执行任务不存在或已结束'});
+      }
+      return sendJson(res, 200, job);
+    }
     return sendJson(res, 404, {message: 'Not found'});
   } catch (error) {
     return sendJson(res, 400, {message: error.message});
   }
 });
+
+loadStoredJobs();
 
 server.listen(port, '127.0.0.1', () => {
   console.log(`Release publisher is running at http://127.0.0.1:${port}`);
@@ -165,6 +179,7 @@ function readBody(req) {
 function createExecutionJob(body) {
   const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const createdAt = new Date().toISOString();
+  const controller = new AbortController();
   const job = {
     id,
     createdAt,
@@ -175,14 +190,21 @@ function createExecutionJob(body) {
     completedStepKeys: []
   };
   jobs.set(id, job);
+  jobControllers.set(id, controller);
+  persistJobs();
   executePlan(projectRoot, body, process.env, {
+    signal: controller.signal,
     onProgress(progress) {
+      if (isTerminalJobStatus(job.status)) {
+        return;
+      }
       Object.assign(job, {
         ...progress,
         id,
         createdAt,
         updatedAt: new Date().toISOString()
       });
+      persistJobs();
     }
   }).then(result => {
     Object.assign(job, {
@@ -191,6 +213,8 @@ function createExecutionJob(body) {
       createdAt,
       updatedAt: new Date().toISOString()
     });
+    jobControllers.delete(id);
+    persistJobs();
   }).catch(error => {
     Object.assign(job, {
       id,
@@ -199,8 +223,26 @@ function createExecutionJob(body) {
       status: 'ERROR',
       logs: (job.logs || []).concat(`ERROR: ${error.message}`)
     });
+    jobControllers.delete(id);
+    persistJobs();
   });
   pruneJobs();
+  return job;
+}
+
+function cancelExecutionJob(id) {
+  const job = jobs.get(id);
+  const controller = jobControllers.get(id);
+  if (!job || job.status !== 'RUNNING' || !controller) {
+    return null;
+  }
+  controller.abort();
+  Object.assign(job, {
+    status: 'CANCELLING',
+    updatedAt: new Date().toISOString(),
+    logs: (job.logs || []).concat('取消请求已发送，等待当前命令停止')
+  });
+  persistJobs();
   return job;
 }
 
@@ -212,4 +254,86 @@ function pruneJobs() {
   for (const [id] of entries.slice(0, entries.length - 20)) {
     jobs.delete(id);
   }
+  persistJobs();
 }
+
+function isTerminalJobStatus(status) {
+  return ['DRY_RUN', 'EXECUTED', 'ERROR', 'CANCELLED', 'INTERRUPTED'].includes(status);
+}
+
+function persistJobs() {
+  const entries = Array.from(jobs.values()).slice(-50);
+  fs.writeFileSync(jobStorePath, `${JSON.stringify(entries, null, 2)}\n`, 'utf8');
+}
+
+function loadStoredJobs() {
+  if (!fs.existsSync(jobStorePath)) {
+    return;
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(jobStorePath, 'utf8'));
+    for (const item of Array.isArray(parsed) ? parsed : []) {
+      const job = item.status === 'RUNNING' || item.status === 'CANCELLING'
+        ? markInterruptedJob(item, '服务重启时发现任务未结束')
+        : item;
+      jobs.set(job.id, job);
+      if (job.status === 'INTERRUPTED' && job.plan) {
+        appendReleaseHistory(projectRoot, buildHistoryEntry(
+          'INTERRUPTED',
+          job.plan,
+          job.logs || [],
+          job.completedStepKeys || []
+        ), process.env);
+      }
+    }
+    persistJobs();
+  } catch (error) {
+    console.error(`Job store load failed: ${error.message}`);
+  }
+}
+
+function interruptRunningJobs(reason) {
+  for (const [id, job] of jobs.entries()) {
+    if (job.status === 'RUNNING' || job.status === 'CANCELLING') {
+      const controller = jobControllers.get(id);
+      if (controller) {
+        controller.abort();
+      }
+      jobs.set(id, markInterruptedJob(job, reason));
+    }
+  }
+  persistJobs();
+}
+
+function markInterruptedJob(job, reason) {
+  const logs = (job.logs || []).concat(`INTERRUPTED: ${reason}`);
+  const plan = job.plan && job.currentStepKey
+    ? markJobPlanStep(job.plan, job.currentStepKey, 'interrupted', `INTERRUPTED: ${reason}`)
+    : job.plan;
+  return {
+    ...job,
+    status: 'INTERRUPTED',
+    updatedAt: new Date().toISOString(),
+    logs,
+    plan
+  };
+}
+
+function markJobPlanStep(plan, stepKey, status, line) {
+  return {
+    ...plan,
+    steps: (plan.steps || []).map(step => step.key === stepKey
+      ? {...step, status, logs: (step.logs || []).concat(line)}
+      : step)
+  };
+}
+
+process.on('SIGINT', () => {
+  interruptRunningJobs('服务被手动停止');
+  process.exit(130);
+});
+
+process.on('SIGTERM', () => {
+  interruptRunningJobs('服务进程收到停止信号');
+  process.exit(143);
+});

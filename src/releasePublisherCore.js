@@ -340,6 +340,7 @@ function updateIdeaRunConfigTag(xml, imageTag, appTag) {
 
 async function executePlan(projectRoot, request, env = process.env, options = {}) {
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
+  const signal = options.signal;
   const plan = createPlan(projectRoot, request, env);
   const logs = [];
   const completedStepKeys = [];
@@ -381,8 +382,14 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
     stepLogs[stepKey].push(line);
     logs.push(line);
   };
+  const assertNotCancelled = () => {
+    if (signal && signal.aborted) {
+      throw new CancellationError('执行已取消');
+    }
+  };
   try {
     for (const step of plan.steps) {
+      assertNotCancelled();
       currentStepKey = step.key;
       pushStepLog(step.key, `[START] ${step.title}`);
       updateStep(step.key, 'running');
@@ -410,7 +417,8 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
         }, elapsedSeconds => {
           pushStepLog(step.key, `[RUNNING] ${step.title} 已运行 ${elapsedSeconds} 秒，等待命令输出`);
           updateStep(step.key, 'running');
-        });
+        }, signal);
+        assertNotCancelled();
         completedStepKeys.push(step.key);
         pushStepLog(step.key, `[DONE] ${step.title}`);
         updateStep(step.key, 'done');
@@ -422,6 +430,13 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
       updateStep(step.key, 'done');
     }
   } catch (error) {
+    if (error.name === 'CancellationError') {
+      pushStepLog(currentStepKey, `CANCELLED: ${error.message}`);
+      const cancelledLogs = logs.slice();
+      const cancelledPlan = markStepStatus(plan, completedStepKeys, currentStepKey, 'cancelled', stepLogs);
+      appendReleaseHistory(projectRoot, buildHistoryEntry('CANCELLED', cancelledPlan, cancelledLogs, completedStepKeys), env);
+      return {status: 'CANCELLED', plan: cancelledPlan, logs: cancelledLogs, completedStepKeys};
+    }
     pushStepLog(currentStepKey, `ERROR: ${error.message}`);
     const errorLogs = logs.slice();
     const failedPlan = markStepStatus(plan, completedStepKeys, currentStepKey, 'failed', stepLogs);
@@ -967,16 +982,45 @@ function findSshConfig(xml, id) {
   return null;
 }
 
-function runPowerShell(cwd, command, onChunk, onHeartbeat) {
+function runPowerShell(cwd, command, onChunk, onHeartbeat, signal) {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     let heartbeat = null;
+    let settled = false;
     const child = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], {
       cwd,
       windowsHide: true
     });
+    const cleanup = () => {
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
+      if (signal) {
+        signal.removeEventListener('abort', cancel);
+      }
+    };
+    const cancel = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      killProcessTree(child);
+      reject(new CancellationError('执行已取消'));
+    };
+    if (signal) {
+      if (signal.aborted) {
+        cancel();
+        return;
+      }
+      signal.addEventListener('abort', cancel, {once: true});
+    }
     let output = '';
     child.stdout.on('data', data => {
+      if (settled) {
+        return;
+      }
       const text = data.toString();
       output += text;
       if (onChunk) {
@@ -984,6 +1028,9 @@ function runPowerShell(cwd, command, onChunk, onHeartbeat) {
       }
     });
     child.stderr.on('data', data => {
+      if (settled) {
+        return;
+      }
       const text = data.toString();
       output += text;
       if (onChunk) {
@@ -991,15 +1038,19 @@ function runPowerShell(cwd, command, onChunk, onHeartbeat) {
       }
     });
     child.on('error', error => {
-      if (heartbeat) {
-        clearInterval(heartbeat);
+      if (settled) {
+        return;
       }
+      settled = true;
+      cleanup();
       reject(error);
     });
     child.on('close', code => {
-      if (heartbeat) {
-        clearInterval(heartbeat);
+      if (settled) {
+        return;
       }
+      settled = true;
+      cleanup();
       if (code !== 0) {
         reject(new Error(output || `command exited with ${code}`));
         return;
@@ -1012,6 +1063,27 @@ function runPowerShell(cwd, command, onChunk, onHeartbeat) {
       }, 10000);
     }
   });
+}
+
+function killProcessTree(child) {
+  if (!child || !child.pid) {
+    return;
+  }
+  if (process.platform === 'win32') {
+    spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+      windowsHide: true,
+      stdio: 'ignore'
+    });
+    return;
+  }
+  child.kill('SIGTERM');
+}
+
+class CancellationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'CancellationError';
+  }
 }
 
 function resolveInside(projectRoot, relativePath) {
