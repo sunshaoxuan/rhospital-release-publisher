@@ -137,6 +137,19 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(plan.steps.some(step => step.key === 'final-runtime-check'
     && step.finalCheck
     && step.validation.includes('hospital-backend:2026070702')));
+  assertStepType(plan, 'git-status-before-update', 'local-check', false);
+  assertStepType(plan, 'git-fetch', 'local-code', false);
+  assertStepType(plan, 'git-update', 'local-code', false);
+  assertStepType(plan, 'validate-release-input', 'local-check', false);
+  assertStepType(plan, 'save-run-config', 'local-config', false);
+  assertStepType(plan, 'compile-artifact', 'build', false);
+  assertStepType(plan, 'build-image', 'build', false);
+  assertStepType(plan, 'publish-image', 'production', true);
+  assertStepType(plan, 'resolve-ssh-target', 'local-check', false);
+  assertStepType(plan, 'read-remote-compose', 'remote-check', false);
+  assertStepType(plan, 'update-remote-compose', 'production', true);
+  assertStepType(plan, 'deploy-stack', 'production', true);
+  assertStepType(plan, 'final-runtime-check', 'remote-check', false);
 });
 
 test('creates specified branch latest update plan', () => {
@@ -418,6 +431,13 @@ function runGit(cwd, args) {
     throw new Error(result.stderr || result.stdout || `git ${args.join(' ')} failed`);
   }
   return result.stdout;
+}
+
+function assertStepType(plan, key, actionType, productionAction) {
+  const step = plan.steps.find(item => item.key === key);
+  assert.ok(step, `missing step ${key}`);
+  assert.equal(step.actionType, actionType);
+  assert.equal(step.productionAction, productionAction);
 }
 
 function tempJetBrainsOptions() {

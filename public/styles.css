@@ -432,6 +432,14 @@ button.primary {
   background: #ffd9d4;
 }
 
+.badge.build {
+  background: var(--paper-strong);
+}
+
+.badge.readonly {
+  background: var(--lavender);
+}
+
 .command-block {
   margin-top: 12px;
 }

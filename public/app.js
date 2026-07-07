@@ -163,7 +163,7 @@
     for (const [index, step] of plan.steps.entries()) {
       const item = document.createElement('article');
       item.className = `step ${step.finalCheck ? 'final-step' : ''}`;
-      const badge = step.productionAction ? '生产动作' : '本地动作';
+      const badge = actionTypeLabel(step);
       item.innerHTML = `
         <div class="step-title">
           <div class="step-index">${String(index + 1).padStart(2, '0')}</div>
@@ -171,7 +171,7 @@
             <h3>${escapeHtml(step.title)}</h3>
             <p>${escapeHtml(step.summary || '')}</p>
           </div>
-          <span class="badge ${step.productionAction ? 'warn' : ''}">${badge}</span>
+          <span class="badge ${badgeClass(step)}">${badge}</span>
         </div>
         <div class="command-block">
           <span>动作</span>
@@ -215,6 +215,34 @@
       return 'dry run 已校验';
     }
     return '待执行';
+  }
+
+  function actionTypeLabel(step) {
+    if (step.finalCheck) {
+      return '最终校验';
+    }
+    const labels = {
+      'local-check': '本地校验',
+      'local-code': '本地代码',
+      'local-config': '本地配置',
+      build: '构建动作',
+      production: '生产动作',
+      'remote-check': '远端只读校验'
+    };
+    return labels[step.actionType] || '本地动作';
+  }
+
+  function badgeClass(step) {
+    if (step.finalCheck || step.actionType === 'remote-check') {
+      return 'readonly';
+    }
+    if (step.productionAction || step.actionType === 'production') {
+      return 'warn';
+    }
+    if (step.actionType === 'build') {
+      return 'build';
+    }
+    return '';
   }
 
   function renderLogs(result) {

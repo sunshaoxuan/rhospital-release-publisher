@@ -85,8 +85,8 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '读取当前分支、当前提交和工作区状态，确认发布前代码来源',
       command: 'git status --short --branch && git rev-parse --short HEAD',
       validation: '确认工作区状态可接受，避免拉取代码时覆盖未处理改动',
-      productionAction: true,
-      actionScope: 'local'
+      actionType: 'local-check',
+      executable: true
     }),
     releaseStep({
       key: 'git-fetch',
@@ -94,8 +94,8 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '从 origin 拉取远端引用，供最新发布或指定 ref 发布使用',
       command: 'git fetch --prune origin',
       validation: 'git fetch 必须成功，远端引用必须可解析',
-      productionAction: true,
-      actionScope: 'local'
+      actionType: 'local-code',
+      executable: true
     }),
     releaseStep({
       key: 'git-update',
@@ -103,8 +103,8 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: gitUpdate.summary,
       command: gitUpdate.command,
       validation: gitUpdate.validation,
-      productionAction: true,
-      actionScope: 'local'
+      actionType: 'local-code',
+      executable: true
     }),
     releaseStep({
       key: 'validate-release-input',
@@ -112,7 +112,7 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '确认 IDEA 配置、镜像 TAG 和 APP_TAG 使用同一个版本号',
       command: `读取 ${config.runConfigPath}`,
       validation: `APP_TAG=${appTag}, image=${imageTag}`,
-      productionAction: false
+      actionType: 'local-check'
     }),
     releaseStep({
       key: 'save-run-config',
@@ -120,7 +120,7 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '把 imageTag 和 APP_TAG 同步替换为本次发版 TAG',
       command: `${config.runConfigPath}: imageTag=${imageTag}, APP_TAG=${appTag}`,
       validation: `确认 ${config.runConfigPath} 中同时包含 ${imageTag} 和 APP_TAG=${appTag}`,
-      productionAction: false
+      actionType: 'local-config'
     }),
     releaseStep({
       key: 'compile-artifact',
@@ -138,7 +138,8 @@ function createPlan(projectRoot, request, env = process.env) {
         'image', 'inspect', `${imageTag}-buildcheck`,
         '--format', '{{.Id}} {{.RepoTags}}'
       ]),
-      productionAction: true
+      actionType: 'build',
+      executable: true
     }),
     releaseStep({
       key: 'build-image',
@@ -155,7 +156,8 @@ function createPlan(projectRoot, request, env = process.env) {
         'image', 'inspect', imageTag,
         '--format', '{{.Id}} {{.RepoTags}}'
       ]),
-      productionAction: true
+      actionType: 'build',
+      executable: true
     }),
     releaseStep({
       key: 'publish-image',
@@ -166,7 +168,9 @@ function createPlan(projectRoot, request, env = process.env) {
         '--format', '{{.Id}} {{.RepoTags}}'
       ]),
       validation: `${dockerTarget.description} 必须能 inspect 到 ${imageTag}`,
-      productionAction: true
+      actionType: 'production',
+      productionAction: true,
+      executable: true
     })
   ];
 
@@ -179,7 +183,7 @@ function createPlan(projectRoot, request, env = process.env) {
       validation: sshResolution.resolved
         ? `HostName=${sshResolution.hostName || '未解析'}, User=${sshResolution.user || '未解析'}, Port=${sshResolution.port || '未解析'}`
         : sshResolution.note || 'SSH 目标未解析',
-      productionAction: false
+      actionType: 'local-check'
     }));
     steps.push(releaseStep({
       key: 'read-remote-compose',
@@ -188,7 +192,8 @@ function createPlan(projectRoot, request, env = process.env) {
       command: remoteSshCommand(remoteSshTarget,
         `cd ${shellToken(remoteComposeDir)} && grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:' docker-compose.yml`),
       validation: `必须能读到 image: hospital-backend:<TAG>`,
-      productionAction: true
+      actionType: 'remote-check',
+      executable: true
     }));
     steps.push(releaseStep({
       key: 'update-remote-compose',
@@ -202,7 +207,9 @@ function createPlan(projectRoot, request, env = process.env) {
         ].join(' && ')),
       validation: remoteSshCommand(remoteSshTarget,
         `cd ${shellToken(remoteComposeDir)} && grep -nE '^[[:space:]]*image:[[:space:]]*${imageTag}$' docker-compose.yml`),
-      productionAction: true
+      actionType: 'production',
+      productionAction: true,
+      executable: true
     }));
     steps.push(releaseStep({
       key: 'deploy-stack',
@@ -212,7 +219,9 @@ function createPlan(projectRoot, request, env = process.env) {
         `cd ${shellToken(remoteComposeDir)} && docker stack deploy -c docker-compose.yml ${config.stackName}`),
       validation: remoteSshCommand(remoteSshTarget,
         `docker stack services ${config.stackName}`),
-      productionAction: true
+      actionType: 'production',
+      productionAction: true,
+      executable: true
     }));
     steps.push(releaseStep({
       key: 'final-runtime-check',
@@ -225,7 +234,8 @@ function createPlan(projectRoot, request, env = process.env) {
           `docker service inspect ${config.stackName}_${config.containerName} --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}'`
         ].join(' && ')),
       validation: `服务镜像必须包含 ${imageTag}，任务不能处于 Failed 或 Rejected`,
-      productionAction: true,
+      actionType: 'remote-check',
+      executable: true,
       finalCheck: true
     }));
   }
@@ -256,7 +266,17 @@ function createPlan(projectRoot, request, env = process.env) {
   };
 }
 
-function releaseStep({key, title, summary, command, validation, productionAction, finalCheck = false}) {
+function releaseStep({
+  key,
+  title,
+  summary,
+  command,
+  validation,
+  productionAction = false,
+  actionType = 'local-check',
+  executable = false,
+  finalCheck = false
+}) {
   return {
     key,
     title,
@@ -264,6 +284,8 @@ function releaseStep({key, title, summary, command, validation, productionAction
     command,
     validation,
     productionAction,
+    actionType,
+    executable,
     finalCheck,
     status: 'pending'
   };
@@ -345,7 +367,7 @@ async function executePlan(projectRoot, request, env = process.env) {
       completedStepKeys.push(step.key);
       continue;
     }
-    if (step.productionAction) {
+    if (step.executable) {
       logs.push(`[RUN] ${step.command}`);
       logs.push(await runPowerShell(projectRoot, step.command));
       completedStepKeys.push(step.key);
