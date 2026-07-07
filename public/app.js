@@ -2,6 +2,8 @@
   const status = document.getElementById('status');
   const appTag = document.getElementById('app-tag');
   const dockerContext = document.getElementById('docker-context');
+  const remoteSshTarget = document.getElementById('remote-ssh-target');
+  const remoteComposeDir = document.getElementById('remote-compose-dir');
   const dryRun = document.getElementById('dry-run');
   const includeStack = document.getElementById('include-stack');
   const steps = document.getElementById('steps');
@@ -14,8 +16,10 @@
     currentImage: document.getElementById('current-image'),
     currentTag: document.getElementById('current-tag'),
     serverName: document.getElementById('server-name'),
+    sshTarget: document.getElementById('ssh-target'),
     dockerfile: document.getElementById('dockerfile'),
     volumePath: document.getElementById('volume-path'),
+    remoteComposePath: document.getElementById('remote-compose-path'),
     targetImage: document.getElementById('target-image')
   };
 
@@ -42,6 +46,8 @@
     return {
       appTag: appTag.value.trim(),
       dockerContext: dockerContext.value.trim(),
+      remoteSshTarget: remoteSshTarget.value.trim(),
+      remoteComposeDir: remoteComposeDir.value.trim(),
       dryRun: dryRun.checked,
       includeStackDeploy: includeStack.checked
     };
@@ -54,9 +60,13 @@
     fields.currentImage.textContent = config.imageTag || '';
     fields.currentTag.textContent = config.appTag || '';
     fields.serverName.textContent = config.serverName || '';
+    fields.sshTarget.textContent = config.remoteSshTarget || config.serverName || '';
     fields.dockerfile.textContent = config.dockerfile || '';
     fields.volumePath.textContent = config.volumeHostPath || '';
+    fields.remoteComposePath.textContent = config.remoteComposeDir || '';
     dockerContext.value = dockerContext.value || config.serverName || '';
+    remoteSshTarget.value = remoteSshTarget.value || config.remoteSshTarget || config.serverName || '';
+    remoteComposeDir.value = remoteComposeDir.value || config.remoteComposeDir || '';
     appTag.value = appTag.value || config.suggestedTag || config.appTag || '';
     executionState.textContent = config.executionEnabled ? 'execute enabled' : 'dry run only';
   }
@@ -153,6 +163,12 @@
     plan().catch(error => setStatus(error.message, 'error'));
   });
   dockerContext.addEventListener('change', () => {
+    plan().catch(error => setStatus(error.message, 'error'));
+  });
+  remoteSshTarget.addEventListener('change', () => {
+    plan().catch(error => setStatus(error.message, 'error'));
+  });
+  remoteComposeDir.addEventListener('change', () => {
     plan().catch(error => setStatus(error.message, 'error'));
   });
   includeStack.addEventListener('change', () => {

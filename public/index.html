@@ -27,13 +27,21 @@
         <label for="docker-context">Docker context</label>
         <input id="docker-context" name="dockerContext">
       </div>
+      <div class="field">
+        <label for="remote-ssh-target">SSH 目标</label>
+        <input id="remote-ssh-target" name="remoteSshTarget">
+      </div>
+      <div class="field">
+        <label for="remote-compose-dir">生产编排目录</label>
+        <input id="remote-compose-dir" name="remoteComposeDir">
+      </div>
       <label class="check-row">
         <input id="dry-run" type="checkbox" checked>
         dry run
       </label>
       <label class="check-row">
-        <input id="include-stack" type="checkbox">
-        生成 Docker Stack 发布命令
+        <input id="include-stack" type="checkbox" checked>
+        生成 SSH 热发布命令
       </label>
       <div class="actions">
         <button type="button" class="secondary" id="reload-btn">刷新</button>
@@ -52,8 +60,10 @@
         <div class="metric"><span>当前镜像</span><strong id="current-image">读取中</strong></div>
         <div class="metric"><span>当前 APP_TAG</span><strong id="current-tag">读取中</strong></div>
         <div class="metric"><span>目标服务器</span><strong id="server-name">读取中</strong></div>
+        <div class="metric"><span>SSH 目标</span><strong id="ssh-target">读取中</strong></div>
         <div class="metric"><span>Dockerfile</span><strong id="dockerfile">读取中</strong></div>
         <div class="metric"><span>数据目录</span><strong id="volume-path">读取中</strong></div>
+        <div class="metric"><span>生产编排目录</span><strong id="remote-compose-path">读取中</strong></div>
       </div>
     </aside>
   </section>

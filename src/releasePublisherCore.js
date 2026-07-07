@@ -6,6 +6,7 @@ const DEFAULT_RUN_CONFIG = '.run/148.135.9.123.run.xml';
 const DEFAULT_IMAGE_NAME = 'hospital-backend';
 const DEFAULT_COMPOSE_FILE = 'docker-compose.yml';
 const DEFAULT_STACK_NAME = 'hospital_stack';
+const DEFAULT_REMOTE_COMPOSE_DIR = '/opt/1panel/docker/compose/hospital-stack';
 const TAG_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
 
 function defaultProjectRoot() {
@@ -61,6 +62,8 @@ function createPlan(projectRoot, request, env = process.env) {
   const imageName = config.imageName || DEFAULT_IMAGE_NAME;
   const imageTag = `${imageName}:${appTag}`;
   const dockerContext = request.dockerContext || env.RELEASE_PUBLISHER_DOCKER_CONTEXT || config.serverName;
+  const remoteSshTarget = request.remoteSshTarget || env.RELEASE_PUBLISHER_SSH_TARGET || dockerContext;
+  const remoteComposeDir = request.remoteComposeDir || env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR;
   const includeStackDeploy = Boolean(request.includeStackDeploy);
 
   const steps = [
@@ -92,11 +95,29 @@ function createPlan(projectRoot, request, env = process.env) {
 
   if (includeStackDeploy) {
     steps.push({
-      key: 'stack-deploy',
-      title: '使用新 TAG 发布 Docker Stack',
-      command: `$env:APP_TAG='${escapePowerShell(appTag)}'; ${dockerCommand(dockerContext, [
-        'stack', 'deploy', '-c', config.composeFile, config.stackName
-      ])}`,
+      key: 'remote-compose-check',
+      title: '检查生产编排当前镜像 TAG',
+      command: remoteSshCommand(remoteSshTarget,
+        `cd ${shellToken(remoteComposeDir)} && grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:' docker-compose.yml`),
+      productionAction: true
+    });
+    steps.push({
+      key: 'remote-compose-update',
+      title: '替换生产编排中的镜像 TAG',
+      command: remoteSshCommand(remoteSshTarget,
+        [
+          `cd ${shellToken(remoteComposeDir)}`,
+          `cp docker-compose.yml docker-compose.yml.bak.$(date +%Y%m%d%H%M%S)`,
+          `sed -i -E "s#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\\\1hospital-backend:${appTag}#" docker-compose.yml`,
+          `grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:' docker-compose.yml`
+        ].join(' && ')),
+      productionAction: true
+    });
+    steps.push({
+      key: 'remote-stack-deploy',
+      title: '执行生产 Docker Stack 热发布',
+      command: remoteSshCommand(remoteSshTarget,
+        `cd ${shellToken(remoteComposeDir)} && docker stack deploy -c docker-compose.yml ${config.stackName}`),
       productionAction: true
     });
   }
@@ -105,6 +126,8 @@ function createPlan(projectRoot, request, env = process.env) {
     config: {
       ...config,
       dockerContext,
+      remoteSshTarget,
+      remoteComposeDir,
       executionEnabled: env.RELEASE_PUBLISHER_ALLOW_EXECUTE === 'true'
     },
     appTag,
@@ -214,6 +237,13 @@ function dockerCommand(context, args) {
   return parts.concat(args).map(shellToken).join(' ');
 }
 
+function remoteSshCommand(target, remoteCommand) {
+  if (!target) {
+    throw new Error('缺少 SSH 目标');
+  }
+  return ['ssh', target, remoteCommand].map(shellToken).join(' ');
+}
+
 function runPowerShell(cwd, command) {
   return new Promise((resolve, reject) => {
     const child = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], {
@@ -321,6 +351,7 @@ function escapeRegExp(value) {
 
 module.exports = {
   DEFAULT_RUN_CONFIG,
+  DEFAULT_REMOTE_COMPOSE_DIR,
   defaultProjectRoot,
   parseIdeaRunConfig,
   readConfig,

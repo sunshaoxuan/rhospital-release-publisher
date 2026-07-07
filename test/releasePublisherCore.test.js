@@ -6,6 +6,7 @@ const test = require('node:test');
 
 const {
   createPlan,
+  DEFAULT_REMOTE_COMPOSE_DIR,
   defaultProjectRoot,
   parseIdeaRunConfig,
   proposeNextTag,
@@ -94,7 +95,32 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.equal(plan.dryRun, true);
   assert.equal(plan.config.executionEnabled, false);
   assert.ok(plan.steps.some(step => step.command.includes('docker --context SSH178 build')));
-  assert.ok(plan.steps.some(step => step.command.includes('stack deploy')));
+  assert.ok(plan.steps.some(step => step.key === 'remote-compose-check'
+    && step.command.includes(`cd ${DEFAULT_REMOTE_COMPOSE_DIR}`)));
+  assert.ok(plan.steps.some(step => step.key === 'remote-compose-update'
+    && step.command.includes('sed -i -E')
+    && step.command.includes('hospital-backend:')
+    && step.command.includes('2026070702')));
+  assert.ok(plan.steps.some(step => step.key === 'remote-stack-deploy'
+    && step.command.includes('docker stack deploy -c docker-compose.yml hospital_stack')));
+});
+
+test('uses explicit SSH target and remote compose directory in hot deploy plan', () => {
+  const root = tempProject(sampleXml);
+  const plan = createPlan(root, {
+    appTag: '2026070702',
+    dryRun: true,
+    dockerContext: 'docker-prod',
+    remoteSshTarget: 'root@148.135.9.123',
+    remoteComposeDir: '/opt/1panel/docker/compose/hospital-stack',
+    includeStackDeploy: true
+  }, {});
+
+  assert.equal(plan.config.dockerContext, 'docker-prod');
+  assert.equal(plan.config.remoteSshTarget, 'root@148.135.9.123');
+  assert.equal(plan.config.remoteComposeDir, '/opt/1panel/docker/compose/hospital-stack');
+  assert.ok(plan.steps.some(step => step.command.includes("ssh 'root@148.135.9.123'")));
+  assert.ok(plan.steps.some(step => step.command.includes('cd /opt/1panel/docker/compose/hospital-stack')));
 });
 
 test('save tag dry run returns preview and does not mutate file', () => {

@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const {
   DEFAULT_RUN_CONFIG,
+  DEFAULT_REMOTE_COMPOSE_DIR,
   defaultProjectRoot,
   readConfig,
   createPlan,
@@ -39,6 +40,10 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {
         ...config,
         suggestedTag: proposeNextTag(config.appTag),
+        remoteSshTarget: process.env.RELEASE_PUBLISHER_SSH_TARGET
+          || process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT
+          || config.serverName,
+        remoteComposeDir: process.env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR,
         executionEnabled: process.env.RELEASE_PUBLISHER_ALLOW_EXECUTE === 'true'
       });
     }
