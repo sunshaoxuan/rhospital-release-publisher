@@ -68,8 +68,6 @@
       </label>
       <div class="actions">
         <button type="button" class="secondary" id="reload-btn">刷新</button>
-        <button type="button" class="secondary" id="suggest-btn">建议 TAG</button>
-        <button type="button" class="secondary" id="save-btn">保存 TAG</button>
         <button type="button" class="primary" id="execute-btn">执行流程</button>
       </div>
       <div class="status" id="status" role="status"></div>
@@ -116,7 +114,19 @@
       <strong id="target-image">未生成</strong>
     </div>
     <div id="steps" class="steps"></div>
+    <h3 class="subhead">本次执行日志</h3>
     <ul id="logs" class="logs"></ul>
+  </section>
+
+  <section class="panel">
+    <div class="plan-head">
+      <div>
+        <span class="kicker">build history</span>
+        <h2>构造历史</h2>
+      </div>
+      <strong id="history-count">0 条</strong>
+    </div>
+    <div id="history" class="history-list"></div>
   </section>
 </main>
 <script src="/static/app.js"></script>

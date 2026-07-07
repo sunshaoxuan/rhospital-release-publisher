@@ -11,6 +11,8 @@
   const pipeline = document.getElementById('pipeline');
   const steps = document.getElementById('steps');
   const logs = document.getElementById('logs');
+  const history = document.getElementById('history');
+  const historyCount = document.getElementById('history-count');
   const executionState = document.getElementById('execution-state');
 
   const fields = {
@@ -230,6 +232,41 @@
     }
   }
 
+  function renderHistory(items) {
+    const entries = Array.isArray(items) ? items : [];
+    historyCount.textContent = `${entries.length} 条`;
+    history.innerHTML = '';
+    if (!entries.length) {
+      const empty = document.createElement('div');
+      empty.className = 'history-empty';
+      empty.textContent = '暂无构造历史。执行一次 dry run 后会在这里出现记录。';
+      history.appendChild(empty);
+      return;
+    }
+    for (const item of entries) {
+      const card = document.createElement('article');
+      card.className = `history-card ${String(item.status || '').toLowerCase()}`;
+      const codeSource = item.gitMode === 'ref'
+        ? `指定 Git ref: ${item.gitRef || '未指定'}`
+        : '当前分支最新';
+      card.innerHTML = `
+        <div class="history-top">
+          <strong>${escapeHtml(item.imageTag || item.appTag || '未知镜像')}</strong>
+          <span>${escapeHtml(item.status || 'UNKNOWN')}</span>
+        </div>
+        <div class="history-grid">
+          <div><span>时间</span><b>${escapeHtml(formatDateTime(item.createdAt))}</b></div>
+          <div><span>代码来源</span><b>${escapeHtml(codeSource)}</b></div>
+          <div><span>Docker 目标</span><b>${escapeHtml(item.dockerTarget || '未解析')}</b></div>
+          <div><span>SSH 目标</span><b>${escapeHtml(item.sshTarget || '未设置')}</b></div>
+          <div><span>编排目录</span><b>${escapeHtml(item.remoteComposeDir || '未设置')}</b></div>
+          <div><span>节点</span><b>${escapeHtml(`${item.completedStepCount || 0}/${item.stepCount || 0}`)}</b></div>
+        </div>
+      `;
+      history.appendChild(card);
+    }
+  }
+
   function escapeHtml(value) {
     return String(value)
       .replace(/&/g, '&amp;')
@@ -244,7 +281,13 @@
     const config = await requestJson('/api/config');
     renderConfig(config);
     await plan();
+    await loadHistory();
     setStatus('配置已读取', 'success');
+  }
+
+  async function loadHistory() {
+    const result = await requestJson('/api/history');
+    renderHistory(result.history);
   }
 
   async function plan() {
@@ -256,16 +299,6 @@
     return result;
   }
 
-  async function saveTag() {
-    setStatus('保存 TAG 预处理中', '');
-    const result = await requestJson('/api/save-tag', {
-      method: 'POST',
-      body: JSON.stringify(payload())
-    });
-    setStatus(`${result.status}: ${result.imageTag}`, result.status === 'DRY_RUN' ? 'success' : '');
-    await plan();
-  }
-
   async function execute() {
     setStatus('执行请求处理中', '');
     const result = await requestJson('/api/execute', {
@@ -274,20 +307,12 @@
     });
     renderPlan(result.plan);
     renderLogs(result);
+    await loadHistory();
     setStatus(`执行状态: ${result.status}`, result.status === 'DRY_RUN' ? 'success' : '');
   }
 
   document.getElementById('reload-btn').addEventListener('click', () => {
     loadConfig().catch(error => setStatus(error.message, 'error'));
-  });
-  document.getElementById('suggest-btn').addEventListener('click', () => {
-    if (latestConfig && latestConfig.suggestedTag) {
-      appTag.value = latestConfig.suggestedTag;
-      plan().catch(error => setStatus(error.message, 'error'));
-    }
-  });
-  document.getElementById('save-btn').addEventListener('click', () => {
-    saveTag().catch(error => setStatus(error.message, 'error'));
   });
   document.getElementById('execute-btn').addEventListener('click', () => {
     execute().catch(error => setStatus(error.message, 'error'));
@@ -323,4 +348,15 @@
   });
 
   loadConfig().catch(error => setStatus(error.message, 'error'));
+
+  function formatDateTime(value) {
+    if (!value) {
+      return '未知';
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+    return date.toLocaleString('zh-CN', {hour12: false});
+  }
 })();

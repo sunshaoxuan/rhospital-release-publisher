@@ -7,7 +7,7 @@
 - 读取开发环境中的 `hospital-backend/.run/148.135.9.123.run.xml`
 - 支持按当前分支拉取最新代码，或切换到指定 Git ref
 - 解析当前 `hospital-backend:<TAG>` 和 `APP_TAG`
-- 建议下一个 `APP_TAG`
+- 默认把页面 TAG 输入框初始化为下一个建议 `APP_TAG`
 - 同步更新 IDEA 配置中的镜像 TAG 和 `APP_TAG`
 - 生成应用编译命令
 - 生成 Docker 镜像制作命令
@@ -15,6 +15,7 @@
 - 通过 SSH 预览生产端 `hospital-stack/docker-compose.yml` 的 TAG 替换
 - 生成进入生产编排目录后执行 `docker stack deploy` 的热发布命令
 - 默认只执行 dry run
+- 记录本地构造历史，并在页面中展示最近执行记录
 
 ## 启动
 
@@ -54,6 +55,7 @@ npm start
 - 建议 TAG
 - 生成命令计划
 - 预览配置写入结果
+- 记录一条 dry run 构造历史
 - 预览 SSH 更新生产 `docker-compose.yml` 的命令
 - 预览 SSH 执行 `docker stack deploy` 的命令
 - 在总进度流程中把每一步标记为 `dry run 已校验`
@@ -83,6 +85,19 @@ npm start
 13. 最终运行校验
 
 每一步都有动作命令和校验命令。最终运行校验会检查 stack 服务、任务状态和服务镜像是否指向本次 `hospital-backend:<TAG>`。
+
+页面中的 `APP_TAG` 输入框就是本次发布 TAG 的来源。点击 `执行流程` 后，流程会先按当前输入值进入 `更新本地 IDEA 发布配置` 节点：
+
+- dry run 下只预览写入结果，不改真实配置文件
+- 正式执行且 `RELEASE_PUBLISHER_ALLOW_EXECUTE=true` 时才写回 `.run/148.135.9.123.run.xml`
+
+页面底部的 `构造历史` 会展示最近执行记录。历史文件保存在发布器本地：
+
+```text
+C:\workspace\rhospital-release-publisher\.release-history.json
+```
+
+该文件是本地运行记录，已加入 `.gitignore`，不会提交到 Git。
 
 ## 正式执行
 
@@ -210,5 +225,6 @@ npm test
 - 镜像 TAG 与 `APP_TAG` 联动更新
 - dry run 命令计划
 - dry run 不改写真实文件
+- dry run 写入本地构造历史
 - SSH 热发布命令计划
 - 非法 TAG 拦截

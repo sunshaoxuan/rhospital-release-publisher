@@ -14,6 +14,7 @@ const {
   parseSshGOutput,
   parseIdeaRunConfig,
   proposeNextTag,
+  readReleaseHistory,
   saveTag,
   updateIdeaRunConfigTag,
   validateTag,
@@ -272,6 +273,7 @@ test('save tag dry run returns preview and does not mutate file', () => {
 test('execute dry run marks every pipeline step checked without mutating file', async () => {
   const root = tempProject(sampleXml);
   const configPath = path.join(root, '.run', '148.135.9.123.run.xml');
+  const historyPath = path.join(root, 'history.json');
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: true,
@@ -280,18 +282,25 @@ test('execute dry run marks every pipeline step checked without mutating file', 
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
-    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
   });
 
   assert.equal(result.status, 'DRY_RUN');
   assert.ok(result.completedStepKeys.length >= 1);
   assert.ok(result.plan.steps.every(step => step.status === 'dry-run-checked'));
   assert.equal(fs.readFileSync(configPath, 'utf8'), sampleXml);
+  const history = readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
+  assert.equal(history.length, 1);
+  assert.equal(history[0].status, 'DRY_RUN');
+  assert.equal(history[0].imageTag, 'hospital-backend:2026070702');
+  assert.equal(history[0].completedStepCount, result.plan.steps.length);
 });
 
 test('execute without dry run is blocked before mutating file when execution is not enabled', async () => {
   const root = tempProject(sampleXml);
   const configPath = path.join(root, '.run', '148.135.9.123.run.xml');
+  const historyPath = path.join(root, 'history.json');
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
@@ -300,12 +309,17 @@ test('execute without dry run is blocked before mutating file when execution is 
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
-    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
   });
 
   assert.equal(result.status, 'BLOCKED');
   assert.ok(result.logs.includes('RELEASE_PUBLISHER_ALLOW_EXECUTE is not true'));
   assert.equal(fs.readFileSync(configPath, 'utf8'), sampleXml);
+  const history = readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
+  assert.equal(history.length, 1);
+  assert.equal(history[0].status, 'BLOCKED');
+  assert.equal(history[0].completedStepCount, 0);
 });
 
 test('rejects invalid app tag', () => {

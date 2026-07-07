@@ -9,6 +9,7 @@ const {
   createPlan,
   saveTag,
   executePlan,
+  readReleaseHistory,
   proposeNextTag,
   resolveSshTargetDetails,
   resolveDockerContextDetails,
@@ -57,6 +58,11 @@ const server = http.createServer(async (req, res) => {
         ideaDockerServerResolution,
         dockerCommandTarget: resolveDockerCommandTarget(dockerServerName, dockerContextResolution, ideaDockerServerResolution),
         executionEnabled: process.env.RELEASE_PUBLISHER_ALLOW_EXECUTE === 'true'
+      });
+    }
+    if (req.url === '/api/history' && req.method === 'GET') {
+      return sendJson(res, 200, {
+        history: readReleaseHistory(projectRoot, 20)
       });
     }
     if (req.url === '/api/plan' && req.method === 'POST') {

@@ -9,6 +9,7 @@ const DEFAULT_COMPOSE_FILE = 'docker-compose.yml';
 const DEFAULT_STACK_NAME = 'hospital_stack';
 const DEFAULT_REMOTE_COMPOSE_DIR = '/opt/1panel/docker/compose/hospital-stack';
 const DEFAULT_JETBRAINS_PRODUCT_DIR = 'IntelliJIdea2026.1';
+const DEFAULT_HISTORY_FILE = '.release-history.json';
 const TAG_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
 const GIT_REF_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._/@:-]{0,127}$/;
 
@@ -328,10 +329,14 @@ async function executePlan(projectRoot, request, env = process.env) {
     });
     logs.push(`${saved.status}: ${plan.imageTag}`);
     completedStepKeys.push(...plan.steps.map(step => step.key));
-    return {status: 'DRY_RUN', plan: markCompletedSteps(plan, completedStepKeys, 'dry-run-checked'), logs, completedStepKeys};
+    const markedPlan = markCompletedSteps(plan, completedStepKeys, 'dry-run-checked');
+    appendReleaseHistory(projectRoot, buildHistoryEntry('DRY_RUN', markedPlan, logs, completedStepKeys), env);
+    return {status: 'DRY_RUN', plan: markedPlan, logs, completedStepKeys};
   }
   if (env.RELEASE_PUBLISHER_ALLOW_EXECUTE !== 'true') {
-    return {status: 'BLOCKED', plan, logs: logs.concat('RELEASE_PUBLISHER_ALLOW_EXECUTE is not true')};
+    const blockedLogs = logs.concat('RELEASE_PUBLISHER_ALLOW_EXECUTE is not true');
+    appendReleaseHistory(projectRoot, buildHistoryEntry('BLOCKED', plan, blockedLogs, completedStepKeys), env);
+    return {status: 'BLOCKED', plan, logs: blockedLogs};
   }
   for (const step of plan.steps) {
     if (step.key === 'save-run-config') {
@@ -350,7 +355,65 @@ async function executePlan(projectRoot, request, env = process.env) {
       completedStepKeys.push(step.key);
     }
   }
-  return {status: 'EXECUTED', plan: markCompletedSteps(plan, completedStepKeys, 'done'), logs, completedStepKeys};
+  const markedPlan = markCompletedSteps(plan, completedStepKeys, 'done');
+  appendReleaseHistory(projectRoot, buildHistoryEntry('EXECUTED', markedPlan, logs, completedStepKeys), env);
+  return {status: 'EXECUTED', plan: markedPlan, logs, completedStepKeys};
+}
+
+function historyFile(env = process.env) {
+  return env.RELEASE_PUBLISHER_HISTORY_FILE
+    ? path.resolve(env.RELEASE_PUBLISHER_HISTORY_FILE)
+    : path.resolve(__dirname, '..', DEFAULT_HISTORY_FILE);
+}
+
+function readReleaseHistory(projectRoot, limit = 20, env = process.env) {
+  const filePath = historyFile(env);
+  if (!fs.existsSync(filePath)) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    const entries = Array.isArray(parsed) ? parsed : [];
+    return entries.slice(0, Math.max(1, Number(limit) || 20));
+  } catch (error) {
+    return [{
+      id: 'history-read-error',
+      createdAt: new Date().toISOString(),
+      status: 'ERROR',
+      message: `构造历史读取失败: ${error.message}`
+    }];
+  }
+}
+
+function appendReleaseHistory(projectRoot, entry, env = process.env, limit = 100) {
+  const filePath = historyFile(env);
+  const entries = readReleaseHistory(projectRoot, limit, env).filter(item => item.id !== 'history-read-error');
+  const nextEntries = [entry].concat(entries).slice(0, limit);
+  fs.writeFileSync(filePath, `${JSON.stringify(nextEntries, null, 2)}\n`, 'utf8');
+  return nextEntries;
+}
+
+function buildHistoryEntry(status, plan, logs, completedStepKeys) {
+  return {
+    id: `${new Date().toISOString()}-${plan.appTag}`,
+    createdAt: new Date().toISOString(),
+    status,
+    dryRun: plan.dryRun,
+    appTag: plan.appTag,
+    imageTag: plan.imageTag,
+    gitMode: plan.gitMode,
+    gitRef: plan.gitRef || '',
+    includeStackDeploy: plan.includeStackDeploy,
+    projectRoot: plan.config.projectRoot,
+    dockerTarget: plan.config.dockerCommandTarget
+      ? plan.config.dockerCommandTarget.description
+      : plan.config.dockerContext,
+    sshTarget: plan.config.remoteSshTarget,
+    remoteComposeDir: plan.config.remoteComposeDir,
+    stepCount: plan.steps.length,
+    completedStepCount: completedStepKeys.length,
+    logs: logs.slice(0, 12)
+  };
 }
 
 function markCompletedSteps(plan, completedStepKeys, status) {
@@ -770,6 +833,9 @@ module.exports = {
   saveTag,
   updateIdeaRunConfigTag,
   executePlan,
+  readReleaseHistory,
+  appendReleaseHistory,
+  buildHistoryEntry,
   resolveSshTargetDetails,
   resolveDockerContextDetails,
   resolveIdeaDockerServerDetails,
