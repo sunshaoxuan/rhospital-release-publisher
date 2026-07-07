@@ -181,6 +181,21 @@ test('execute dry run marks every pipeline step checked without mutating file', 
   assert.equal(fs.readFileSync(configPath, 'utf8'), sampleXml);
 });
 
+test('execute without dry run is blocked before mutating file when execution is not enabled', async () => {
+  const root = tempProject(sampleXml);
+  const configPath = path.join(root, '.run', '148.135.9.123.run.xml');
+  const result = await executePlan(root, {
+    appTag: '2026070702',
+    dryRun: false,
+    dockerContext: 'SSH178',
+    includeStackDeploy: true
+  }, {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true'});
+
+  assert.equal(result.status, 'BLOCKED');
+  assert.ok(result.logs.includes('RELEASE_PUBLISHER_ALLOW_EXECUTE is not true'));
+  assert.equal(fs.readFileSync(configPath, 'utf8'), sampleXml);
+});
+
 test('rejects invalid app tag', () => {
   assert.throws(() => validateTag('20260707;rm'), /APP_TAG/);
 });

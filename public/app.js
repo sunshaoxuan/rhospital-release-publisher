@@ -62,6 +62,17 @@
     };
   }
 
+  function renderExecutionState(config) {
+    const executionEnabled = Boolean(config && config.executionEnabled);
+    if (dryRun.checked) {
+      executionState.textContent = 'dry run 模式';
+      executionState.className = 'state dry-run-state';
+      return;
+    }
+    executionState.textContent = executionEnabled ? '正式执行模式' : '正式执行未授权';
+    executionState.className = `state ${executionEnabled ? 'execute-state' : 'blocked-state'}`;
+  }
+
   function renderConfig(config) {
     latestConfig = config;
     fields.projectRoot.textContent = config.projectRoot || '';
@@ -78,7 +89,7 @@
     remoteSshTarget.value = remoteSshTarget.value || config.remoteSshTarget || config.serverName || '';
     remoteComposeDir.value = remoteComposeDir.value || config.remoteComposeDir || '';
     appTag.value = appTag.value || config.suggestedTag || config.appTag || '';
-    executionState.textContent = config.executionEnabled ? 'execute enabled' : 'dry run only';
+    renderExecutionState(config);
   }
 
   function renderSshResolution(sshResolution) {
@@ -243,6 +254,10 @@
     plan().catch(error => setStatus(error.message, 'error'));
   });
   remoteComposeDir.addEventListener('change', () => {
+    plan().catch(error => setStatus(error.message, 'error'));
+  });
+  dryRun.addEventListener('change', () => {
+    renderExecutionState(latestConfig || {});
     plan().catch(error => setStatus(error.message, 'error'));
   });
   includeStack.addEventListener('change', () => {

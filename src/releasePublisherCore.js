@@ -275,19 +275,25 @@ async function executePlan(projectRoot, request, env = process.env) {
   const plan = createPlan(projectRoot, request, env);
   const logs = [];
   const completedStepKeys = [];
-  const saved = saveTag(projectRoot, {
-    appTag: plan.appTag,
-    runConfigPath: request.runConfigPath,
-    dryRun: plan.dryRun
-  });
-  logs.push(`${saved.status}: ${plan.imageTag}`);
   if (plan.dryRun) {
+    const saved = saveTag(projectRoot, {
+      appTag: plan.appTag,
+      runConfigPath: request.runConfigPath,
+      dryRun: true
+    });
+    logs.push(`${saved.status}: ${plan.imageTag}`);
     completedStepKeys.push(...plan.steps.map(step => step.key));
     return {status: 'DRY_RUN', plan: markCompletedSteps(plan, completedStepKeys, 'dry-run-checked'), logs, completedStepKeys};
   }
   if (env.RELEASE_PUBLISHER_ALLOW_EXECUTE !== 'true') {
     return {status: 'BLOCKED', plan, logs: logs.concat('RELEASE_PUBLISHER_ALLOW_EXECUTE is not true')};
   }
+  const saved = saveTag(projectRoot, {
+    appTag: plan.appTag,
+    runConfigPath: request.runConfigPath,
+    dryRun: false
+  });
+  logs.push(`${saved.status}: ${plan.imageTag}`);
   for (const step of plan.steps.filter(step => step.productionAction)) {
     logs.push(`[RUN] ${step.command}`);
     logs.push(await runPowerShell(projectRoot, step.command));

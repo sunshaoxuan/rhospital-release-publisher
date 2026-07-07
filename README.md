@@ -58,6 +58,12 @@ npm start
 
 不会执行 Docker build，不会写入生产镜像池，不会登录生产终端，不会修改生产 `docker-compose.yml`。
 
+页面右上角状态显示当前执行模式：
+
+- 勾选 `dry run` 时显示 `dry run 模式`
+- 取消勾选 `dry run` 时显示 `正式执行模式` 或 `正式执行未授权`
+- `正式执行未授权` 表示页面已切到非 dry run 请求，但服务端没有设置 `RELEASE_PUBLISHER_ALLOW_EXECUTE=true`，会拦截真实编译、上传和发布动作
+
 页面按发布流水线展示：
 
 1. 读取配置并校验 TAG

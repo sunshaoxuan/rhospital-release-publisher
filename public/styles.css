@@ -105,6 +105,18 @@ p {
   white-space: nowrap;
 }
 
+.state.dry-run-state {
+  background: var(--paper-strong);
+}
+
+.state.execute-state {
+  background: var(--mint);
+}
+
+.state.blocked-state {
+  background: #ffd8cf;
+}
+
 .flow-panel,
 .panel {
   background: rgba(255, 250, 240, 0.96);
