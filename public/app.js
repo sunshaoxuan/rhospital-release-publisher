@@ -209,10 +209,6 @@
       }
       steps.appendChild(item);
     }
-    const activeStep = steps.querySelector('.step.failed, .step.running');
-    if (activeStep) {
-      activeStep.scrollIntoView({block: 'center', behavior: 'smooth'});
-    }
   }
 
   function renderPipeline(planSteps) {

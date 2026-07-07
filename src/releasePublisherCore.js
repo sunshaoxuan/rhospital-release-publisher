@@ -344,9 +344,10 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
   const logs = [];
   const completedStepKeys = [];
   let currentStepKey = '';
+  const stepLogs = {};
   const updateStep = (stepKey, status, output) => {
     onProgress({
-      plan: markStepStatus(plan, completedStepKeys, stepKey, status),
+      plan: markStepStatus(plan, completedStepKeys, stepKey, status, stepLogs),
       logs: output === undefined ? logs.slice() : logs.concat(output),
       completedStepKeys: completedStepKeys.slice(),
       currentStepKey: stepKey,
@@ -375,7 +376,6 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
     appendReleaseHistory(projectRoot, buildHistoryEntry('BLOCKED', blockedPlan, blockedLogs, completedStepKeys), env);
     return {status: 'BLOCKED', plan: blockedPlan, logs: blockedLogs};
   }
-  const stepLogs = {};
   const pushStepLog = (stepKey, line) => {
     stepLogs[stepKey] = stepLogs[stepKey] || [];
     stepLogs[stepKey].push(line);
@@ -384,6 +384,7 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
   try {
     for (const step of plan.steps) {
       currentStepKey = step.key;
+      pushStepLog(step.key, `[START] ${step.title}`);
       updateStep(step.key, 'running');
       if (step.key === 'save-run-config') {
         const saved = saveTag(projectRoot, {
@@ -393,23 +394,31 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
         });
         pushStepLog(step.key, `${saved.status}: ${plan.imageTag}`);
         completedStepKeys.push(step.key);
+        pushStepLog(step.key, `[DONE] ${step.title}`);
         updateStep(step.key, 'done');
         continue;
       }
       if (step.executable) {
         pushStepLog(step.key, `[RUN] ${step.command}`);
+        updateStep(step.key, 'running');
         await runPowerShell(projectRoot, step.command, chunk => {
           const line = chunk.trim();
           if (line) {
             pushStepLog(step.key, line);
             updateStep(step.key, 'running');
           }
+        }, elapsedSeconds => {
+          pushStepLog(step.key, `[RUNNING] ${step.title} 已运行 ${elapsedSeconds} 秒，等待命令输出`);
+          updateStep(step.key, 'running');
         });
         completedStepKeys.push(step.key);
+        pushStepLog(step.key, `[DONE] ${step.title}`);
         updateStep(step.key, 'done');
         continue;
       }
+      pushStepLog(step.key, `[CHECK] ${step.validation}`);
       completedStepKeys.push(step.key);
+      pushStepLog(step.key, `[DONE] ${step.title}`);
       updateStep(step.key, 'done');
     }
   } catch (error) {
@@ -958,8 +967,10 @@ function findSshConfig(xml, id) {
   return null;
 }
 
-function runPowerShell(cwd, command, onChunk) {
+function runPowerShell(cwd, command, onChunk, onHeartbeat) {
   return new Promise((resolve, reject) => {
+    const startedAt = Date.now();
+    let heartbeat = null;
     const child = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], {
       cwd,
       windowsHide: true
@@ -979,14 +990,27 @@ function runPowerShell(cwd, command, onChunk) {
         onChunk(text);
       }
     });
-    child.on('error', reject);
+    child.on('error', error => {
+      if (heartbeat) {
+        clearInterval(heartbeat);
+      }
+      reject(error);
+    });
     child.on('close', code => {
+      if (heartbeat) {
+        clearInterval(heartbeat);
+      }
       if (code !== 0) {
         reject(new Error(output || `command exited with ${code}`));
         return;
       }
       resolve(output.trim() || '[OK]');
     });
+    if (onHeartbeat) {
+      heartbeat = setInterval(() => {
+        onHeartbeat(Math.max(1, Math.round((Date.now() - startedAt) / 1000)));
+      }, 10000);
+    }
   });
 }
 
