@@ -9,6 +9,7 @@ const {
   DEFAULT_REMOTE_COMPOSE_DIR,
   defaultProjectRoot,
   executePlan,
+  resolveDockerContextDetails,
   parseSshGOutput,
   parseIdeaRunConfig,
   proposeNextTag,
@@ -91,11 +92,15 @@ test('creates dry run command plan without production execution enabled', () => 
     dryRun: true,
     dockerContext: 'SSH178',
     includeStackDeploy: true
-  }, {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true'});
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true'
+  });
 
   assert.equal(plan.imageTag, 'hospital-backend:2026070702');
   assert.equal(plan.dryRun, true);
   assert.equal(plan.config.executionEnabled, false);
+  assert.equal(plan.config.dockerContextResolution.note, '已跳过 Docker context 解析');
   assert.ok(plan.steps.some(step => step.key === 'compile-artifact'
     && step.command.includes('docker --context SSH178 build --target build')
     && step.command.includes('hospital-backend:2026070702-buildcheck')));
@@ -127,7 +132,10 @@ test('uses explicit SSH target and remote compose directory in hot deploy plan',
     remoteSshTarget: 'root@148.135.9.123',
     remoteComposeDir: '/opt/1panel/docker/compose/hospital-stack',
     includeStackDeploy: true
-  }, {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true'});
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true'
+  });
 
   assert.equal(plan.config.dockerContext, 'docker-prod');
   assert.equal(plan.config.remoteSshTarget, 'root@148.135.9.123');
@@ -155,6 +163,34 @@ identitiesonly yes`);
   assert.equal(parsed.identitiesonly, 'yes');
 });
 
+test('resolves docker context inspect output for display', () => {
+  const result = resolveDockerContextDetails('SSH178', {}, () => ({
+    status: 0,
+    stdout: JSON.stringify([{
+      Name: 'SSH178',
+      Metadata: {Description: 'prod docker'},
+      Endpoints: {docker: {Host: 'ssh://root@148.135.9.123'}}
+    }]),
+    stderr: ''
+  }));
+
+  assert.equal(result.resolved, true);
+  assert.equal(result.description, 'prod docker');
+  assert.equal(result.dockerEndpoint, 'ssh://root@148.135.9.123');
+});
+
+test('reports missing docker context for display', () => {
+  const result = resolveDockerContextDetails('SSH178', {}, () => ({
+    status: 1,
+    stdout: '',
+    stderr: 'context "SSH178": context not found'
+  }));
+
+  assert.equal(result.resolved, false);
+  assert.match(result.note, /未找到/);
+  assert.match(result.error, /context not found/);
+});
+
 test('save tag dry run returns preview and does not mutate file', () => {
   const root = tempProject(sampleXml);
   const configPath = path.join(root, '.run', '148.135.9.123.run.xml');
@@ -173,7 +209,10 @@ test('execute dry run marks every pipeline step checked without mutating file', 
     dryRun: true,
     dockerContext: 'SSH178',
     includeStackDeploy: true
-  }, {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true'});
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true'
+  });
 
   assert.equal(result.status, 'DRY_RUN');
   assert.ok(result.completedStepKeys.length >= 1);
@@ -189,7 +228,10 @@ test('execute without dry run is blocked before mutating file when execution is 
     dryRun: false,
     dockerContext: 'SSH178',
     includeStackDeploy: true
-  }, {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true'});
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true'
+  });
 
   assert.equal(result.status, 'BLOCKED');
   assert.ok(result.logs.includes('RELEASE_PUBLISHER_ALLOW_EXECUTE is not true'));

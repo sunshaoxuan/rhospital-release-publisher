@@ -94,6 +94,14 @@ npm start
 $env:RELEASE_PUBLISHER_DOCKER_CONTEXT='SSH178'
 ```
 
+页面会用只读命令解析 Docker context：
+
+```powershell
+docker context inspect SSH178
+```
+
+如果本机 Docker 没有这个 context，页面会显示 `Docker 未找到 context SSH178`。这表示 Docker 编译和镜像池写入步骤目前不能用 `--context SSH178` 执行，需要先在本机 Docker 中创建或切换到正确 context。
+
 SSH 热发布默认也使用 `SSH178` 作为 SSH 目标。如果你的 SSH 目标不同，可在页面里修改 `SSH 目标`，也可以通过环境变量指定：
 
 ```powershell

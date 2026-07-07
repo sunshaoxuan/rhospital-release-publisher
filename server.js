@@ -10,7 +10,8 @@ const {
   saveTag,
   executePlan,
   proposeNextTag,
-  resolveSshTargetDetails
+  resolveSshTargetDetails,
+  resolveDockerContextDetails
 } = require('./src/releasePublisherCore');
 
 const projectRoot = defaultProjectRoot();
@@ -47,6 +48,10 @@ const server = http.createServer(async (req, res) => {
         remoteSshTarget,
         remoteComposeDir: process.env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR,
         sshResolution: resolveSshTargetDetails(remoteSshTarget, process.env),
+        dockerContextResolution: resolveDockerContextDetails(
+          process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT || config.serverName,
+          process.env
+        ),
         executionEnabled: process.env.RELEASE_PUBLISHER_ALLOW_EXECUTE === 'true'
       });
     }

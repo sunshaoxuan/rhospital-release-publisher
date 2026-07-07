@@ -17,6 +17,9 @@
     currentImage: document.getElementById('current-image'),
     currentTag: document.getElementById('current-tag'),
     serverName: document.getElementById('server-name'),
+    dockerContextSource: document.getElementById('docker-context-source'),
+    dockerEndpoint: document.getElementById('docker-endpoint'),
+    dockerContextNote: document.getElementById('docker-context-note'),
     sshTarget: document.getElementById('ssh-target'),
     sshTargetSource: document.getElementById('ssh-target-source'),
     sshHostName: document.getElementById('ssh-hostname'),
@@ -81,6 +84,7 @@
     fields.currentTag.textContent = config.appTag || '';
     fields.serverName.textContent = config.serverName || '';
     fields.sshTarget.textContent = config.remoteSshTarget || config.serverName || '';
+    renderDockerContextResolution(config.dockerContextResolution);
     renderSshResolution(config.sshResolution);
     fields.dockerfile.textContent = config.dockerfile || '';
     fields.volumePath.textContent = config.volumeHostPath || '';
@@ -105,6 +109,15 @@
       ? `${info.sshConfigPath}${info.sshConfigExists ? '' : ' 不存在'}`
       : '未解析';
     fields.sshNote.textContent = info.note || (info.resolved ? '已解析' : '未解析');
+  }
+
+  function renderDockerContextResolution(contextResolution) {
+    const info = contextResolution || {};
+    fields.dockerContextSource.textContent = info.source || '未解析';
+    fields.dockerEndpoint.textContent = info.dockerEndpoint || '未解析';
+    fields.dockerContextNote.textContent = info.error
+      ? `${info.note || '解析失败'}: ${info.error}`
+      : info.note || (info.resolved ? '已解析' : '未解析');
   }
 
   function renderPlan(plan) {

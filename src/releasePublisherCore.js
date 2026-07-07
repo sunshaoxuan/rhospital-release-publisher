@@ -66,6 +66,7 @@ function createPlan(projectRoot, request, env = process.env) {
   const remoteSshTarget = request.remoteSshTarget || env.RELEASE_PUBLISHER_SSH_TARGET || dockerContext;
   const remoteComposeDir = request.remoteComposeDir || env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR;
   const sshResolution = resolveSshTargetDetails(remoteSshTarget, env);
+  const dockerContextResolution = resolveDockerContextDetails(dockerContext, env);
   const includeStackDeploy = Boolean(request.includeStackDeploy);
 
   const steps = [
@@ -200,6 +201,7 @@ function createPlan(projectRoot, request, env = process.env) {
       remoteSshTarget,
       remoteComposeDir,
       sshResolution,
+      dockerContextResolution,
       executionEnabled: env.RELEASE_PUBLISHER_ALLOW_EXECUTE === 'true'
     },
     appTag,
@@ -416,6 +418,52 @@ function parseSshGOutput(output) {
   return result;
 }
 
+function resolveDockerContextDetails(contextName, env = process.env, dockerRunner = spawnSync) {
+  const result = {
+    name: contextName || 'default',
+    source: env.RELEASE_PUBLISHER_DOCKER_CONTEXT ? 'RELEASE_PUBLISHER_DOCKER_CONTEXT' : 'IDEA server-name',
+    resolved: false,
+    description: '',
+    dockerEndpoint: '',
+    error: '',
+    note: ''
+  };
+  if (!contextName) {
+    result.note = '未设置 Docker context，Docker 将使用本机默认上下文';
+    return result;
+  }
+  if (env.RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE === 'true') {
+    result.note = '已跳过 Docker context 解析';
+    return result;
+  }
+  const docker = dockerRunner('docker', ['context', 'inspect', contextName], {
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  const output = (docker.stderr || docker.stdout || '').trim();
+  if (docker.status !== 0) {
+    result.error = output || 'docker context inspect 失败';
+    result.note = `Docker 未找到 context ${contextName}`;
+    return result;
+  }
+  try {
+    const inspected = JSON.parse(docker.stdout || '[]');
+    const context = Array.isArray(inspected) ? inspected[0] : inspected;
+    const dockerEndpoint = context && context.Endpoints && context.Endpoints.docker
+      ? context.Endpoints.docker.Host || ''
+      : '';
+    result.resolved = true;
+    result.description = context && context.Metadata ? context.Metadata.Description || '' : '';
+    result.dockerEndpoint = dockerEndpoint;
+    result.note = dockerEndpoint ? '已读取 Docker context endpoint' : '已读取 Docker context，但没有 docker endpoint';
+    return result;
+  } catch (error) {
+    result.error = error.message;
+    result.note = 'Docker context 输出不是有效 JSON';
+    return result;
+  }
+}
+
 function runPowerShell(cwd, command) {
   return new Promise((resolve, reject) => {
     const child = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], {
@@ -532,6 +580,7 @@ module.exports = {
   updateIdeaRunConfigTag,
   executePlan,
   resolveSshTargetDetails,
+  resolveDockerContextDetails,
   parseSshGOutput,
   proposeNextTag,
   validateTag
