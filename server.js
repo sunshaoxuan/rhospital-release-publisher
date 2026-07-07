@@ -9,7 +9,8 @@ const {
   createPlan,
   saveTag,
   executePlan,
-  proposeNextTag
+  proposeNextTag,
+  resolveSshTargetDetails
 } = require('./src/releasePublisherCore');
 
 const projectRoot = defaultProjectRoot();
@@ -37,13 +38,15 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.url === '/api/config' && req.method === 'GET') {
       const config = readConfig(projectRoot, DEFAULT_RUN_CONFIG);
+      const remoteSshTarget = process.env.RELEASE_PUBLISHER_SSH_TARGET
+        || process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT
+        || config.serverName;
       return sendJson(res, 200, {
         ...config,
         suggestedTag: proposeNextTag(config.appTag),
-        remoteSshTarget: process.env.RELEASE_PUBLISHER_SSH_TARGET
-          || process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT
-          || config.serverName,
+        remoteSshTarget,
         remoteComposeDir: process.env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR,
+        sshResolution: resolveSshTargetDetails(remoteSshTarget, process.env),
         executionEnabled: process.env.RELEASE_PUBLISHER_ALLOW_EXECUTE === 'true'
       });
     }

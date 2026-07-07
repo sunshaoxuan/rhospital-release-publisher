@@ -10,11 +10,23 @@
 <main class="page">
   <header class="topbar">
     <div>
+      <div class="brandline">release-console</div>
       <h1>本地版本发布器</h1>
-      <p>读取 IDEA Docker 配置，生成等价 Docker 发布命令。</p>
+      <p>TAG 编排、镜像构建、SSH 热发布和最终校验。</p>
     </div>
     <div class="state" id="execution-state">dry run only</div>
   </header>
+
+  <section class="flow-panel">
+    <div class="flow-head">
+      <div>
+        <span class="kicker">release flow</span>
+        <h2>总进度流程</h2>
+      </div>
+      <strong id="target-image-flow">未生成</strong>
+    </div>
+    <div id="pipeline" class="pipeline"></div>
+  </section>
 
   <section class="layout">
     <form class="panel" id="release-form">
@@ -61,16 +73,26 @@
         <div class="metric"><span>当前 APP_TAG</span><strong id="current-tag">读取中</strong></div>
         <div class="metric"><span>目标服务器</span><strong id="server-name">读取中</strong></div>
         <div class="metric"><span>SSH 目标</span><strong id="ssh-target">读取中</strong></div>
+        <div class="metric"><span>SSH 目标来源</span><strong id="ssh-target-source">读取中</strong></div>
+        <div class="metric"><span>SSH HostName</span><strong id="ssh-hostname">读取中</strong></div>
+        <div class="metric"><span>SSH User</span><strong id="ssh-user">读取中</strong></div>
+        <div class="metric"><span>SSH Port</span><strong id="ssh-port">读取中</strong></div>
+        <div class="metric"><span>SSH IdentityFile</span><strong id="ssh-identity">读取中</strong></div>
+        <div class="metric"><span>SSH 配置文件</span><strong id="ssh-config-path">读取中</strong></div>
         <div class="metric"><span>Dockerfile</span><strong id="dockerfile">读取中</strong></div>
         <div class="metric"><span>数据目录</span><strong id="volume-path">读取中</strong></div>
         <div class="metric"><span>生产编排目录</span><strong id="remote-compose-path">读取中</strong></div>
+        <div class="metric"><span>SSH 解析状态</span><strong id="ssh-note">读取中</strong></div>
       </div>
     </aside>
   </section>
 
   <section class="panel">
     <div class="plan-head">
-      <h2>Dry Run 计划</h2>
+      <div>
+        <span class="kicker">step detail</span>
+        <h2>步骤动作与校验</h2>
+      </div>
       <strong id="target-image">未生成</strong>
     </div>
     <div id="steps" class="steps"></div>

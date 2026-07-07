@@ -8,6 +8,8 @@ const {
   createPlan,
   DEFAULT_REMOTE_COMPOSE_DIR,
   defaultProjectRoot,
+  executePlan,
+  parseSshGOutput,
   parseIdeaRunConfig,
   proposeNextTag,
   saveTag,
@@ -89,20 +91,24 @@ test('creates dry run command plan without production execution enabled', () => 
     dryRun: true,
     dockerContext: 'SSH178',
     includeStackDeploy: true
-  }, {});
+  }, {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true'});
 
   assert.equal(plan.imageTag, 'hospital-backend:2026070702');
   assert.equal(plan.dryRun, true);
   assert.equal(plan.config.executionEnabled, false);
   assert.ok(plan.steps.some(step => step.command.includes('docker --context SSH178 build')));
-  assert.ok(plan.steps.some(step => step.key === 'remote-compose-check'
+  assert.ok(plan.steps.some(step => step.key === 'read-remote-compose'
     && step.command.includes(`cd ${DEFAULT_REMOTE_COMPOSE_DIR}`)));
-  assert.ok(plan.steps.some(step => step.key === 'remote-compose-update'
+  assert.ok(plan.steps.some(step => step.key === 'update-remote-compose'
     && step.command.includes('sed -i -E')
     && step.command.includes('hospital-backend:')
     && step.command.includes('2026070702')));
-  assert.ok(plan.steps.some(step => step.key === 'remote-stack-deploy'
+  assert.ok(plan.steps.some(step => step.key === 'deploy-stack'
     && step.command.includes('docker stack deploy -c docker-compose.yml hospital_stack')));
+  assert.ok(plan.steps.every(step => step.summary && step.validation && step.status === 'pending'));
+  assert.ok(plan.steps.some(step => step.key === 'final-runtime-check'
+    && step.finalCheck
+    && step.validation.includes('hospital-backend:2026070702')));
 });
 
 test('uses explicit SSH target and remote compose directory in hot deploy plan', () => {
@@ -114,13 +120,32 @@ test('uses explicit SSH target and remote compose directory in hot deploy plan',
     remoteSshTarget: 'root@148.135.9.123',
     remoteComposeDir: '/opt/1panel/docker/compose/hospital-stack',
     includeStackDeploy: true
-  }, {});
+  }, {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true'});
 
   assert.equal(plan.config.dockerContext, 'docker-prod');
   assert.equal(plan.config.remoteSshTarget, 'root@148.135.9.123');
   assert.equal(plan.config.remoteComposeDir, '/opt/1panel/docker/compose/hospital-stack');
   assert.ok(plan.steps.some(step => step.command.includes("ssh 'root@148.135.9.123'")));
   assert.ok(plan.steps.some(step => step.command.includes('cd /opt/1panel/docker/compose/hospital-stack')));
+});
+
+test('parses ssh -G output for display', () => {
+  const parsed = parseSshGOutput(`host SSH178
+user root
+hostname 148.135.9.123
+port 22
+identityfile C:/Users/user/.ssh/id_ed25519
+identityfile C:/Users/user/.ssh/id_rsa
+identitiesonly yes`);
+
+  assert.equal(parsed.user, 'root');
+  assert.equal(parsed.hostname, '148.135.9.123');
+  assert.equal(parsed.port, '22');
+  assert.deepEqual(parsed.identityfile, [
+    'C:/Users/user/.ssh/id_ed25519',
+    'C:/Users/user/.ssh/id_rsa'
+  ]);
+  assert.equal(parsed.identitiesonly, 'yes');
 });
 
 test('save tag dry run returns preview and does not mutate file', () => {
@@ -130,6 +155,22 @@ test('save tag dry run returns preview and does not mutate file', () => {
 
   assert.equal(result.status, 'DRY_RUN');
   assert.match(result.preview, /2026070702/);
+  assert.equal(fs.readFileSync(configPath, 'utf8'), sampleXml);
+});
+
+test('execute dry run marks every pipeline step checked without mutating file', async () => {
+  const root = tempProject(sampleXml);
+  const configPath = path.join(root, '.run', '148.135.9.123.run.xml');
+  const result = await executePlan(root, {
+    appTag: '2026070702',
+    dryRun: true,
+    dockerContext: 'SSH178',
+    includeStackDeploy: true
+  }, {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true'});
+
+  assert.equal(result.status, 'DRY_RUN');
+  assert.ok(result.completedStepKeys.length >= 1);
+  assert.ok(result.plan.steps.every(step => step.status === 'dry-run-checked'));
   assert.equal(fs.readFileSync(configPath, 'utf8'), sampleXml);
 });
 

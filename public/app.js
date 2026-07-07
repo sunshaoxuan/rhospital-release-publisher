@@ -6,6 +6,7 @@
   const remoteComposeDir = document.getElementById('remote-compose-dir');
   const dryRun = document.getElementById('dry-run');
   const includeStack = document.getElementById('include-stack');
+  const pipeline = document.getElementById('pipeline');
   const steps = document.getElementById('steps');
   const logs = document.getElementById('logs');
   const executionState = document.getElementById('execution-state');
@@ -17,10 +18,18 @@
     currentTag: document.getElementById('current-tag'),
     serverName: document.getElementById('server-name'),
     sshTarget: document.getElementById('ssh-target'),
+    sshTargetSource: document.getElementById('ssh-target-source'),
+    sshHostName: document.getElementById('ssh-hostname'),
+    sshUser: document.getElementById('ssh-user'),
+    sshPort: document.getElementById('ssh-port'),
+    sshIdentity: document.getElementById('ssh-identity'),
+    sshConfigPath: document.getElementById('ssh-config-path'),
+    sshNote: document.getElementById('ssh-note'),
     dockerfile: document.getElementById('dockerfile'),
     volumePath: document.getElementById('volume-path'),
     remoteComposePath: document.getElementById('remote-compose-path'),
-    targetImage: document.getElementById('target-image')
+    targetImage: document.getElementById('target-image'),
+    targetImageFlow: document.getElementById('target-image-flow')
   };
 
   let latestConfig = null;
@@ -61,6 +70,7 @@
     fields.currentTag.textContent = config.appTag || '';
     fields.serverName.textContent = config.serverName || '';
     fields.sshTarget.textContent = config.remoteSshTarget || config.serverName || '';
+    renderSshResolution(config.sshResolution);
     fields.dockerfile.textContent = config.dockerfile || '';
     fields.volumePath.textContent = config.volumeHostPath || '';
     fields.remoteComposePath.textContent = config.remoteComposeDir || '';
@@ -71,21 +81,85 @@
     executionState.textContent = config.executionEnabled ? 'execute enabled' : 'dry run only';
   }
 
+  function renderSshResolution(sshResolution) {
+    const info = sshResolution || {};
+    fields.sshTargetSource.textContent = info.targetSource || '未解析';
+    fields.sshHostName.textContent = info.hostName || '未解析';
+    fields.sshUser.textContent = info.user || '未解析';
+    fields.sshPort.textContent = info.port || '未解析';
+    fields.sshIdentity.textContent = Array.isArray(info.identityFiles) && info.identityFiles.length
+      ? info.identityFiles.join('\n')
+      : '未指定';
+    fields.sshConfigPath.textContent = info.sshConfigPath
+      ? `${info.sshConfigPath}${info.sshConfigExists ? '' : ' 不存在'}`
+      : '未解析';
+    fields.sshNote.textContent = info.note || (info.resolved ? '已解析' : '未解析');
+  }
+
   function renderPlan(plan) {
     renderConfig({
       ...plan.config,
       suggestedTag: latestConfig ? latestConfig.suggestedTag : plan.appTag
     });
     fields.targetImage.textContent = plan.imageTag;
+    fields.targetImageFlow.textContent = plan.imageTag;
+    renderPipeline(plan.steps);
     steps.innerHTML = '';
-    for (const step of plan.steps) {
+    for (const [index, step] of plan.steps.entries()) {
       const item = document.createElement('article');
-      item.className = 'step';
-      const badge = step.productionAction ? '生产命令' : '本地动作';
-      item.innerHTML = `<h3><span>${escapeHtml(step.title)}</span><span class="badge ${step.productionAction ? 'warn' : ''}">${badge}</span></h3><pre class="command"></pre>`;
-      item.querySelector('pre').textContent = step.command;
+      item.className = `step ${step.finalCheck ? 'final-step' : ''}`;
+      const badge = step.productionAction ? '生产动作' : '本地动作';
+      item.innerHTML = `
+        <div class="step-title">
+          <div class="step-index">${String(index + 1).padStart(2, '0')}</div>
+          <div>
+            <h3>${escapeHtml(step.title)}</h3>
+            <p>${escapeHtml(step.summary || '')}</p>
+          </div>
+          <span class="badge ${step.productionAction ? 'warn' : ''}">${badge}</span>
+        </div>
+        <div class="command-block">
+          <span>动作</span>
+          <pre class="command action-command"></pre>
+        </div>
+        <div class="command-block validation-block">
+          <span>校验</span>
+          <pre class="command validation-command"></pre>
+        </div>
+      `;
+      item.querySelector('.action-command').textContent = step.command || '';
+      item.querySelector('.validation-command').textContent = step.validation || '';
       steps.appendChild(item);
     }
+  }
+
+  function renderPipeline(planSteps) {
+    pipeline.innerHTML = '';
+    for (const [index, step] of planSteps.entries()) {
+      const status = step.status || 'pending';
+      const done = status === 'done' || status === 'dry-run-checked';
+      const node = document.createElement('article');
+      node.className = `flow-node ${done ? 'checked' : ''} ${step.finalCheck ? 'final-node' : ''}`;
+      node.innerHTML = `
+        <div class="flow-mark">${done ? '✓' : String(index + 1).padStart(2, '0')}</div>
+        <div class="flow-copy">
+          <h3>${escapeHtml(step.title)}</h3>
+          <p>${escapeHtml(step.validation || '')}</p>
+          <span>${statusLabel(status)}</span>
+        </div>
+      `;
+      pipeline.appendChild(node);
+    }
+  }
+
+  function statusLabel(status) {
+    if (status === 'done') {
+      return '已完成';
+    }
+    if (status === 'dry-run-checked') {
+      return 'dry run 已校验';
+    }
+    return '待执行';
   }
 
   function renderLogs(result) {

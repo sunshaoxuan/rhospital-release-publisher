@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
-const {spawn} = require('child_process');
+const os = require('os');
+const {spawn, spawnSync} = require('child_process');
 
 const DEFAULT_RUN_CONFIG = '.run/148.135.9.123.run.xml';
 const DEFAULT_IMAGE_NAME = 'hospital-backend';
@@ -64,24 +65,30 @@ function createPlan(projectRoot, request, env = process.env) {
   const dockerContext = request.dockerContext || env.RELEASE_PUBLISHER_DOCKER_CONTEXT || config.serverName;
   const remoteSshTarget = request.remoteSshTarget || env.RELEASE_PUBLISHER_SSH_TARGET || dockerContext;
   const remoteComposeDir = request.remoteComposeDir || env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR;
+  const sshResolution = resolveSshTargetDetails(remoteSshTarget, env);
   const includeStackDeploy = Boolean(request.includeStackDeploy);
 
   const steps = [
-    {
-      key: 'validate',
-      title: '校验 TAG 一致性',
-      command: `APP_TAG=${appTag}, image=${imageTag}`,
+    releaseStep({
+      key: 'validate-release-input',
+      title: '读取配置并校验 TAG',
+      summary: '确认 IDEA 配置、镜像 TAG 和 APP_TAG 使用同一个版本号',
+      command: `读取 ${config.runConfigPath}`,
+      validation: `APP_TAG=${appTag}, image=${imageTag}`,
       productionAction: false
-    },
-    {
-      key: 'save-config',
-      title: '更新 IDEA 发布配置',
+    }),
+    releaseStep({
+      key: 'save-run-config',
+      title: '更新本地 IDEA 发布配置',
+      summary: '把 imageTag 和 APP_TAG 同步替换为本次发版 TAG',
       command: `${config.runConfigPath}: imageTag=${imageTag}, APP_TAG=${appTag}`,
+      validation: `确认 ${config.runConfigPath} 中同时包含 ${imageTag} 和 APP_TAG=${appTag}`,
       productionAction: false
-    },
-    {
-      key: 'remote-build',
-      title: '编译 Docker 镜像并写入目标镜像池',
+    }),
+    releaseStep({
+      key: 'build-image',
+      title: '编译 Docker 镜像',
+      summary: '通过 Docker context 在目标 Docker 环境构建镜像并写入镜像池',
       command: dockerCommand(dockerContext, [
         'build',
         '-f', config.dockerfile,
@@ -89,37 +96,72 @@ function createPlan(projectRoot, request, env = process.env) {
         '-t', imageTag,
         '.'
       ]),
+      validation: dockerCommand(dockerContext, [
+        'image', 'inspect', imageTag,
+        '--format', '{{.Id}} {{.RepoTags}}'
+      ]),
       productionAction: true
-    }
+    })
   ];
 
   if (includeStackDeploy) {
-    steps.push({
-      key: 'remote-compose-check',
-      title: '检查生产编排当前镜像 TAG',
+    steps.push(releaseStep({
+      key: 'resolve-ssh-target',
+      title: '确认 SSH 连接配置',
+      summary: '展开本机 SSH 配置，确认实际 HostName、User、Port 和密钥来源',
+      command: `ssh -G ${remoteSshTarget}`,
+      validation: sshResolution.resolved
+        ? `HostName=${sshResolution.hostName || '未解析'}, User=${sshResolution.user || '未解析'}, Port=${sshResolution.port || '未解析'}`
+        : sshResolution.note || 'SSH 目标未解析',
+      productionAction: false
+    }));
+    steps.push(releaseStep({
+      key: 'read-remote-compose',
+      title: '读取生产编排当前镜像',
+      summary: '进入 hospital-stack 编排目录，确认当前 compose 中的 hospital-backend 镜像行',
       command: remoteSshCommand(remoteSshTarget,
         `cd ${shellToken(remoteComposeDir)} && grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:' docker-compose.yml`),
+      validation: `必须能读到 image: hospital-backend:<TAG>`,
       productionAction: true
-    });
-    steps.push({
-      key: 'remote-compose-update',
-      title: '替换生产编排中的镜像 TAG',
+    }));
+    steps.push(releaseStep({
+      key: 'update-remote-compose',
+      title: '备份并替换生产编排 TAG',
+      summary: '备份 docker-compose.yml，然后把 image: hospital-backend:<TAG> 替换成本次 TAG',
       command: remoteSshCommand(remoteSshTarget,
         [
           `cd ${shellToken(remoteComposeDir)}`,
           `cp docker-compose.yml docker-compose.yml.bak.$(date +%Y%m%d%H%M%S)`,
-          `sed -i -E "s#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\\\1hospital-backend:${appTag}#" docker-compose.yml`,
-          `grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:' docker-compose.yml`
+          `sed -i -E "s#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\\\1${imageTag}#" docker-compose.yml`
         ].join(' && ')),
+      validation: remoteSshCommand(remoteSshTarget,
+        `cd ${shellToken(remoteComposeDir)} && grep -nE '^[[:space:]]*image:[[:space:]]*${imageTag}$' docker-compose.yml`),
       productionAction: true
-    });
-    steps.push({
-      key: 'remote-stack-deploy',
-      title: '执行生产 Docker Stack 热发布',
+    }));
+    steps.push(releaseStep({
+      key: 'deploy-stack',
+      title: '执行 Docker Stack 热发布',
+      summary: '在生产编排目录执行 stack deploy，触发 Swarm 按 compose 新镜像滚动更新',
       command: remoteSshCommand(remoteSshTarget,
         `cd ${shellToken(remoteComposeDir)} && docker stack deploy -c docker-compose.yml ${config.stackName}`),
+      validation: remoteSshCommand(remoteSshTarget,
+        `docker stack services ${config.stackName}`),
       productionAction: true
-    });
+    }));
+    steps.push(releaseStep({
+      key: 'final-runtime-check',
+      title: '最终运行校验',
+      summary: '确认 stack 服务、任务状态和服务镜像都已经指向本次 TAG',
+      command: remoteSshCommand(remoteSshTarget,
+        [
+          `docker stack services ${config.stackName}`,
+          `docker stack ps ${config.stackName} --no-trunc`,
+          `docker service inspect ${config.stackName}_${config.containerName} --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}'`
+        ].join(' && ')),
+      validation: `服务镜像必须包含 ${imageTag}，任务不能处于 Failed 或 Rejected`,
+      productionAction: true,
+      finalCheck: true
+    }));
   }
 
   return {
@@ -128,6 +170,7 @@ function createPlan(projectRoot, request, env = process.env) {
       dockerContext,
       remoteSshTarget,
       remoteComposeDir,
+      sshResolution,
       executionEnabled: env.RELEASE_PUBLISHER_ALLOW_EXECUTE === 'true'
     },
     appTag,
@@ -139,6 +182,19 @@ function createPlan(projectRoot, request, env = process.env) {
       'dry run 只生成命令和写入预览',
       '正式编译和远端镜像池写入需要 RELEASE_PUBLISHER_ALLOW_EXECUTE=true'
     ]
+  };
+}
+
+function releaseStep({key, title, summary, command, validation, productionAction, finalCheck = false}) {
+  return {
+    key,
+    title,
+    summary,
+    command,
+    validation,
+    productionAction,
+    finalCheck,
+    status: 'pending'
   };
 }
 
@@ -189,6 +245,7 @@ function updateIdeaRunConfigTag(xml, imageTag, appTag) {
 async function executePlan(projectRoot, request, env = process.env) {
   const plan = createPlan(projectRoot, request, env);
   const logs = [];
+  const completedStepKeys = [];
   const saved = saveTag(projectRoot, {
     appTag: plan.appTag,
     runConfigPath: request.runConfigPath,
@@ -196,7 +253,8 @@ async function executePlan(projectRoot, request, env = process.env) {
   });
   logs.push(`${saved.status}: ${plan.imageTag}`);
   if (plan.dryRun) {
-    return {status: 'DRY_RUN', plan, logs};
+    completedStepKeys.push(...plan.steps.map(step => step.key));
+    return {status: 'DRY_RUN', plan: markCompletedSteps(plan, completedStepKeys, 'dry-run-checked'), logs, completedStepKeys};
   }
   if (env.RELEASE_PUBLISHER_ALLOW_EXECUTE !== 'true') {
     return {status: 'BLOCKED', plan, logs: logs.concat('RELEASE_PUBLISHER_ALLOW_EXECUTE is not true')};
@@ -204,8 +262,17 @@ async function executePlan(projectRoot, request, env = process.env) {
   for (const step of plan.steps.filter(step => step.productionAction)) {
     logs.push(`[RUN] ${step.command}`);
     logs.push(await runPowerShell(projectRoot, step.command));
+    completedStepKeys.push(step.key);
   }
-  return {status: 'EXECUTED', plan, logs};
+  return {status: 'EXECUTED', plan: markCompletedSteps(plan, completedStepKeys, 'done'), logs, completedStepKeys};
+}
+
+function markCompletedSteps(plan, completedStepKeys, status) {
+  const completed = new Set(completedStepKeys);
+  return {
+    ...plan,
+    steps: plan.steps.map(step => completed.has(step.key) ? {...step, status} : step)
+  };
 }
 
 function proposeNextTag(currentTag, now = new Date()) {
@@ -242,6 +309,76 @@ function remoteSshCommand(target, remoteCommand) {
     throw new Error('缺少 SSH 目标');
   }
   return ['ssh', target, remoteCommand].map(shellToken).join(' ');
+}
+
+function resolveSshTargetDetails(target, env = process.env, sshRunner = spawnSync) {
+  const sshConfigPath = path.join(os.homedir(), '.ssh', 'config');
+  const result = {
+    target: target || '',
+    targetSource: env.RELEASE_PUBLISHER_SSH_TARGET ? 'RELEASE_PUBLISHER_SSH_TARGET'
+      : env.RELEASE_PUBLISHER_DOCKER_CONTEXT ? 'RELEASE_PUBLISHER_DOCKER_CONTEXT'
+        : 'IDEA server-name',
+    sshConfigPath,
+    sshConfigExists: fs.existsSync(sshConfigPath),
+    resolved: false,
+    hostName: '',
+    user: '',
+    port: '',
+    identityFiles: [],
+    identitiesOnly: '',
+    note: ''
+  };
+  if (!target) {
+    result.note = '未设置 SSH 目标';
+    return result;
+  }
+  if (env.RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE === 'true') {
+    result.note = '已跳过 SSH 配置解析';
+    return result;
+  }
+  const ssh = sshRunner('ssh', ['-G', target], {
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  const output = `${ssh.stdout || ''}\n${ssh.stderr || ''}`.trim();
+  if (ssh.status !== 0) {
+    result.note = output || 'ssh -G 解析失败';
+    return result;
+  }
+  const parsed = parseSshGOutput(output);
+  result.resolved = true;
+  result.hostName = parsed.hostname || '';
+  result.user = parsed.user || '';
+  result.port = parsed.port || '';
+  result.identityFiles = parsed.identityfile || [];
+  result.identitiesOnly = parsed.identitiesonly || '';
+  result.note = result.sshConfigExists
+    ? '已根据本机 OpenSSH 配置展开'
+    : '未找到 ~/.ssh/config，以下为 ssh -G 展开的默认值或系统配置';
+  return result;
+}
+
+function parseSshGOutput(output) {
+  const result = {};
+  for (const line of String(output || '').split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) {
+      continue;
+    }
+    const separator = trimmed.indexOf(' ');
+    if (separator < 0) {
+      continue;
+    }
+    const key = trimmed.slice(0, separator).toLowerCase();
+    const value = trimmed.slice(separator + 1).trim();
+    if (key === 'identityfile') {
+      result.identityfile = result.identityfile || [];
+      result.identityfile.push(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
 }
 
 function runPowerShell(cwd, command) {
@@ -359,6 +496,8 @@ module.exports = {
   saveTag,
   updateIdeaRunConfigTag,
   executePlan,
+  resolveSshTargetDetails,
+  parseSshGOutput,
   proposeNextTag,
   validateTag
 };
