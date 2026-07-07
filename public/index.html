@@ -74,9 +74,9 @@
       <div class="status" id="status" role="status"></div>
     </form>
 
-    <aside class="panel">
-      <h2>当前配置</h2>
-      <div class="metrics">
+    <aside class="panel config-panel">
+      <h2>发布参数</h2>
+      <div class="metrics summary-metrics">
         <div class="metric"><span>项目目录</span><strong id="project-root">读取中</strong></div>
         <div class="metric"><span>配置文件</span><strong id="run-config">读取中</strong></div>
         <div class="metric"><span>当前镜像</span><strong id="current-image">读取中</strong></div>
@@ -84,25 +84,30 @@
         <div class="metric"><span>发布分支</span><strong id="git-branch-current">读取中</strong></div>
         <div class="metric"><span>发布提交</span><strong id="git-commit-current">读取中</strong></div>
         <div class="metric"><span>目标服务器</span><strong id="server-name">读取中</strong></div>
-        <div class="metric"><span>Docker context 来源</span><strong id="docker-context-source">读取中</strong></div>
-        <div class="metric"><span>Docker endpoint</span><strong id="docker-endpoint">读取中</strong></div>
-        <div class="metric"><span>Docker context 状态</span><strong id="docker-context-note">读取中</strong></div>
-        <div class="metric"><span>IDEA Docker Server</span><strong id="idea-docker-server">读取中</strong></div>
-        <div class="metric"><span>IDEA Docker SSH</span><strong id="idea-docker-ssh">读取中</strong></div>
-        <div class="metric"><span>IDEA Docker Key</span><strong id="idea-docker-key">读取中</strong></div>
-        <div class="metric"><span>Docker 命令目标</span><strong id="docker-command-target">读取中</strong></div>
-        <div class="metric"><span>SSH 目标</span><strong id="ssh-target">读取中</strong></div>
-        <div class="metric"><span>SSH 目标来源</span><strong id="ssh-target-source">读取中</strong></div>
-        <div class="metric"><span>SSH HostName</span><strong id="ssh-hostname">读取中</strong></div>
-        <div class="metric"><span>SSH User</span><strong id="ssh-user">读取中</strong></div>
-        <div class="metric"><span>SSH Port</span><strong id="ssh-port">读取中</strong></div>
-        <div class="metric"><span>SSH IdentityFile</span><strong id="ssh-identity">读取中</strong></div>
-        <div class="metric"><span>SSH 配置文件</span><strong id="ssh-config-path">读取中</strong></div>
         <div class="metric"><span>Dockerfile</span><strong id="dockerfile">读取中</strong></div>
-        <div class="metric"><span>数据目录</span><strong id="volume-path">读取中</strong></div>
         <div class="metric"><span>生产编排目录</span><strong id="remote-compose-path">读取中</strong></div>
-        <div class="metric"><span>SSH 解析状态</span><strong id="ssh-note">读取中</strong></div>
       </div>
+      <details class="config-details">
+        <summary>连接与解析详情</summary>
+        <div class="metrics detail-metrics">
+          <div class="metric"><span>Docker context 来源</span><strong id="docker-context-source">读取中</strong></div>
+          <div class="metric"><span>Docker endpoint</span><strong id="docker-endpoint">读取中</strong></div>
+          <div class="metric"><span>Docker context 状态</span><strong id="docker-context-note">读取中</strong></div>
+          <div class="metric"><span>IDEA Docker Server</span><strong id="idea-docker-server">读取中</strong></div>
+          <div class="metric"><span>IDEA Docker SSH</span><strong id="idea-docker-ssh">读取中</strong></div>
+          <div class="metric"><span>IDEA Docker Key</span><strong id="idea-docker-key">读取中</strong></div>
+          <div class="metric"><span>Docker 命令目标</span><strong id="docker-command-target">读取中</strong></div>
+          <div class="metric"><span>SSH 目标</span><strong id="ssh-target">读取中</strong></div>
+          <div class="metric"><span>SSH 目标来源</span><strong id="ssh-target-source">读取中</strong></div>
+          <div class="metric"><span>SSH HostName</span><strong id="ssh-hostname">读取中</strong></div>
+          <div class="metric"><span>SSH User</span><strong id="ssh-user">读取中</strong></div>
+          <div class="metric"><span>SSH Port</span><strong id="ssh-port">读取中</strong></div>
+          <div class="metric"><span>SSH IdentityFile</span><strong id="ssh-identity">读取中</strong></div>
+          <div class="metric"><span>SSH 配置文件</span><strong id="ssh-config-path">读取中</strong></div>
+          <div class="metric"><span>数据目录</span><strong id="volume-path">读取中</strong></div>
+          <div class="metric"><span>SSH 解析状态</span><strong id="ssh-note">读取中</strong></div>
+        </div>
+      </details>
     </aside>
   </section>
 
@@ -115,8 +120,10 @@
       <strong id="target-image">未生成</strong>
     </div>
     <div id="steps" class="steps"></div>
-    <h3 class="subhead">本次执行日志</h3>
-    <ul id="logs" class="logs"></ul>
+    <details class="aggregate-logs">
+      <summary>汇总执行日志</summary>
+      <ul id="logs" class="logs"></ul>
+    </details>
   </section>
 
   <section class="panel">

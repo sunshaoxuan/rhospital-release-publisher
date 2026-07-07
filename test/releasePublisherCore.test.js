@@ -116,7 +116,8 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.equal(plan.config.executionEnabled, false);
   assert.equal(plan.config.dockerContextResolution.note, '已跳过 Docker context 解析');
   assert.ok(plan.steps.some(step => step.key === 'git-status-before-update'
-    && step.command.includes('git status --short --branch')));
+    && step.command.includes('git status --short --branch')
+    && !step.command.includes(' && ')));
   assert.ok(plan.steps.some(step => step.key === 'git-fetch'
     && step.command === 'git fetch --prune origin'));
   assert.ok(plan.steps.some(step => step.key === 'git-update'
@@ -201,6 +202,29 @@ test('creates specified branch commit update plan', () => {
     && step.title === '切换到指定提交'
     && step.command === `git checkout ${commit}`
     && step.validation.includes(`git merge-base --is-ancestor ${commit} origin/release/20260707`)));
+});
+
+test('local branch latest update command is compatible with Windows PowerShell', () => {
+  const root = tempProject(sampleXml);
+  const plan = createPlan(root, {
+    appTag: '2026070702',
+    dryRun: true,
+    gitBranch: 'master',
+    gitCommit: 'latest',
+    dockerContext: 'SSH178',
+    includeStackDeploy: false
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+  });
+  const statusStep = plan.steps.find(step => step.key === 'git-status-before-update');
+  const updateStep = plan.steps.find(step => step.key === 'git-update');
+
+  assert.ok(statusStep.command.includes('$LASTEXITCODE'));
+  assert.ok(updateStep.command.includes('$LASTEXITCODE'));
+  assert.equal(statusStep.command.includes(' && '), false);
+  assert.equal(updateStep.command.includes(' && '), false);
 });
 
 test('uses explicit SSH target and remote compose directory in hot deploy plan', () => {
@@ -393,6 +417,9 @@ test('execute errors are written to history with partial progress', async () => 
   assert.equal(result.status, 'ERROR');
   assert.match(result.logs.join('\n'), /git status/);
   assert.ok(progress.some(update => update.currentStepKey === 'git-status-before-update'));
+  const failedStep = result.plan.steps.find(step => step.key === 'git-status-before-update');
+  assert.equal(failedStep.status, 'failed');
+  assert.ok(failedStep.logs.some(line => line.includes('[RUN] git status')));
   const history = readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
   assert.equal(history.length, 1);
   assert.equal(history[0].status, 'ERROR');

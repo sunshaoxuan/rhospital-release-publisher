@@ -83,7 +83,10 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'git-status-before-update',
       title: '检查本地代码状态',
       summary: '读取当前分支、当前提交和工作区状态，确认发布前代码来源',
-      command: 'git status --short --branch && git rev-parse --short HEAD',
+      command: chainPowerShellCommands([
+        'git status --short --branch',
+        'git rev-parse --short HEAD'
+      ]),
       validation: '确认工作区状态可接受，避免拉取代码时覆盖未处理改动',
       actionType: 'local-check',
       executable: true
@@ -358,15 +361,26 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
     });
     logs.push(`${saved.status}: ${plan.imageTag}`);
     completedStepKeys.push(...plan.steps.map(step => step.key));
-    const markedPlan = markCompletedSteps(plan, completedStepKeys, 'dry-run-checked');
+    const stepLogs = {};
+    for (const step of plan.steps) {
+      stepLogs[step.key] = step.key === 'save-run-config' ? logs.slice() : [];
+    }
+    const markedPlan = markCompletedSteps(plan, completedStepKeys, 'dry-run-checked', stepLogs);
     appendReleaseHistory(projectRoot, buildHistoryEntry('DRY_RUN', markedPlan, logs, completedStepKeys), env);
     return {status: 'DRY_RUN', plan: markedPlan, logs, completedStepKeys};
   }
   if (env.RELEASE_PUBLISHER_ALLOW_EXECUTE !== 'true') {
     const blockedLogs = logs.concat('RELEASE_PUBLISHER_ALLOW_EXECUTE is not true');
-    appendReleaseHistory(projectRoot, buildHistoryEntry('BLOCKED', plan, blockedLogs, completedStepKeys), env);
-    return {status: 'BLOCKED', plan, logs: blockedLogs};
+    const blockedPlan = markStepStatus(plan, completedStepKeys, '', 'pending', {});
+    appendReleaseHistory(projectRoot, buildHistoryEntry('BLOCKED', blockedPlan, blockedLogs, completedStepKeys), env);
+    return {status: 'BLOCKED', plan: blockedPlan, logs: blockedLogs};
   }
+  const stepLogs = {};
+  const pushStepLog = (stepKey, line) => {
+    stepLogs[stepKey] = stepLogs[stepKey] || [];
+    stepLogs[stepKey].push(line);
+    logs.push(line);
+  };
   try {
     for (const step of plan.steps) {
       currentStepKey = step.key;
@@ -377,17 +391,17 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
           runConfigPath: request.runConfigPath,
           dryRun: false
         });
-        logs.push(`${saved.status}: ${plan.imageTag}`);
+        pushStepLog(step.key, `${saved.status}: ${plan.imageTag}`);
         completedStepKeys.push(step.key);
         updateStep(step.key, 'done');
         continue;
       }
       if (step.executable) {
-        logs.push(`[RUN] ${step.command}`);
+        pushStepLog(step.key, `[RUN] ${step.command}`);
         await runPowerShell(projectRoot, step.command, chunk => {
           const line = chunk.trim();
           if (line) {
-            logs.push(line);
+            pushStepLog(step.key, line);
             updateStep(step.key, 'running');
           }
         });
@@ -399,12 +413,13 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
       updateStep(step.key, 'done');
     }
   } catch (error) {
-    const errorLogs = logs.concat(`ERROR: ${error.message}`);
-    const failedPlan = markStepStatus(plan, completedStepKeys, currentStepKey, 'failed');
+    pushStepLog(currentStepKey, `ERROR: ${error.message}`);
+    const errorLogs = logs.slice();
+    const failedPlan = markStepStatus(plan, completedStepKeys, currentStepKey, 'failed', stepLogs);
     appendReleaseHistory(projectRoot, buildHistoryEntry('ERROR', failedPlan, errorLogs, completedStepKeys), env);
     return {status: 'ERROR', plan: failedPlan, logs: errorLogs, completedStepKeys};
   }
-  const markedPlan = markCompletedSteps(plan, completedStepKeys, 'done');
+  const markedPlan = markCompletedSteps(plan, completedStepKeys, 'done', stepLogs);
   appendReleaseHistory(projectRoot, buildHistoryEntry('EXECUTED', markedPlan, logs, completedStepKeys), env);
   return {status: 'EXECUTED', plan: markedPlan, logs, completedStepKeys};
 }
@@ -497,23 +512,27 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
   };
 }
 
-function markCompletedSteps(plan, completedStepKeys, status) {
+function markCompletedSteps(plan, completedStepKeys, status, stepLogs = {}) {
   const completed = new Set(completedStepKeys);
   return {
     ...plan,
-    steps: plan.steps.map(step => completed.has(step.key) ? {...step, status} : step)
+    steps: plan.steps.map(step => completed.has(step.key)
+      ? {...step, status, logs: stepLogs[step.key] || step.logs || []}
+      : {...step, logs: stepLogs[step.key] || step.logs || []})
   };
 }
 
-function markStepStatus(plan, completedStepKeys, stepKey, status) {
+function markStepStatus(plan, completedStepKeys, stepKey, status, stepLogs = {}) {
   const completed = new Set(completedStepKeys);
   return {
     ...plan,
     steps: plan.steps.map(step => {
       if (step.key === stepKey) {
-        return {...step, status};
+        return {...step, status, logs: stepLogs[step.key] || step.logs || []};
       }
-      return completed.has(step.key) ? {...step, status: 'done'} : step;
+      return completed.has(step.key)
+        ? {...step, status: 'done', logs: stepLogs[step.key] || step.logs || []}
+        : {...step, logs: stepLogs[step.key] || step.logs || []};
     })
   };
 }
@@ -578,9 +597,20 @@ function gitUpdateStep(branch, commit) {
   return {
     title: '更新到分支最新提交',
     summary: `切换到本地分支 ${branch} 并执行 fast-forward 更新`,
-    command: `git checkout ${shellToken(branch)} && git pull --ff-only`,
-    validation: 'git status --short --branch && git rev-parse --short HEAD'
+    command: chainPowerShellCommands([
+      `git checkout ${shellToken(branch)}`,
+      'git pull --ff-only'
+    ]),
+    validation: 'git status --short --branch; git rev-parse --short HEAD'
   };
+}
+
+function chainPowerShellCommands(commands) {
+  return commands
+    .map((command, index) => index === 0
+      ? command
+      : `if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; ${command}`)
+    .join('; ');
 }
 
 function isRemoteBranch(branch) {

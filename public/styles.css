@@ -370,6 +370,34 @@ button.danger {
   gap: 12px;
 }
 
+.summary-metrics {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.config-details,
+.aggregate-logs {
+  margin-top: 16px;
+}
+
+.config-details summary,
+.aggregate-logs summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px;
+  background: #ffffff;
+  box-shadow: 3px 3px 0 var(--line);
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.detail-metrics {
+  margin-top: 12px;
+}
+
 .metric {
   border: 1px solid var(--soft-line);
   background: rgba(255, 255, 255, 0.72);
@@ -412,6 +440,17 @@ button.danger {
 
 .step.final-step {
   background: var(--lavender);
+}
+
+.step.running {
+  outline: 3px solid var(--blue);
+  outline-offset: -5px;
+}
+
+.step.failed {
+  background: #ffd8cf;
+  outline: 3px solid #d64d3c;
+  outline-offset: -5px;
 }
 
 .step-title {
@@ -496,6 +535,42 @@ button.danger {
   color: #121212;
   background: var(--paper-strong);
   border: 2px solid var(--line);
+}
+
+.step-log-block {
+  border-top: 2px solid var(--line);
+  padding-top: 12px;
+}
+
+.step-log-block.empty {
+  opacity: 0.62;
+}
+
+.step-logs {
+  display: grid;
+  gap: 6px;
+  max-height: 280px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.step-logs li {
+  border: 1px solid var(--soft-line);
+  padding: 8px 9px;
+  background: #ffffff;
+  color: #1f1d1a;
+  font-family: "Consolas", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.step.failed .step-logs li:last-child {
+  border-color: #d64d3c;
+  background: #fff2ef;
 }
 
 .logs {

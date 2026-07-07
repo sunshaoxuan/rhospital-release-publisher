@@ -168,8 +168,9 @@
     steps.innerHTML = '';
     for (const [index, step] of plan.steps.entries()) {
       const item = document.createElement('article');
-      item.className = `step ${step.finalCheck ? 'final-step' : ''}`;
+      item.className = `step ${step.finalCheck ? 'final-step' : ''} ${step.status === 'running' ? 'running' : ''} ${step.status === 'failed' ? 'failed' : ''}`;
       const badge = actionTypeLabel(step);
+      const stepLogs = Array.isArray(step.logs) ? step.logs : [];
       item.innerHTML = `
         <div class="step-title">
           <div class="step-index">${String(index + 1).padStart(2, '0')}</div>
@@ -187,10 +188,30 @@
           <span>校验</span>
           <pre class="command validation-command"></pre>
         </div>
+        <div class="command-block step-log-block ${stepLogs.length ? '' : 'empty'}">
+          <span>本步日志</span>
+          <ul class="step-logs"></ul>
+        </div>
       `;
       item.querySelector('.action-command').textContent = step.command || '';
       item.querySelector('.validation-command').textContent = step.validation || '';
+      const stepLogList = item.querySelector('.step-logs');
+      if (stepLogs.length) {
+        for (const line of stepLogs) {
+          const logItem = document.createElement('li');
+          logItem.textContent = line;
+          stepLogList.appendChild(logItem);
+        }
+      } else {
+        const logItem = document.createElement('li');
+        logItem.textContent = '等待执行到此步骤';
+        stepLogList.appendChild(logItem);
+      }
       steps.appendChild(item);
+    }
+    const activeStep = steps.querySelector('.step.failed, .step.running');
+    if (activeStep) {
+      activeStep.scrollIntoView({block: 'center', behavior: 'smooth'});
     }
   }
 
