@@ -133,7 +133,7 @@ const server = http.createServer(async (req, res) => {
 loadStoredJobs();
 
 server.listen(port, '127.0.0.1', () => {
-  console.log(`Release publisher is running at http://127.0.0.1:${port}`);
+  console.log(`RHospital Release Console is running at http://127.0.0.1:${port}`);
   console.log(`Hospital project root: ${projectRoot}`);
   console.log('Dry run default: true');
 });

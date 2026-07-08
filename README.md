@@ -1,6 +1,6 @@
-# rhospital-release-publisher
+# RHospital Release Console
 
-本地网页版本发布器，用于替代 IDEA 中的 `148.135.9.123` Docker Run Configuration。
+RHospital 发布控制台，用于替代 IDEA 中的 `148.135.9.123` Docker Run Configuration。
 
 ## 作用
 
