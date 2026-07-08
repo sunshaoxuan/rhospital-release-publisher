@@ -1,0 +1,12 @@
+{
+  "dockerServers": {
+    "SSH178": {
+      "host": "178.239.117.99",
+      "username": "root",
+      "port": "22",
+      "keyPath": "C:\\workspace\\Secure\\sunsxaws.pem",
+      "dockerExePath": "/usr/bin/docker",
+      "dockerComposeExePath": "/usr/bin/docker"
+    }
+  }
+}

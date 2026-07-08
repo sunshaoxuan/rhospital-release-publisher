@@ -8,10 +8,10 @@
 - 支持从分支列表选择发布分支，并从该分支提交列表选择最新提交或指定提交
 - 解析当前 `hospital-backend:<TAG>` 和 `APP_TAG`
 - 默认把页面 TAG 输入框初始化为下一个建议 `APP_TAG`
-- 同步更新 IDEA 配置中的镜像 TAG 和 `APP_TAG`
+- 同步更新本地发布配置中的镜像 TAG 和 `APP_TAG`
 - 生成应用编译命令
 - 生成 Docker 镜像制作命令
-- 使用 Docker context 确认镜像写入生产 Docker 镜像池
+- 使用 `docker save`、`scp`、`docker load` 发布到生产 Docker 镜像池
 - 通过 SSH 预览生产端 `hospital-stack/docker-compose.yml` 的 TAG 替换
 - 生成进入生产编排目录后执行 `docker stack deploy` 的热发布命令
 - 默认只执行 dry run
@@ -74,7 +74,7 @@ npm start
 2. 获取远端代码
 3. 更新到分支最新提交或切换到指定提交
 4. 读取配置并校验 TAG
-5. 更新本地 IDEA 发布配置
+5. 更新本地发布配置
 6. 编译应用产物
 7. 制作 Docker 镜像
 8. 发布到目标镜像池
@@ -103,7 +103,7 @@ npm start
 - 构造历史会记录总耗时和最慢步骤，便于对比 Docker build、SSH 和本地 Git 的耗时差异
 - 构造历史会记录实际发布提交、提交时间、提交说明、镜像上传目标和每步命令摘要，用于事后审计
 
-页面的 `发布参数` 只保留常用发布信息。Docker context、IDEA Docker Server、SSH HostName、IdentityFile 等连接解析细节放在 `连接与解析详情` 折叠区，需要排查连接问题时再展开。
+页面的 `发布参数` 只保留常用发布信息。Docker context、发布 Docker Server、SSH HostName、IdentityFile 等连接解析细节放在 `连接与解析详情` 折叠区，需要排查连接问题时再展开。
 
 页面中的步骤徽标按动作性质区分：
 
@@ -112,7 +112,7 @@ npm start
 - `生产动作`：从发布到目标镜像池开始，包含生产编排 TAG 替换和 `docker stack deploy`
 - `远端只读校验`、`最终校验`：只读取生产侧状态，不标为生产动作
 
-页面中的 `APP_TAG` 输入框就是本次发布 TAG 的来源。点击 `执行流程` 后，流程会先按当前输入值进入 `更新本地 IDEA 发布配置` 节点：
+页面中的 `APP_TAG` 输入框就是本次发布 TAG 的来源。点击 `执行流程` 后，流程会先按当前输入值进入 `更新本地发布配置` 节点：
 
 - dry run 下只预览写入结果，不改真实配置文件
 - 正式执行且 `RELEASE_PUBLISHER_ALLOW_EXECUTE=true` 时才写回 `.run/148.135.9.123.run.xml`
@@ -143,17 +143,34 @@ npm start
 
 执行流程会先显示 Git 状态检查节点，再执行 `git fetch --prune origin`。如果选择 `最新提交`，发布器会切换到所选分支的最新提交；如果选择具体提交，发布器会执行 `git checkout <commit>`，并用 `git merge-base --is-ancestor <commit> <branch>` 校验该提交属于所选分支。
 
-当前 IDEA 配置中的 `server-name="SSH178"` 是 JetBrains Docker Server 名称。发布器会优先读取 JetBrains 用户配置：
+当前发布配置中的 `server-name="SSH178"` 是发布 Docker Server 名称。发布器会优先读取仓库内的 `release-publisher.config.json`：
+
+```json
+{
+  "dockerServers": {
+    "SSH178": {
+      "host": "178.239.117.99",
+      "username": "root",
+      "port": "22",
+      "keyPath": "C:\\workspace\\Secure\\sunsxaws.pem"
+    }
+  }
+}
+```
+
+这个文件只保存连接参数和私钥路径，不保存私钥内容。私钥文件仍应放在本机安全目录中，例如 `C:\workspace\Secure\sunsxaws.pem`。
+
+如果仓库配置文件不存在，发布器才会兜底读取 JetBrains 用户配置：
 
 ```text
 %APPDATA%\JetBrains\IntelliJIdea2026.1\options\remote-servers.xml
 %APPDATA%\JetBrains\IntelliJIdea2026.1\options\sshConfigs.xml
 ```
 
-如果能解析到 IDEA Docker Server，Docker 命令会使用等价的 SSH Docker endpoint，例如：
+如果能解析到发布 Docker Server，镜像上传会使用 `scp` 和 `ssh docker load`。构建始终使用本机 Docker，例如：
 
 ```powershell
-docker -H ssh://root@178.239.117.99:22 build -f Dockerfile --build-arg APP_TAG=2026070702 -t hospital-backend:2026070702 .
+docker build -f Dockerfile --build-arg APP_TAG=2026070702 -t hospital-backend:2026070702 .
 ```
 
 如果本机存在同名 Docker CLI context，发布器也会显示该 context 信息。若需要手工指定 Docker 目标名称，可在页面里修改 `Docker context`，也可以通过环境变量指定：
@@ -168,7 +185,7 @@ $env:RELEASE_PUBLISHER_DOCKER_CONTEXT='SSH178'
 docker context inspect SSH178
 ```
 
-如果本机 Docker 没有这个 context，页面会显示 `Docker 未找到 context SSH178`。这只表示 Docker CLI context 不存在。只要 IDEA Docker Server 能解析到 SSH 主机和密钥，发布器仍会显示 IDEA Docker Server 信息，并生成 `docker -H ssh://...` 命令。
+如果本机 Docker 没有这个 context，页面会显示 `Docker 未找到 context SSH178`。这只表示 Docker CLI context 不存在。只要发布 Docker Server 能解析到 SSH 主机和密钥，发布器仍可执行镜像上传和热发布。
 
 SSH 热发布默认也使用 `SSH178` 作为 SSH 目标。如果你的 SSH 目标不同，可在页面里修改 `SSH 目标`，也可以通过环境变量指定：
 
@@ -180,7 +197,7 @@ $env:RELEASE_PUBLISHER_SSH_TARGET='SSH178'
 
 1. `RELEASE_PUBLISHER_SSH_TARGET`
 2. `RELEASE_PUBLISHER_DOCKER_CONTEXT`
-3. IDEA 配置文件里的 `server-name`
+3. 本地发布配置文件里的 `server-name`
 
 页面还会执行本地只读解析：
 
@@ -202,24 +219,26 @@ ssh -G SSH178
 $env:RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR='/opt/1panel/docker/compose/hospital-stack'
 ```
 
-当前 `Dockerfile` 是多阶段构建。第一阶段使用 Maven 编译，第二阶段制作运行镜像。由于 IDEA 配置使用 Docker context，镜像会直接写入该 Docker context 对应的目标 Docker 环境。页面会把它拆成三个独立节点显示。
+当前 `Dockerfile` 是多阶段构建。第一阶段使用 Maven 编译，第二阶段制作运行镜像。发布器会在本机 Docker 完成构建，再把镜像保存为 tar，通过 SSH 上传到目标 Docker 主机并执行 `docker load`。页面会把它拆成三个独立节点显示。
 
 当 `APP_TAG=2026070702` 时，编译应用产物命令类似：
 
 ```powershell
-docker --context SSH178 build --target build -f Dockerfile --build-arg APP_TAG=2026070702 -t hospital-backend:2026070702-buildcheck .
+docker build --target build -f Dockerfile --build-arg APP_TAG=2026070702 -t hospital-backend:2026070702-buildcheck .
 ```
 
 制作 Docker 镜像命令类似：
 
 ```powershell
-docker --context SSH178 build -f Dockerfile --build-arg APP_TAG=2026070702 -t hospital-backend:2026070702 .
+docker build -f Dockerfile --build-arg APP_TAG=2026070702 -t hospital-backend:2026070702 .
 ```
 
-发布到目标镜像池校验命令类似：
+发布到目标镜像池命令类似：
 
 ```powershell
-docker --context SSH178 image inspect hospital-backend:2026070702 --format '{{.Id}} {{.RepoTags}}'
+docker save -o $env:TEMP\hospital-backend-2026070702.tar hospital-backend:2026070702
+scp -i C:\workspace\Secure\sunsxaws.pem -P 22 $env:TEMP\hospital-backend-2026070702.tar root@178.239.117.99:/tmp/hospital-backend-2026070702.tar
+ssh -i C:\workspace\Secure\sunsxaws.pem -p 22 root@178.239.117.99 'docker load -i /tmp/hospital-backend-2026070702.tar && rm -f /tmp/hospital-backend-2026070702.tar'
 ```
 
 勾选 SSH 热发布计划时，会追加远端检查命令：
@@ -248,7 +267,8 @@ npm test
 
 测试覆盖：
 
-- IDEA 配置解析
+- 本地发布配置解析
+- 发布器仓库 Docker Server 配置解析
 - 下一个 TAG 建议
 - 镜像 TAG 与 `APP_TAG` 联动更新
 - dry run 命令计划

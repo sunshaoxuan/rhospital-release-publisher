@@ -10,6 +10,7 @@ const DEFAULT_STACK_NAME = 'hospital_stack';
 const DEFAULT_REMOTE_COMPOSE_DIR = '/opt/1panel/docker/compose/hospital-stack';
 const DEFAULT_JETBRAINS_PRODUCT_DIR = 'IntelliJIdea2026.1';
 const DEFAULT_HISTORY_FILE = '.release-history.json';
+const DEFAULT_PUBLISHER_CONFIG = 'release-publisher.config.json';
 const TAG_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
 const GIT_REF_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._/@:-]{0,127}$/;
 const GIT_COMMIT_PATTERN = /^[0-9a-fA-F]{7,40}$/;
@@ -71,7 +72,7 @@ function createPlan(projectRoot, request, env = process.env) {
   const remoteComposeDir = request.remoteComposeDir || env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR;
   const sshResolution = resolveSshTargetDetails(remoteSshTarget, env);
   const dockerContextResolution = resolveDockerContextDetails(dockerContext, env);
-  const ideaDockerServerResolution = resolveIdeaDockerServerDetails(dockerContext, env);
+  const ideaDockerServerResolution = resolveReleaseDockerServerDetails(dockerContext, env);
   const dockerTarget = resolveDockerCommandTarget(dockerContext, dockerContextResolution);
   const remoteImageTarget = resolveRemoteImageTarget(remoteSshTarget, ideaDockerServerResolution);
   const includeStackDeploy = Boolean(request.includeStackDeploy);
@@ -125,14 +126,14 @@ function createPlan(projectRoot, request, env = process.env) {
     releaseStep({
       key: 'validate-release-input',
       title: '读取配置并校验 TAG',
-      summary: '确认 IDEA 配置、镜像 TAG 和 APP_TAG 使用同一个版本号',
+      summary: '确认本地发布配置、镜像 TAG 和 APP_TAG 使用同一个版本号',
       command: `读取 ${config.runConfigPath}`,
       validation: `APP_TAG=${appTag}, image=${imageTag}`,
       actionType: 'local-check'
     }),
     releaseStep({
       key: 'save-run-config',
-      title: '更新本地 IDEA 发布配置',
+      title: '更新本地发布配置',
       summary: '把 imageTag 和 APP_TAG 同步替换为本次发版 TAG',
       command: `${config.runConfigPath}: imageTag=${imageTag}, APP_TAG=${appTag}`,
       validation: `确认 ${config.runConfigPath} 中同时包含 ${imageTag} 和 APP_TAG=${appTag}`,
@@ -894,6 +895,74 @@ function resolveRemoteImageTarget(target, ideaDockerServerResolution) {
   };
 }
 
+function resolveReleaseDockerServerDetails(serverName, env = process.env) {
+  const publisherConfigResolution = resolvePublisherDockerServerDetails(serverName, env);
+  if (publisherConfigResolution.resolved || publisherConfigResolution.exists) {
+    return publisherConfigResolution;
+  }
+  return resolveIdeaDockerServerDetails(serverName, env);
+}
+
+function resolvePublisherDockerServerDetails(serverName, env = process.env) {
+  const configPath = publisherConfigPath(env);
+  const result = {
+    name: serverName || '',
+    source: 'release-publisher.config.json',
+    configPath,
+    exists: fs.existsSync(configPath),
+    resolved: false,
+    sshConfigId: '',
+    host: '',
+    username: '',
+    port: '',
+    keyPath: '',
+    dockerExePath: '',
+    dockerComposeExePath: '',
+    dockerHost: '',
+    note: '',
+    error: ''
+  };
+  if (!serverName) {
+    result.note = '未设置 Docker Server 名称';
+    return result;
+  }
+  if (!result.exists) {
+    result.note = '未找到 release-publisher.config.json';
+    return result;
+  }
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const servers = config.dockerServers || {};
+    const server = servers[serverName];
+    if (!server) {
+      result.note = `release-publisher.config.json 未找到 Docker Server ${serverName}`;
+      return result;
+    }
+    result.host = String(server.host || '');
+    result.username = String(server.username || server.user || '');
+    result.port = String(server.port || '22');
+    result.keyPath = String(server.keyPath || '');
+    result.dockerExePath = String(server.dockerExePath || '');
+    result.dockerComposeExePath = String(server.dockerComposeExePath || '');
+    result.dockerHost = result.username && result.host
+      ? `ssh://${result.username}@${result.host}${result.port ? `:${result.port}` : ''}`
+      : '';
+    result.resolved = Boolean(result.dockerHost);
+    result.note = result.resolved ? '已读取发布器仓库配置' : '发布器仓库配置不完整';
+    return result;
+  } catch (error) {
+    result.error = error.message;
+    result.note = 'release-publisher.config.json 不是有效 JSON';
+    return result;
+  }
+}
+
+function publisherConfigPath(env = process.env) {
+  return env.RELEASE_PUBLISHER_CONFIG
+    ? path.resolve(env.RELEASE_PUBLISHER_CONFIG)
+    : path.resolve(__dirname, '..', DEFAULT_PUBLISHER_CONFIG);
+}
+
 function publishImageCommand(imageTag, target) {
   const safeName = imageTag.replace(/[^0-9A-Za-z_.-]/g, '-');
   const remoteTar = `/tmp/${safeName}.tar`;
@@ -1391,6 +1460,8 @@ module.exports = {
   buildHistoryEntry,
   resolveSshTargetDetails,
   resolveDockerContextDetails,
+  resolveReleaseDockerServerDetails,
+  resolvePublisherDockerServerDetails,
   resolveIdeaDockerServerDetails,
   resolveDockerCommandTarget,
   listGitBranches,

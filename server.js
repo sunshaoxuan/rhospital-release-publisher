@@ -20,7 +20,7 @@ const {
   proposeNextTag,
   resolveSshTargetDetails,
   resolveDockerContextDetails,
-  resolveIdeaDockerServerDetails,
+  resolveReleaseDockerServerDetails,
   resolveDockerCommandTarget
 } = require('./src/releasePublisherCore');
 
@@ -59,7 +59,7 @@ const server = http.createServer(async (req, res) => {
         || config.serverName;
       const dockerServerName = process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT || config.serverName;
       const dockerContextResolution = resolveDockerContextDetails(dockerServerName, process.env);
-      const ideaDockerServerResolution = resolveIdeaDockerServerDetails(dockerServerName, process.env);
+      const ideaDockerServerResolution = resolveReleaseDockerServerDetails(dockerServerName, process.env);
       return sendJson(res, 200, {
         ...config,
         suggestedTag: proposeNextTag(config.appTag),

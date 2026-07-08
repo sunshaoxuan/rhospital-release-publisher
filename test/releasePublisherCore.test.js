@@ -10,6 +10,7 @@ const {
   defaultProjectRoot,
   executePlan,
   resolveDockerContextDetails,
+  resolvePublisherDockerServerDetails,
   resolveIdeaDockerServerDetails,
   listGitBranches,
   listGitCommits,
@@ -332,6 +333,41 @@ test('resolves IDEA Docker Server for SSH image upload while building locally', 
     && step.command.includes('docker load -i')));
 });
 
+test('resolves release Docker Server from repository config without JetBrains options', () => {
+  const root = tempProject(sampleXml);
+  const configPath = tempPublisherConfig();
+  const plan = createPlan(root, {
+    appTag: '2026070702',
+    dryRun: true,
+    dockerContext: 'SSH178',
+    includeStackDeploy: false
+  }, {
+    RELEASE_PUBLISHER_CONFIG: configPath,
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_JETBRAINS_OPTIONS_DIR: path.join(os.tmpdir(), 'missing-jetbrains-options')
+  });
+
+  assert.equal(plan.config.ideaDockerServerResolution.source, 'release-publisher.config.json');
+  assert.equal(plan.config.ideaDockerServerResolution.resolved, true);
+  assert.equal(plan.config.remoteImageTarget.host, '178.239.117.99');
+  assert.equal(plan.config.remoteImageTarget.keyPath, 'C:\\workspace\\Secure\\sunsxaws.pem');
+  assert.ok(plan.steps.some(step => step.key === 'publish-image'
+    && step.command.includes("scp -i 'C:\\workspace\\Secure\\sunsxaws.pem' -P 22")
+    && step.command.includes("ssh -i 'C:\\workspace\\Secure\\sunsxaws.pem' -p 22 'root@178.239.117.99'")));
+});
+
+test('resolves repository Docker Server details directly', () => {
+  const configPath = tempPublisherConfig();
+  const result = resolvePublisherDockerServerDetails('SSH178', {
+    RELEASE_PUBLISHER_CONFIG: configPath
+  });
+
+  assert.equal(result.resolved, true);
+  assert.equal(result.source, 'release-publisher.config.json');
+  assert.equal(result.dockerHost, 'ssh://root@178.239.117.99:22');
+});
+
 test('resolves IDEA Docker Server details directly', () => {
   const optionsDir = tempJetBrainsOptions();
   const result = resolveIdeaDockerServerDetails('SSH178', {
@@ -643,4 +679,22 @@ function tempJetBrainsOptions() {
   </component>
 </application>`, 'utf8');
   return optionsDir;
+}
+
+function tempPublisherConfig() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-config-'));
+  const configPath = path.join(root, 'release-publisher.config.json');
+  fs.writeFileSync(configPath, JSON.stringify({
+    dockerServers: {
+      SSH178: {
+        host: '178.239.117.99',
+        username: 'root',
+        port: '22',
+        keyPath: 'C:\\workspace\\Secure\\sunsxaws.pem',
+        dockerExePath: '/usr/bin/docker',
+        dockerComposeExePath: '/usr/bin/docker'
+      }
+    }
+  }, null, 2), 'utf8');
+  return configPath;
 }
