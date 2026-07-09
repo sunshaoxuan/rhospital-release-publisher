@@ -216,8 +216,10 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'read-remote-compose',
       title: '读取生产编排当前镜像',
       summary: '进入 hospital-stack 编排目录，确认当前 compose 中的 hospital-backend 镜像行',
-      command: remoteSshCommand(remoteImageTarget,
-        `cd ${shellToken(remoteComposeDir)} && grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:' docker-compose.yml`),
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
+        `cd ${shellToken(remoteComposeDir)}`,
+        `grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:' docker-compose.yml`
+      ])),
       validation: `必须能读到 image: hospital-backend:<TAG>`,
       actionType: 'remote-check',
       executable: true
@@ -226,16 +228,19 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'update-remote-compose',
       title: '备份并替换生产编排 TAG',
       summary: '备份 docker-compose.yml，然后把 image: hospital-backend:<TAG> 替换成本次 TAG',
-      command: remoteSshCommand(remoteImageTarget,
-        [
-          `cd ${shellToken(remoteComposeDir)}`,
-          `cp docker-compose.yml docker-compose.yml.bak.$(date +%Y%m%d%H%M%S)`,
-          `sed -i -E 's#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\\\1${imageTag}#' docker-compose.yml`
-        ].join(' && ')),
-      validation: remoteSshCommand(remoteImageTarget,
-        `cd ${shellToken(remoteComposeDir)} && grep -nE '^[[:space:]]*image:[[:space:]]*${imageTag}$' docker-compose.yml`),
-      validationCommand: remoteSshCommand(remoteImageTarget,
-        `cd ${shellToken(remoteComposeDir)} && grep -nE '^[[:space:]]*image:[[:space:]]*${imageTag}$' docker-compose.yml`),
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
+        `cd ${shellToken(remoteComposeDir)}`,
+        `cp docker-compose.yml docker-compose.yml.bak.$(date +%Y%m%d%H%M%S)`,
+        `sed -i -E 's#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\1${escapeSedReplacement(imageTag)}#' docker-compose.yml`
+      ])),
+      validation: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
+        `cd ${shellToken(remoteComposeDir)}`,
+        `grep -nE '^[[:space:]]*image:[[:space:]]*${escapeEgrepPattern(imageTag)}$' docker-compose.yml`
+      ])),
+      validationCommand: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
+        `cd ${shellToken(remoteComposeDir)}`,
+        `grep -nE '^[[:space:]]*image:[[:space:]]*${escapeEgrepPattern(imageTag)}$' docker-compose.yml`
+      ])),
       actionType: 'production',
       productionAction: true,
       executable: true
@@ -244,12 +249,16 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'deploy-stack',
       title: '执行 Docker Stack 热发布',
       summary: '在生产编排目录执行 stack deploy，触发 Swarm 按 compose 新镜像滚动更新',
-      command: remoteSshCommand(remoteImageTarget,
-        `cd ${shellToken(remoteComposeDir)} && docker stack deploy -c docker-compose.yml ${config.stackName}`),
-      validation: remoteSshCommand(remoteImageTarget,
-        `docker stack services ${config.stackName}`),
-      validationCommand: remoteSshCommand(remoteImageTarget,
-        `docker stack services ${config.stackName}`),
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
+        `cd ${shellToken(remoteComposeDir)}`,
+        `docker stack deploy -c docker-compose.yml ${shellToken(config.stackName)}`
+      ])),
+      validation: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        `docker stack services ${shellToken(config.stackName)}`
+      )),
+      validationCommand: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        `docker stack services ${shellToken(config.stackName)}`
+      )),
       actionType: 'production',
       productionAction: true,
       executable: true
@@ -259,7 +268,7 @@ function createPlan(projectRoot, request, env = process.env) {
       title: '最终运行校验',
       summary: '确认 stack 服务、任务状态和服务镜像都已经指向本次 TAG',
       command: remoteSshCommand(remoteImageTarget,
-        finalRuntimeCheckCommand(config.stackName, config.containerName, imageTag)),
+        remoteBashScriptCommand(finalRuntimeCheckCommand(config.stackName, config.containerName, imageTag))),
       validation: `服务镜像必须包含 ${imageTag}，任务不能处于 Failed 或 Rejected`,
       actionType: 'remote-check',
       executable: true,
@@ -1013,13 +1022,19 @@ function publishImageCommand(imageTag, target) {
 function finalRuntimeCheckCommand(stackName, containerName, imageTag) {
   const serviceName = `${stackName}_${containerName}`;
   return [
-    `docker stack services ${stackName}`,
-    `docker stack ps ${stackName} --no-trunc`,
-    `service_image=$(docker service inspect ${serviceName} --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}')`,
+    `docker stack services ${shellToken(stackName)}`,
+    `docker stack ps ${shellToken(stackName)} --no-trunc`,
+    `service_image=$(docker service inspect ${shellToken(serviceName)} --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}')`,
     `echo service_image=$service_image`,
     `case "$service_image" in *${imageTag}*) ;; *) echo "ERROR: service image is not ${imageTag}"; exit 1;; esac`,
-    `if docker stack ps ${stackName} --no-trunc --format '{{.CurrentState}} {{.Error}}' | grep -E 'Failed|Rejected'; then echo "ERROR: stack task has failed state"; exit 1; fi`
+    `if docker stack ps ${shellToken(stackName)} --no-trunc --format '{{.CurrentState}} {{.Error}}' | grep -E 'Failed|Rejected'; then echo "ERROR: stack task has failed state"; exit 1; fi`
   ].join(' && ');
+}
+
+function remoteBashScriptCommand(script) {
+  const text = Array.isArray(script) ? script.join('\n') : String(script);
+  const encoded = Buffer.from(`set -e\n${text}\n`, 'utf8').toString('base64');
+  return `printf %s "${encoded}" | base64 -d | bash`;
 }
 
 function remoteSshCommand(target, remoteCommand) {
@@ -1466,6 +1481,14 @@ function shellToken(value) {
     return text;
   }
   return `'${escapePowerShell(text)}'`;
+}
+
+function escapeSedReplacement(value) {
+  return String(value).replace(/[\\&#]/g, '\\$&');
+}
+
+function escapeEgrepPattern(value) {
+  return String(value).replace(/[.[\]{}()*+?^$\\|#]/g, '\\$&');
 }
 
 function escapePowerShell(value) {

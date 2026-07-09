@@ -26,7 +26,7 @@ C:\workspace\hospital-backend
 C:\workspace\rhospital-release-publisher
 ```
 
-启动发布器：
+手工启动发布器：
 
 ```powershell
 cd C:\workspace\rhospital-release-publisher
@@ -45,6 +45,39 @@ http://127.0.0.1:8787
 $env:RHOSPITAL_PROJECT_ROOT='D:\dev\hospital-backend'
 npm start
 ```
+
+推荐注册为 Windows 登录后自动启动任务，固定监听 `127.0.0.1:8787`：
+
+```powershell
+cd C:\workspace\rhospital-release-publisher
+npm run service:install
+```
+
+查看启动任务和 8787 端口占用：
+
+```powershell
+npm run service:status
+```
+
+移除启动任务：
+
+```powershell
+npm run service:uninstall
+```
+
+如果这台开发机要允许页面执行正式编译、镜像上传和热发布动作，需要显式安装带执行权限的启动任务：
+
+```powershell
+npm run service:install:execute
+```
+
+自动启动任务默认不会开启 `RELEASE_PUBLISHER_ALLOW_EXECUTE=true`。这样即使服务常驻，页面在未显式授权时仍只能执行 dry run 或被服务端拦截真实动作。启动任务使用 Windows Task Scheduler，任务名为 `RHospital Release Console`，日志写入：
+
+```text
+C:\workspace\rhospital-release-publisher\.service\release-console.log
+```
+
+发布器固定使用 8787 端口。若端口已被占用，服务会直接退出并在日志中提示，不会自动改到其他端口，避免页面连接到非预期实例。
 
 ## Dry Run
 
@@ -241,22 +274,36 @@ scp -i C:\workspace\Secure\sunsxaws.pem -P 22 $env:TEMP\hospital-backend-2026070
 ssh -i C:\workspace\Secure\sunsxaws.pem -p 22 root@178.239.117.99 'docker load -i /tmp/hospital-backend-2026070702.tar && rm -f /tmp/hospital-backend-2026070702.tar'
 ```
 
-勾选 SSH 热发布计划时，会追加远端检查命令：
+勾选 SSH 热发布计划时，页面会生成 SSH 远端脚本投递命令。命令外层形如：
 
 ```powershell
-ssh SSH178 'cd /opt/1panel/docker/compose/hospital-stack && grep -nE ''^[[:space:]]*image:[[:space:]]*hospital-backend:'' docker-compose.yml'
+ssh SSH178 'printf %s "<base64-script>" | base64 -d | bash'
 ```
 
-远端 TAG 替换命令：
+这样可以避免 Windows PowerShell、本机 OpenSSH 和远端 bash 三层引号转义互相干扰。解码后的远端读取脚本类似：
 
-```powershell
-ssh SSH178 'cd /opt/1panel/docker/compose/hospital-stack && cp docker-compose.yml docker-compose.yml.bak.$(date +%Y%m%d%H%M%S) && sed -i -E "s#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\1hospital-backend:2026070702#" docker-compose.yml && grep -nE ''^[[:space:]]*image:[[:space:]]*hospital-backend:'' docker-compose.yml'
+```bash
+set -e
+cd /opt/1panel/docker/compose/hospital-stack
+grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:' docker-compose.yml
 ```
 
-远端热发布命令：
+解码后的远端 TAG 替换脚本类似：
 
-```powershell
-ssh SSH178 'cd /opt/1panel/docker/compose/hospital-stack && docker stack deploy -c docker-compose.yml hospital_stack'
+```bash
+set -e
+cd /opt/1panel/docker/compose/hospital-stack
+cp docker-compose.yml docker-compose.yml.bak.$(date +%Y%m%d%H%M%S)
+sed -i -E 's#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\1hospital-backend:2026070702#' docker-compose.yml
+grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:2026070702$' docker-compose.yml
+```
+
+解码后的远端热发布脚本类似：
+
+```bash
+set -e
+cd /opt/1panel/docker/compose/hospital-stack
+docker stack deploy -c docker-compose.yml hospital_stack
 ```
 
 ## 测试

@@ -72,6 +72,12 @@ const sampleXml = `<component name="ProjectRunConfigurationManager">
   </configuration>
 </component>`;
 
+function decodedRemoteScript(command) {
+  const match = String(command).match(/printf %s "([0-9A-Za-z+/=]+)" \| base64 -d \| bash/);
+  assert.ok(match, `command does not contain an encoded remote script: ${command}`);
+  return Buffer.from(match[1], 'base64').toString('utf8');
+}
+
 test('parses IDEA Docker run config release values', () => {
   const config = parseIdeaRunConfig(sampleXml);
 
@@ -139,30 +145,29 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.command.includes('scp')
     && step.command.includes('docker load -i')));
   assert.ok(plan.steps.some(step => step.key === 'read-remote-compose'
-    && step.command.includes(`cd ${DEFAULT_REMOTE_COMPOSE_DIR}`)));
+    && decodedRemoteScript(step.command).includes(`cd ${DEFAULT_REMOTE_COMPOSE_DIR}`)));
   assert.ok(plan.steps.some(step => step.key === 'update-remote-compose'
-    && step.command.includes('sed -i -E')
-    && step.command.includes("''s#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#")
-    && step.command.includes('hospital-backend:')
-    && step.command.includes('2026070702')));
+    && step.command.includes('base64 -d | bash')
+    && decodedRemoteScript(step.command).includes('sed -i -E')
+    && decodedRemoteScript(step.command).includes('s#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\1hospital-backend:2026070702#')));
   assert.ok(plan.steps.some(step => step.key === 'deploy-stack'
-    && step.command.includes('docker stack deploy -c docker-compose.yml hospital_stack')));
+    && decodedRemoteScript(step.command).includes('docker stack deploy -c docker-compose.yml hospital_stack')));
   assert.ok(plan.steps.every(step => step.summary && step.validation && step.status === 'pending'));
   assert.ok(plan.steps.some(step => step.key === 'compile-artifact'
     && step.validationCommand.includes('docker image inspect hospital-backend:2026070702-buildcheck')));
   assert.ok(plan.steps.some(step => step.key === 'publish-image'
     && step.validationCommand.includes('docker image inspect hospital-backend:2026070702')));
   assert.ok(plan.steps.some(step => step.key === 'update-remote-compose'
-    && step.validationCommand.includes('grep -nE')
-    && step.validationCommand.includes('hospital-backend:2026070702')));
+    && decodedRemoteScript(step.validationCommand).includes('grep -nE')
+    && decodedRemoteScript(step.validationCommand).includes('hospital-backend:2026070702')));
   assert.ok(plan.steps.some(step => step.key === 'deploy-stack'
-    && step.validationCommand.includes('docker stack services hospital_stack')));
+    && decodedRemoteScript(step.validationCommand).includes('docker stack services hospital_stack')));
   assert.ok(plan.steps.some(step => step.key === 'final-runtime-check'
     && step.finalCheck
     && step.validation.includes('hospital-backend:2026070702')
-    && step.command.includes('service_image=$(docker service inspect hospital_stack_hospital-backend')
-    && step.command.includes('ERROR: service image is not hospital-backend:2026070702')
-    && step.command.includes('Failed|Rejected')));
+    && decodedRemoteScript(step.command).includes('service_image=$(docker service inspect hospital_stack_hospital-backend')
+    && decodedRemoteScript(step.command).includes('ERROR: service image is not hospital-backend:2026070702')
+    && decodedRemoteScript(step.command).includes('Failed|Rejected')));
   assertStepType(plan, 'git-status-before-update', 'local-check', false);
   assertStepType(plan, 'git-fetch', 'local-code', false);
   assertStepType(plan, 'git-update', 'local-code', false);
@@ -266,7 +271,8 @@ test('uses explicit SSH target and remote compose directory in hot deploy plan',
   assert.equal(plan.config.remoteSshTarget, 'root@148.135.9.123');
   assert.equal(plan.config.remoteComposeDir, '/opt/1panel/docker/compose/hospital-stack');
   assert.ok(plan.steps.some(step => step.command.includes("ssh 'root@148.135.9.123'")));
-  assert.ok(plan.steps.some(step => step.command.includes('cd /opt/1panel/docker/compose/hospital-stack')));
+  assert.ok(plan.steps.some(step => step.command.includes('base64 -d | bash')
+    && decodedRemoteScript(step.command).includes('cd /opt/1panel/docker/compose/hospital-stack')));
 });
 
 test('parses ssh -G output for display', () => {

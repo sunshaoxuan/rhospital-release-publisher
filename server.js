@@ -132,6 +132,15 @@ const server = http.createServer(async (req, res) => {
 
 loadStoredJobs();
 
+server.on('error', error => {
+  if (error.code === 'EADDRINUSE') {
+    console.error(`RHospital Release Console cannot start: 127.0.0.1:${port} is already in use.`);
+    console.error(`Run scripts\\status-startup-task.ps1 to find the active service or process.`);
+    process.exit(1);
+  }
+  throw error;
+});
+
 server.listen(port, '127.0.0.1', () => {
   console.log(`RHospital Release Console is running at http://127.0.0.1:${port}`);
   console.log(`Hospital project root: ${projectRoot}`);
