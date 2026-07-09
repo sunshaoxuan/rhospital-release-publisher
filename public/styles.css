@@ -181,7 +181,7 @@ p {
 }
 
 .flow-node.checked.final-node {
-  background: #cde4ff;
+  background: var(--mint);
 }
 
 .flow-node.running {

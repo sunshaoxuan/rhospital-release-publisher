@@ -694,6 +694,11 @@ test('default project root points to sibling hospital backend unless overridden'
   }
 });
 
+test('completed final flow node uses the same success background as other completed nodes', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+  assert.match(css, /\.flow-node\.checked\.final-node\s*\{\s*background:\s*var\(--mint\);/);
+});
+
 function tempProject(xml) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-'));
   const runDir = path.join(root, '.run');
