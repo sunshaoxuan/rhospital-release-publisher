@@ -230,7 +230,7 @@ function createPlan(projectRoot, request, env = process.env) {
         [
           `cd ${shellToken(remoteComposeDir)}`,
           `cp docker-compose.yml docker-compose.yml.bak.$(date +%Y%m%d%H%M%S)`,
-          `sed -i -E "s#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\\\1${imageTag}#" docker-compose.yml`
+          `sed -i -E 's#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\\\1${imageTag}#' docker-compose.yml`
         ].join(' && ')),
       validation: remoteSshCommand(remoteImageTarget,
         `cd ${shellToken(remoteComposeDir)} && grep -nE '^[[:space:]]*image:[[:space:]]*${imageTag}$' docker-compose.yml`),

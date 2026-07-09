@@ -142,6 +142,7 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.command.includes(`cd ${DEFAULT_REMOTE_COMPOSE_DIR}`)));
   assert.ok(plan.steps.some(step => step.key === 'update-remote-compose'
     && step.command.includes('sed -i -E')
+    && step.command.includes("''s#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#")
     && step.command.includes('hospital-backend:')
     && step.command.includes('2026070702')));
   assert.ok(plan.steps.some(step => step.key === 'deploy-stack'
