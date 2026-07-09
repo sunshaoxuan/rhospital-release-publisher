@@ -120,7 +120,7 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.equal(plan.dryRun, true);
   assert.equal(plan.gitBranch, 'origin/master');
   assert.equal(plan.gitCommit, 'latest');
-  assert.equal(plan.config.executionEnabled, false);
+  assert.equal(plan.config.executionEnabled, true);
   assert.equal(plan.config.dockerContextResolution.note, '已跳过 Docker context 解析');
   assert.ok(plan.steps.some(step => step.key === 'git-status-before-update'
     && step.command.includes('git status --short --branch')
@@ -448,7 +448,6 @@ test('execute runs validation commands after executable steps', async () => {
     includeStackDeploy: false
   }, {
     PATH: `${commandBin}${path.delimiter}${process.env.PATH || ''}`,
-    RELEASE_PUBLISHER_ALLOW_EXECUTE: 'true',
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
@@ -500,29 +499,30 @@ test('history entry records release commit evidence and step summary', () => {
     && step.logs.includes('0123456789abcdef0123456789abcdef01234567')));
 });
 
-test('execute without dry run is blocked before mutating file when execution is not enabled', async () => {
+test('execute without dry run runs without a separate environment authorization flag', async () => {
   const root = tempProject(sampleXml);
   const configPath = path.join(root, '.run', '148.135.9.123.run.xml');
   const historyPath = path.join(root, 'history.json');
+  const commandBin = tempCommandBin();
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
     dockerContext: 'SSH178',
-    includeStackDeploy: true
+    includeStackDeploy: false
   }, {
+    PATH: `${commandBin}${path.delimiter}${process.env.PATH || ''}`,
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
     RELEASE_PUBLISHER_HISTORY_FILE: historyPath
   });
 
-  assert.equal(result.status, 'BLOCKED');
-  assert.ok(result.logs.includes('RELEASE_PUBLISHER_ALLOW_EXECUTE is not true'));
-  assert.equal(fs.readFileSync(configPath, 'utf8'), sampleXml);
+  assert.equal(result.status, 'EXECUTED');
+  assert.match(fs.readFileSync(configPath, 'utf8'), /2026070702/);
   const history = readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
   assert.equal(history.length, 1);
-  assert.equal(history[0].status, 'BLOCKED');
-  assert.equal(history[0].completedStepCount, 0);
+  assert.equal(history[0].status, 'EXECUTED');
+  assert.ok(history[0].completedStepCount > 0);
 });
 
 test('execute errors are written to history with partial progress', async () => {
@@ -535,7 +535,6 @@ test('execute errors are written to history with partial progress', async () => 
     dockerContext: 'SSH178',
     includeStackDeploy: false
   }, {
-    RELEASE_PUBLISHER_ALLOW_EXECUTE: 'true',
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
@@ -576,7 +575,6 @@ test('execute can be cancelled before running commands', async () => {
     dockerContext: 'SSH178',
     includeStackDeploy: false
   }, {
-    RELEASE_PUBLISHER_ALLOW_EXECUTE: 'true',
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',

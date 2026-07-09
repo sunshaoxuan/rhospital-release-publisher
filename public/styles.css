@@ -113,10 +113,6 @@ p {
   background: var(--mint);
 }
 
-.state.blocked-state {
-  background: #ffd8cf;
-}
-
 .flow-panel,
 .panel {
   background: rgba(255, 250, 240, 0.96);

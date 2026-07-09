@@ -287,7 +287,7 @@ function createPlan(projectRoot, request, env = process.env) {
       ideaDockerServerResolution,
       dockerCommandTarget: dockerTarget,
       remoteImageTarget,
-      executionEnabled: env.RELEASE_PUBLISHER_ALLOW_EXECUTE === 'true'
+      executionEnabled: true
     },
     appTag,
     imageTag,
@@ -297,8 +297,8 @@ function createPlan(projectRoot, request, env = process.env) {
     dryRun: request.dryRun !== false,
     steps,
     guardrails: [
-      'dry run 只生成命令和写入预览',
-      '正式编译和远端镜像池写入需要 RELEASE_PUBLISHER_ALLOW_EXECUTE=true'
+      '勾选 dry run 时只生成命令和写入预览',
+      '取消 dry run 后会执行本地编译、镜像上传和勾选范围内的远端发布步骤'
     ]
   };
 }
@@ -407,12 +407,6 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
     const markedPlan = markCompletedSteps(plan, completedStepKeys, 'dry-run-checked', stepLogs, {});
     appendReleaseHistory(projectRoot, buildHistoryEntry('DRY_RUN', markedPlan, logs, completedStepKeys), env);
     return {status: 'DRY_RUN', plan: markedPlan, logs, completedStepKeys};
-  }
-  if (env.RELEASE_PUBLISHER_ALLOW_EXECUTE !== 'true') {
-    const blockedLogs = logs.concat('RELEASE_PUBLISHER_ALLOW_EXECUTE is not true');
-    const blockedPlan = markStepStatus(plan, completedStepKeys, '', 'pending', {});
-    appendReleaseHistory(projectRoot, buildHistoryEntry('BLOCKED', blockedPlan, blockedLogs, completedStepKeys), env);
-    return {status: 'BLOCKED', plan: blockedPlan, logs: blockedLogs};
   }
   const pushStepLog = (stepKey, line) => {
     stepLogs[stepKey] = stepLogs[stepKey] || [];

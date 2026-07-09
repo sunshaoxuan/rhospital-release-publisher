@@ -65,13 +65,7 @@ npm run service:status
 npm run service:uninstall
 ```
 
-如果这台开发机要允许页面执行正式编译、镜像上传和热发布动作，需要显式安装带执行权限的启动任务：
-
-```powershell
-npm run service:install:execute
-```
-
-自动启动任务默认不会开启 `RELEASE_PUBLISHER_ALLOW_EXECUTE=true`。这样即使服务常驻，页面在未显式授权时仍只能执行 dry run 或被服务端拦截真实动作。启动任务使用 Windows Task Scheduler，任务名为 `RHospital Release Console`，日志写入：
+启动任务使用 Windows Task Scheduler，任务名为 `RHospital Release Console`，日志写入：
 
 ```text
 C:\workspace\rhospital-release-publisher\.service\release-console.log
@@ -98,8 +92,7 @@ C:\workspace\rhospital-release-publisher\.service\release-console.log
 页面右上角状态显示当前执行模式：
 
 - 勾选 `dry run` 时显示 `dry run 模式`
-- 取消勾选 `dry run` 时显示 `正式执行模式` 或 `正式执行未授权`
-- `正式执行未授权` 表示页面已切到非 dry run 请求，但服务端没有设置 `RELEASE_PUBLISHER_ALLOW_EXECUTE=true`，会拦截真实编译、上传和发布动作
+- 取消勾选 `dry run` 时显示 `正式执行模式`
 
 页面按发布流水线展示：
 
@@ -148,7 +141,7 @@ C:\workspace\rhospital-release-publisher\.service\release-console.log
 页面中的 `APP_TAG` 输入框就是本次发布 TAG 的来源。点击 `执行流程` 后，流程会先按当前输入值进入 `更新本地发布配置` 节点：
 
 - dry run 下只预览写入结果，不改真实配置文件
-- 正式执行且 `RELEASE_PUBLISHER_ALLOW_EXECUTE=true` 时才写回 `.run/148.135.9.123.run.xml`
+- 正式执行时会写回 `.run/148.135.9.123.run.xml`
 
 页面底部的 `构造历史` 会展示最近执行记录。历史文件保存在发布器本地：
 
@@ -162,12 +155,7 @@ C:\workspace\rhospital-release-publisher\.release-history.json
 
 ## 正式执行
 
-正式编译和远端镜像池写入需要显式打开执行开关：
-
-```powershell
-$env:RELEASE_PUBLISHER_ALLOW_EXECUTE='true'
-npm start
-```
+正式编译和远端镜像池写入由页面 `dry run` 勾选状态控制。勾选时只预览，取消勾选后会执行真实动作。
 
 代码来源按两级选择：
 

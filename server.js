@@ -69,7 +69,7 @@ const server = http.createServer(async (req, res) => {
         dockerContextResolution,
         ideaDockerServerResolution,
         dockerCommandTarget: resolveDockerCommandTarget(dockerServerName, dockerContextResolution, ideaDockerServerResolution),
-        executionEnabled: process.env.RELEASE_PUBLISHER_ALLOW_EXECUTE === 'true'
+        executionEnabled: true
       });
     }
     if (pathname === '/api/history' && req.method === 'GET') {

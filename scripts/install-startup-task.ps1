@@ -2,8 +2,7 @@ param(
   [string]$TaskName = 'RHospital Release Console',
   [string]$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
   [string]$ProjectRoot = 'C:\workspace\hospital-backend',
-  [int]$Port = 8787,
-  [switch]$AllowExecute
+  [int]$Port = 8787
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,9 +18,6 @@ $args = @(
   '-ProjectRoot', "`"$ProjectRoot`"",
   '-Port', $Port
 )
-if ($AllowExecute) {
-  $args += '-AllowExecute'
-}
 
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ($args -join ' ') -WorkingDirectory $repo
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
@@ -33,4 +29,3 @@ Start-ScheduledTask -TaskName $TaskName
 
 Write-Host "Installed startup task: $TaskName"
 Write-Host "URL: http://127.0.0.1:$Port"
-Write-Host "AllowExecute: $($AllowExecute.IsPresent)"

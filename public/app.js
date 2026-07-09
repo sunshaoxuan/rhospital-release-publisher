@@ -88,14 +88,13 @@
   }
 
   function renderExecutionState(config) {
-    const executionEnabled = Boolean(config && config.executionEnabled);
     if (dryRun.checked) {
       executionState.textContent = 'dry run 模式';
       executionState.className = 'state dry-run-state';
       return;
     }
-    executionState.textContent = executionEnabled ? '正式执行模式' : '正式执行未授权';
-    executionState.className = `state ${executionEnabled ? 'execute-state' : 'blocked-state'}`;
+    executionState.textContent = '正式执行模式';
+    executionState.className = 'state execute-state';
   }
 
   function renderConfig(config) {

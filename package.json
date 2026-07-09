@@ -6,7 +6,6 @@
   "scripts": {
     "start": "node server.js",
     "service:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-startup-task.ps1",
-    "service:install:execute": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-startup-task.ps1 -AllowExecute",
     "service:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/status-startup-task.ps1",
     "service:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall-startup-task.ps1",
     "test": "node --test test/*.test.js"
