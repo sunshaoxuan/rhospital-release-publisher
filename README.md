@@ -129,6 +129,8 @@ C:\workspace\rhospital-release-publisher\.service\release-console.log
 - 构造历史会记录总耗时和最慢步骤，便于对比 Docker build、SSH 和本地 Git 的耗时差异
 - 构造历史会记录实际发布提交、提交时间、提交说明、镜像上传目标和每步命令摘要，用于事后审计
 
+页面首次加载时会优先读取配置并渲染总进度流程。分支列表、提交列表和历史记录在流程图出现后继续后台加载，避免 Git 列表查询拖慢首屏流程图。
+
 页面的 `发布参数` 只保留常用发布信息。Docker context、发布 Docker Server、SSH HostName、IdentityFile 等连接解析细节放在 `连接与解析详情` 折叠区，需要排查连接问题时再展开。
 
 页面中的步骤徽标按动作性质区分：

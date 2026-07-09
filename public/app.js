@@ -1,4 +1,5 @@
 (function () {
+  const bootStartedAt = performance.now();
   const status = document.getElementById('status');
   const appTag = document.getElementById('app-tag');
   const gitBranch = document.getElementById('git-branch');
@@ -240,6 +241,10 @@
   }
 
   function renderPipeline(planSteps) {
+    if (!window.__releaseConsoleFirstFlowRenderedAt) {
+      window.__releaseConsoleFirstFlowRenderedAt = performance.now() - bootStartedAt;
+    }
+    window.__releaseConsoleLastFlowRenderedAt = performance.now() - bootStartedAt;
     pipeline.innerHTML = '';
     for (const [index, step] of planSteps.entries()) {
       const status = step.status || 'pending';
@@ -434,9 +439,16 @@
     setStatus('读取配置中', '');
     const config = await requestJson('/api/config');
     renderConfig(config);
-    await loadBranches();
     await plan();
-    await loadHistory();
+    setStatus('流程已生成，正在读取分支和历史', '');
+    const results = await Promise.allSettled([
+      loadBranches().then(() => plan()),
+      loadHistory()
+    ]);
+    const failed = results.find(result => result.status === 'rejected');
+    if (failed) {
+      throw failed.reason;
+    }
     setStatus('配置已读取', 'success');
   }
 
