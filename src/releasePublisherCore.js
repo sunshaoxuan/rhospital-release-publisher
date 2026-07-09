@@ -722,11 +722,78 @@ function proposeNextTag(currentTag, now = new Date()) {
     String(now.getMonth() + 1).padStart(2, '0'),
     String(now.getDate()).padStart(2, '0')
   ].join('');
-  const match = String(currentTag || '').match(/^(\d{8})(\d{2})$/);
-  if (match && match[1] === date) {
-    return `${date}${String(Number(match[2]) + 1).padStart(2, '0')}`;
+  const tags = Array.isArray(currentTag) ? currentTag : [currentTag];
+  let needsSequence = false;
+  let maxSequence = 0;
+  for (const item of tags) {
+    const tag = releaseTagValue(item);
+    if (!tag) {
+      continue;
+    }
+    if (tag === date) {
+      needsSequence = true;
+      continue;
+    }
+    const sameDaySequence = tag.match(new RegExp(`^${date}(\\d{2})$`));
+    if (sameDaySequence) {
+      needsSequence = true;
+      maxSequence = Math.max(maxSequence, Number(sameDaySequence[1]));
+      continue;
+    }
+    if (/^\d{8}(\d{2})?$/.test(tag) && tag >= date) {
+      needsSequence = true;
+    }
   }
-  return `${date}01`;
+  if (!needsSequence) {
+    return date;
+  }
+  return `${date}${String(maxSequence + 1).padStart(2, '0')}`;
+}
+
+function releaseTagValue(value) {
+  const text = String(value || '').trim();
+  if (!text) {
+    return '';
+  }
+  const imageMatch = text.match(/^[^:\s]+:([0-9A-Za-z._-]+)$/);
+  return imageMatch ? imageMatch[1] : text;
+}
+
+function readRemoteComposeImageTag(target, remoteComposeDir, imageName = DEFAULT_IMAGE_NAME, env = process.env, sshRunner = spawnSync) {
+  if (env.RELEASE_PUBLISHER_DISABLE_REMOTE_TAG_READ === 'true') {
+    return {resolved: false, imageTag: '', appTag: '', note: '已跳过远程 TAG 读取'};
+  }
+  const ssh = sshCommandParts(target);
+  if (!ssh.length) {
+    return {resolved: false, imageTag: '', appTag: '', note: '缺少 SSH 目标'};
+  }
+  const remoteCommand = remoteBashScriptCommand([
+    `cd ${shellToken(remoteComposeDir || DEFAULT_REMOTE_COMPOSE_DIR)}`,
+    `grep -m 1 -E '^[[:space:]]*image:[[:space:]]*${escapeEgrepPattern(imageName)}:' docker-compose.yml`
+  ]);
+  const result = sshRunner(ssh[0], ssh.slice(1).concat(remoteCommand), {
+    encoding: 'utf8',
+    windowsHide: true,
+    timeout: Number(env.RELEASE_PUBLISHER_REMOTE_TAG_TIMEOUT_MS || 8000)
+  });
+  if (result.error) {
+    return {resolved: false, imageTag: '', appTag: '', note: '远程 TAG 读取失败', error: result.error.message};
+  }
+  const output = `${result.stdout || ''}${result.stderr || ''}`.trim();
+  if (result.status !== 0) {
+    return {resolved: false, imageTag: '', appTag: '', note: '远程 TAG 读取失败', error: output || `ssh exited with ${result.status}`};
+  }
+  const match = output.match(new RegExp(`\\b(${escapeRegExp(imageName)}:([^\\s]+))\\b`));
+  if (!match) {
+    return {resolved: false, imageTag: '', appTag: '', note: '远程 compose 未找到镜像 TAG', output};
+  }
+  return {
+    resolved: true,
+    imageTag: match[1],
+    appTag: match[2],
+    note: '已读取远程 compose 当前镜像 TAG',
+    output
+  };
 }
 
 function validateTag(tag) {
@@ -1524,6 +1591,7 @@ module.exports = {
   resolvePublisherDockerServerDetails,
   resolveIdeaDockerServerDetails,
   resolveDockerCommandTarget,
+  readRemoteComposeImageTag,
   listGitBranches,
   listGitCommits,
   parseSshGOutput,

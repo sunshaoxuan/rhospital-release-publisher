@@ -21,7 +21,8 @@ const {
   resolveSshTargetDetails,
   resolveDockerContextDetails,
   resolveReleaseDockerServerDetails,
-  resolveDockerCommandTarget
+  resolveDockerCommandTarget,
+  readRemoteComposeImageTag
 } = require('./src/releasePublisherCore');
 
 const projectRoot = defaultProjectRoot();
@@ -70,6 +71,35 @@ const server = http.createServer(async (req, res) => {
         ideaDockerServerResolution,
         dockerCommandTarget: resolveDockerCommandTarget(dockerServerName, dockerContextResolution, ideaDockerServerResolution),
         executionEnabled: true
+      });
+    }
+    if (pathname === '/api/remote-tag' && req.method === 'GET') {
+      const config = readConfig(projectRoot, DEFAULT_RUN_CONFIG);
+      const remoteSshTarget = requestUrl.searchParams.get('remoteSshTarget')
+        || process.env.RELEASE_PUBLISHER_SSH_TARGET
+        || process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT
+        || config.serverName;
+      const remoteComposeDir = requestUrl.searchParams.get('remoteComposeDir')
+        || process.env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR
+        || DEFAULT_REMOTE_COMPOSE_DIR;
+      const dockerServerName = process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT || config.serverName;
+      const serverResolution = resolveReleaseDockerServerDetails(dockerServerName, process.env);
+      const target = serverResolution && serverResolution.resolved
+        ? {
+            name: serverResolution.name || remoteSshTarget,
+            host: serverResolution.host,
+            user: serverResolution.username,
+            port: serverResolution.port,
+            keyPath: serverResolution.keyPath
+          }
+        : remoteSshTarget;
+      const remote = readRemoteComposeImageTag(target, remoteComposeDir, config.imageName, process.env);
+      return sendJson(res, 200, {
+        ...remote,
+        suggestedTag: remote.resolved ? proposeNextTag(remote.appTag) : proposeNextTag(config.appTag),
+        localAppTag: config.appTag,
+        remoteComposeDir,
+        remoteSshTarget
       });
     }
     if (pathname === '/api/history' && req.method === 'GET') {

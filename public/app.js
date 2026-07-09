@@ -57,6 +57,7 @@
   let historyPageCount = 1;
   let activeJobTimer = null;
   let activeJobId = '';
+  let appTagEdited = false;
 
   async function requestJson(url, options) {
     const response = await fetch(url, {
@@ -441,6 +442,7 @@
     renderConfig(config);
     await plan();
     setStatus('流程已生成，正在读取分支和历史', '');
+    loadRemoteTag(config).catch(error => setStatus(`远程 TAG 读取失败: ${error.message}`, 'error'));
     const results = await Promise.allSettled([
       loadBranches().then(() => plan()),
       loadHistory()
@@ -450,6 +452,30 @@
       throw failed.reason;
     }
     setStatus('配置已读取', 'success');
+  }
+
+  async function loadRemoteTag(config) {
+    const params = new URLSearchParams({
+      remoteSshTarget: remoteSshTarget.value.trim() || config.remoteSshTarget || config.serverName || '',
+      remoteComposeDir: remoteComposeDir.value.trim() || config.remoteComposeDir || ''
+    });
+    const remote = await requestJson(`/api/remote-tag?${params.toString()}`);
+    const canApplySuggestion = remote.suggestedTag
+      && !appTagEdited
+      && (!appTag.value
+        || appTag.value === config.suggestedTag
+        || appTag.value === config.appTag);
+    if (canApplySuggestion) {
+      appTag.value = remote.suggestedTag;
+      latestConfig = {
+        ...(latestConfig || config),
+        suggestedTag: remote.suggestedTag,
+        remoteOnlineTag: remote.appTag,
+        remoteOnlineImage: remote.imageTag
+      };
+      await plan();
+      setStatus(`已按远程上线 TAG 建议 ${remote.suggestedTag}`, 'success');
+    }
   }
 
   async function loadBranches() {
@@ -636,7 +662,11 @@
   historyClear.addEventListener('click', () => {
     clearHistory().catch(error => setStatus(error.message, 'error'));
   });
+  appTag.addEventListener('input', () => {
+    appTagEdited = true;
+  });
   appTag.addEventListener('change', () => {
+    appTagEdited = true;
     plan().catch(error => setStatus(error.message, 'error'));
   });
   gitBranch.addEventListener('change', () => {

@@ -27,7 +27,8 @@ const {
   updateIdeaRunConfigTag,
   validateTag,
   validateGitBranch,
-  validateGitCommit
+  validateGitCommit,
+  readRemoteComposeImageTag
 } = require('../src/releasePublisherCore');
 
 const sampleXml = `<component name="ProjectRunConfigurationManager">
@@ -90,10 +91,13 @@ test('parses IDEA Docker run config release values', () => {
 });
 
 test('suggests next tag from current date and sequence', () => {
-  const now = new Date(2026, 6, 7);
+  const now = new Date(2026, 6, 9);
 
-  assert.equal(proposeNextTag('2026070701', now), '2026070702');
-  assert.equal(proposeNextTag('2026070609', now), '2026070701');
+  assert.equal(proposeNextTag('2026070809', now), '20260709');
+  assert.equal(proposeNextTag('20260709', now), '2026070901');
+  assert.equal(proposeNextTag('hospital-backend:20260709', now), '2026070901');
+  assert.equal(proposeNextTag(['20260708', '2026070901'], now), '2026070902');
+  assert.equal(proposeNextTag(['20260710'], now), '2026070901');
 });
 
 test('updates image tag and APP_TAG together', () => {
@@ -273,6 +277,30 @@ test('uses explicit SSH target and remote compose directory in hot deploy plan',
   assert.ok(plan.steps.some(step => step.command.includes("ssh 'root@148.135.9.123'")));
   assert.ok(plan.steps.some(step => step.command.includes('base64 -d | bash')
     && decodedRemoteScript(step.command).includes('cd /opt/1panel/docker/compose/hospital-stack')));
+});
+
+test('reads remote compose image tag through SSH output', () => {
+  const calls = [];
+  const result = readRemoteComposeImageTag({
+    host: '178.239.117.99',
+    user: 'root',
+    port: '22',
+    keyPath: 'C:\\workspace\\Secure\\sunsxaws.pem'
+  }, '/opt/1panel/docker/compose/hospital-stack', 'hospital-backend', {}, (command, args, options) => {
+    calls.push({command, args, options});
+    return {
+      status: 0,
+      stdout: '12:    image: hospital-backend:2026070902\n',
+      stderr: ''
+    };
+  });
+
+  assert.equal(result.resolved, true);
+  assert.equal(result.imageTag, 'hospital-backend:2026070902');
+  assert.equal(result.appTag, '2026070902');
+  assert.equal(calls[0].command, 'ssh');
+  assert.ok(calls[0].args.includes('-i'));
+  assert.ok(calls[0].args.some(arg => String(arg).includes('base64 -d | bash')));
 });
 
 test('parses ssh -G output for display', () => {
