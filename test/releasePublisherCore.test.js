@@ -147,9 +147,21 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(plan.steps.some(step => step.key === 'deploy-stack'
     && step.command.includes('docker stack deploy -c docker-compose.yml hospital_stack')));
   assert.ok(plan.steps.every(step => step.summary && step.validation && step.status === 'pending'));
+  assert.ok(plan.steps.some(step => step.key === 'compile-artifact'
+    && step.validationCommand.includes('docker image inspect hospital-backend:2026070702-buildcheck')));
+  assert.ok(plan.steps.some(step => step.key === 'publish-image'
+    && step.validationCommand.includes('docker image inspect hospital-backend:2026070702')));
+  assert.ok(plan.steps.some(step => step.key === 'update-remote-compose'
+    && step.validationCommand.includes('grep -nE')
+    && step.validationCommand.includes('hospital-backend:2026070702')));
+  assert.ok(plan.steps.some(step => step.key === 'deploy-stack'
+    && step.validationCommand.includes('docker stack services hospital_stack')));
   assert.ok(plan.steps.some(step => step.key === 'final-runtime-check'
     && step.finalCheck
-    && step.validation.includes('hospital-backend:2026070702')));
+    && step.validation.includes('hospital-backend:2026070702')
+    && step.command.includes('service_image=$(docker service inspect hospital_stack_hospital-backend')
+    && step.command.includes('ERROR: service image is not hospital-backend:2026070702')
+    && step.command.includes('Failed|Rejected')));
   assertStepType(plan, 'git-status-before-update', 'local-check', false);
   assertStepType(plan, 'git-fetch', 'local-code', false);
   assertStepType(plan, 'git-update', 'local-code', false);
@@ -417,6 +429,34 @@ test('execute dry run marks every pipeline step checked without mutating file', 
   assert.equal(history[0].completedStepCount, result.plan.steps.length);
 });
 
+test('execute runs validation commands after executable steps', async () => {
+  const root = tempProject(sampleXml);
+  const historyPath = path.join(root, 'history.json');
+  const commandBin = tempCommandBin();
+  const result = await executePlan(root, {
+    appTag: '2026070702',
+    dryRun: false,
+    gitBranch: 'master',
+    dockerContext: 'SSH178',
+    includeStackDeploy: false
+  }, {
+    PATH: `${commandBin}${path.delimiter}${process.env.PATH || ''}`,
+    RELEASE_PUBLISHER_ALLOW_EXECUTE: 'true',
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  });
+
+  assert.equal(result.status, 'EXECUTED');
+  assert.ok(result.logs.some(line => line.includes('[VALIDATE] docker image inspect hospital-backend:2026070702-buildcheck')));
+  assert.ok(result.logs.some(line => line.includes('[VALIDATE] docker image inspect hospital-backend:2026070702')));
+  const history = readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
+  assert.equal(history[0].status, 'EXECUTED');
+  assert.ok(history[0].stepSummary.some(step => step.key === 'build-image'
+    && step.validationCommand.includes('docker image inspect hospital-backend:2026070702')));
+});
+
 test('history entry records release commit evidence and step summary', () => {
   const root = tempProject(sampleXml);
   const plan = createPlan(root, {
@@ -635,6 +675,37 @@ function tempGitProject() {
   fs.writeFileSync(path.join(root, 'README.md'), 'demo\n', 'utf8');
   runGit(root, ['add', '.']);
   runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'initial commit']);
+  return root;
+}
+
+function tempCommandBin() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-bin-'));
+  fs.writeFileSync(path.join(root, 'git.cmd'), [
+    '@echo off',
+    'if "%1"=="status" echo ## master...origin/master',
+    'if "%1"=="rev-parse" echo 0123456789abcdef0123456789abcdef01234567',
+    'if "%1"=="log" echo 0123456\t2026-07-07 20:30:40 +0900\tRelease hospital backend',
+    'exit /b 0',
+    ''
+  ].join('\r\n'), 'utf8');
+  fs.writeFileSync(path.join(root, 'docker.cmd'), [
+    '@echo off',
+    'echo docker %*',
+    'exit /b 0',
+    ''
+  ].join('\r\n'), 'utf8');
+  fs.writeFileSync(path.join(root, 'scp.cmd'), [
+    '@echo off',
+    'echo scp %*',
+    'exit /b 0',
+    ''
+  ].join('\r\n'), 'utf8');
+  fs.writeFileSync(path.join(root, 'ssh.cmd'), [
+    '@echo off',
+    'echo ssh %*',
+    'exit /b 0',
+    ''
+  ].join('\r\n'), 'utf8');
   return root;
 }
 

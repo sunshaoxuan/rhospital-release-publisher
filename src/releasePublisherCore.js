@@ -155,6 +155,10 @@ function createPlan(projectRoot, request, env = process.env) {
         'image', 'inspect', `${imageTag}-buildcheck`,
         '--format', '{{.Id}} {{.RepoTags}}'
       ]),
+      validationCommand: dockerCommand(dockerTarget, [
+        'image', 'inspect', `${imageTag}-buildcheck`,
+        '--format', '{{.Id}} {{.RepoTags}}'
+      ]),
       actionType: 'build',
       executable: true
     }),
@@ -173,6 +177,10 @@ function createPlan(projectRoot, request, env = process.env) {
         'image', 'inspect', imageTag,
         '--format', '{{.Id}} {{.RepoTags}}'
       ]),
+      validationCommand: dockerCommand(dockerTarget, [
+        'image', 'inspect', imageTag,
+        '--format', '{{.Id}} {{.RepoTags}}'
+      ]),
       actionType: 'build',
       executable: true
     }),
@@ -182,6 +190,8 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '把本机已经构建好的镜像保存为 tar，经 SSH 上传到生产 Docker 主机并执行 docker load',
       command: publishImageCommand(imageTag, remoteImageTarget),
       validation: remoteSshCommand(remoteImageTarget,
+        `docker image inspect ${shellToken(imageTag)} --format '{{.Id}} {{.RepoTags}}'`),
+      validationCommand: remoteSshCommand(remoteImageTarget,
         `docker image inspect ${shellToken(imageTag)} --format '{{.Id}} {{.RepoTags}}'`),
       actionType: 'production',
       productionAction: true,
@@ -224,6 +234,8 @@ function createPlan(projectRoot, request, env = process.env) {
         ].join(' && ')),
       validation: remoteSshCommand(remoteImageTarget,
         `cd ${shellToken(remoteComposeDir)} && grep -nE '^[[:space:]]*image:[[:space:]]*${imageTag}$' docker-compose.yml`),
+      validationCommand: remoteSshCommand(remoteImageTarget,
+        `cd ${shellToken(remoteComposeDir)} && grep -nE '^[[:space:]]*image:[[:space:]]*${imageTag}$' docker-compose.yml`),
       actionType: 'production',
       productionAction: true,
       executable: true
@@ -236,6 +248,8 @@ function createPlan(projectRoot, request, env = process.env) {
         `cd ${shellToken(remoteComposeDir)} && docker stack deploy -c docker-compose.yml ${config.stackName}`),
       validation: remoteSshCommand(remoteImageTarget,
         `docker stack services ${config.stackName}`),
+      validationCommand: remoteSshCommand(remoteImageTarget,
+        `docker stack services ${config.stackName}`),
       actionType: 'production',
       productionAction: true,
       executable: true
@@ -245,11 +259,7 @@ function createPlan(projectRoot, request, env = process.env) {
       title: '最终运行校验',
       summary: '确认 stack 服务、任务状态和服务镜像都已经指向本次 TAG',
       command: remoteSshCommand(remoteImageTarget,
-        [
-          `docker stack services ${config.stackName}`,
-          `docker stack ps ${config.stackName} --no-trunc`,
-          `docker service inspect ${config.stackName}_${config.containerName} --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}'`
-        ].join(' && ')),
+        finalRuntimeCheckCommand(config.stackName, config.containerName, imageTag)),
       validation: `服务镜像必须包含 ${imageTag}，任务不能处于 Failed 或 Rejected`,
       actionType: 'remote-check',
       executable: true,
@@ -290,6 +300,7 @@ function releaseStep({
   summary,
   command,
   validation,
+  validationCommand = '',
   productionAction = false,
   actionType = 'local-check',
   executable = false,
@@ -301,6 +312,7 @@ function releaseStep({
     summary,
     command,
     validation,
+    validationCommand,
     productionAction,
     actionType,
     executable,
@@ -426,7 +438,7 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
       if (step.executable) {
         pushStepLog(step.key, `[RUN] ${step.command}`);
         updateStep(step.key, 'running');
-        await runPowerShell(projectRoot, step.command, chunk => {
+        await runPowerShell(projectRoot, step.command, env, chunk => {
           const line = chunk.trim();
           if (line) {
             pushStepLog(step.key, line);
@@ -439,6 +451,23 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
           }
           updateStep(step.key, 'running');
         }, signal);
+        if (step.validationCommand) {
+          pushStepLog(step.key, `[VALIDATE] ${step.validationCommand}`);
+          updateStep(step.key, 'running');
+          await runPowerShell(projectRoot, step.validationCommand, env, chunk => {
+            const line = chunk.trim();
+            if (line) {
+              pushStepLog(step.key, line);
+              updateStep(step.key, 'running');
+            }
+          }, elapsedSeconds => {
+            refreshStepElapsed(step.key, stepTiming);
+            if (elapsedSeconds % 10 === 0) {
+              pushStepLog(step.key, `[RUNNING] ${step.title} 校验已运行 ${elapsedSeconds} 秒，等待命令输出`);
+            }
+            updateStep(step.key, 'running');
+          }, signal);
+        }
         assertNotCancelled();
         completedStepKeys.push(step.key);
         const durationMs = finishStepTimer(step.key, stepTiming);
@@ -583,6 +612,7 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
       productionAction: Boolean(step.productionAction),
       command: step.command,
       validation: step.validation,
+      validationCommand: step.validationCommand || '',
       logs: Array.isArray(step.logs) ? step.logs.slice(-8) : []
     })),
     logs: logs.slice(0, 12)
@@ -980,6 +1010,18 @@ function publishImageCommand(imageTag, target) {
   ].join('; ');
 }
 
+function finalRuntimeCheckCommand(stackName, containerName, imageTag) {
+  const serviceName = `${stackName}_${containerName}`;
+  return [
+    `docker stack services ${stackName}`,
+    `docker stack ps ${stackName} --no-trunc`,
+    `service_image=$(docker service inspect ${serviceName} --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}')`,
+    `echo service_image=$service_image`,
+    `case "$service_image" in *${imageTag}*) ;; *) echo "ERROR: service image is not ${imageTag}"; exit 1;; esac`,
+    `if docker stack ps ${stackName} --no-trunc --format '{{.CurrentState}} {{.Error}}' | grep -E 'Failed|Rejected'; then echo "ERROR: stack task has failed state"; exit 1; fi`
+  ].join(' && ');
+}
+
 function remoteSshCommand(target, remoteCommand) {
   const ssh = sshCommandParts(target);
   if (!ssh.length) {
@@ -1257,13 +1299,14 @@ function findSshConfig(xml, id) {
   return null;
 }
 
-function runPowerShell(cwd, command, onChunk, onHeartbeat, signal) {
+function runPowerShell(cwd, command, env, onChunk, onHeartbeat, signal) {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     let heartbeat = null;
     let settled = false;
     const child = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], {
       cwd,
+      env: {...process.env, ...env},
       windowsHide: true
     });
     const cleanup = () => {
