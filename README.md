@@ -110,10 +110,10 @@ C:\workspace\rhospital-release-publisher\.service\release-console.log
 7. 制作 Docker 镜像
 8. 发布到目标镜像池
 9. 确认 SSH 连接配置
-10. 读取生产编排当前镜像
-11. 备份并替换生产编排 TAG
+10. 读取生产编排当前镜像和运行版本
+11. 备份并同步替换生产镜像与 `IMAGE_TAG`
 12. 执行 Docker Stack 热发布
-13. 最终运行校验
+13. 等待滚动完成并执行最终运行校验
 
 论坛目标使用独立流水线。代码发生变化时选择“构建并上传新镜像”：
 
@@ -131,7 +131,7 @@ C:\workspace\rhospital-release-publisher\.service\release-console.log
 
 镜像已经存在于生产 Docker 镜像池时选择“复用生产已有镜像”。该模式只读执行 `docker image inspect` 确认指定 TAG 存在，跳过 Git 更新、Maven、Docker build、镜像运行验证、docker save、SCP 和 docker load，随后继续执行生产预检、备份、Compose 容器替换和最终运行验收。
 
-每一步都有动作命令和校验命令。正式执行时，带有校验命令的步骤会在动作命令成功后立即执行校验命令；校验命令失败会中断本次发布并写入构造历史。最终运行校验会检查 stack 服务、任务状态和服务镜像是否指向本次 `hospital-backend:<TAG>`。
+每一步都有动作命令和校验命令。正式执行时，带有校验命令的步骤会在动作命令成功后立即执行校验命令；校验命令失败会中断本次发布并写入构造历史。生产编排更新会同时替换 `hospital-backend:<TAG>` 和 `IMAGE_TAG=<TAG>`，避免运行镜像、页面版本号和静态资源缓存键不一致。最终运行校验会等待 Swarm 更新状态完成，并确认服务镜像、运行版本、健康副本数和旧版本任务全部收敛后再报告成功。
 
 点击 `执行流程` 后，服务端会创建一个后台执行任务，页面会轮询任务状态并持续刷新：
 
@@ -321,14 +321,17 @@ cd /opt/1panel/docker/compose/hospital-stack
 grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:' docker-compose.yml
 ```
 
-解码后的远端 TAG 替换脚本类似：
+解码后的远端 TAG 替换脚本会同时更新镜像和运行版本，类似：
 
 ```bash
 set -e
 cd /opt/1panel/docker/compose/hospital-stack
 cp docker-compose.yml docker-compose.yml.bak.$(date +%Y%m%d%H%M%S)
 sed -i -E 's#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\1hospital-backend:2026070702#' docker-compose.yml
+sed -i -E 's#^([[:space:]]*-[[:space:]]*IMAGE_TAG=).*$#\12026070702#' docker-compose.yml
 grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:2026070702$' docker-compose.yml
+grep -nE '^[[:space:]]*-[[:space:]]*IMAGE_TAG=2026070702$' docker-compose.yml
+docker stack config -c docker-compose.yml >/dev/null
 ```
 
 解码后的远端热发布脚本类似：
@@ -338,6 +341,8 @@ set -e
 cd /opt/1panel/docker/compose/hospital-stack
 docker stack deploy -c docker-compose.yml hospital_stack
 ```
+
+热发布使用 `start-first` 时，新旧任务会在健康观察期内短暂并存。发布器会持续轮询 `UpdateStatus`、目标镜像、`IMAGE_TAG`、健康副本数和仍处于运行目标态的旧镜像任务。只有更新状态为 `completed`、目标副本全部健康且旧版本运行任务为零时，最终节点才会完成。默认等待上限为 900 秒，可在远端通过 `RELEASE_PUBLISHER_ROLLOUT_TIMEOUT_SECONDS` 调整。
 
 ## 论坛发布
 

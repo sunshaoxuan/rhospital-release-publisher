@@ -152,11 +152,15 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.command.includes('scp')
     && step.command.includes('docker load -i')));
   assert.ok(plan.steps.some(step => step.key === 'read-remote-compose'
-    && decodedRemoteScript(step.command).includes(`cd ${DEFAULT_REMOTE_COMPOSE_DIR}`)));
+    && decodedRemoteScript(step.command).includes(`cd ${DEFAULT_REMOTE_COMPOSE_DIR}`)
+    && decodedRemoteScript(step.command).includes('IMAGE_TAG')));
   assert.ok(plan.steps.some(step => step.key === 'update-remote-compose'
     && step.command.includes('base64 -d | bash')
     && decodedRemoteScript(step.command).includes('sed -i -E')
-    && decodedRemoteScript(step.command).includes('s#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\1hospital-backend:2026070702#')));
+    && decodedRemoteScript(step.command).includes('s#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\1hospital-backend:2026070702#')
+    && decodedRemoteScript(step.command).includes('s#^([[:space:]]*-[[:space:]]*IMAGE_TAG=).*$#\\12026070702#')
+    && decodedRemoteScript(step.command).includes('s#^([[:space:]]*IMAGE_TAG:[[:space:]]*).*$#\\1"2026070702"#')
+    && decodedRemoteScript(step.command).includes('docker stack config -c docker-compose.yml')));
   assert.ok(plan.steps.some(step => step.key === 'deploy-stack'
     && decodedRemoteScript(step.command).includes('docker stack deploy -c docker-compose.yml hospital_stack')));
   assert.ok(plan.steps.every(step => step.summary && step.validation && step.status === 'pending'));
@@ -166,15 +170,20 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.validationCommand.includes('docker image inspect hospital-backend:2026070702')));
   assert.ok(plan.steps.some(step => step.key === 'update-remote-compose'
     && decodedRemoteScript(step.validationCommand).includes('grep -nE')
-    && decodedRemoteScript(step.validationCommand).includes('hospital-backend:2026070702')));
+    && decodedRemoteScript(step.validationCommand).includes('hospital-backend:2026070702')
+    && decodedRemoteScript(step.validationCommand).includes('IMAGE_TAG=2026070702')));
   assert.ok(plan.steps.some(step => step.key === 'deploy-stack'
     && decodedRemoteScript(step.validationCommand).includes('docker stack services hospital_stack')));
   assert.ok(plan.steps.some(step => step.key === 'final-runtime-check'
     && step.finalCheck
     && step.validation.includes('hospital-backend:2026070702')
-    && decodedRemoteScript(step.command).includes('service_image=$(docker service inspect hospital_stack_hospital-backend')
-    && decodedRemoteScript(step.command).includes('ERROR: service image is not hospital-backend:2026070702')
-    && decodedRemoteScript(step.command).includes('Failed|Rejected')));
+    && decodedRemoteScript(step.command).includes('expected_image=hospital-backend:2026070702')
+    && decodedRemoteScript(step.command).includes('expected_version=2026070702')
+    && decodedRemoteScript(step.command).includes("update_state=$(docker service inspect \"$service_name\" --format '{{if .UpdateStatus}}{{.UpdateStatus.State}}{{else}}completed{{end}}')")
+    && decodedRemoteScript(step.command).includes('--filter desired-state=running')
+    && decodedRemoteScript(step.command).includes('container_health=$(docker inspect')
+    && decodedRemoteScript(step.command).includes('active_other_count')
+    && decodedRemoteScript(step.command).includes('rollout_validation=PASS')));
   assertStepType(plan, 'git-status-before-update', 'local-check', false);
   assertStepType(plan, 'git-fetch', 'local-code', false);
   assertStepType(plan, 'git-update', 'local-code', false);

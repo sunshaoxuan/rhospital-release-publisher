@@ -257,32 +257,43 @@ function createPlan(projectRoot, request, env = process.env) {
     }));
     steps.push(releaseStep({
       key: 'read-remote-compose',
-      title: '读取生产编排当前镜像',
-      summary: '进入 hospital-stack 编排目录，确认当前 compose 中的 hospital-backend 镜像行',
+      title: '读取生产编排当前版本',
+      summary: '进入 hospital-stack 编排目录，确认当前镜像和前端运行版本使用同一个 TAG',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
-        `grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:' docker-compose.yml`
+        `grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:|^[[:space:]]*(-[[:space:]]*)?IMAGE_TAG([[:space:]]*[:=])' docker-compose.yml`
       ])),
-      validation: `必须能读到 image: hospital-backend:<TAG>`,
+      validation: `必须同时读到 image: hospital-backend:<TAG> 和 IMAGE_TAG=<TAG>`,
       actionType: 'remote-check',
       executable: true
     }));
     steps.push(releaseStep({
       key: 'update-remote-compose',
       title: '备份并替换生产编排 TAG',
-      summary: '备份 docker-compose.yml，然后把 image: hospital-backend:<TAG> 替换成本次 TAG',
+      summary: '备份 docker-compose.yml，同时替换服务镜像和前端运行版本，并校验编排文件',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
+        `image_line_count=$(grep -Ec '^[[:space:]]*image:[[:space:]]*hospital-backend:' docker-compose.yml)`,
+        `version_line_count=$(grep -Ec '^[[:space:]]*(-[[:space:]]*)?IMAGE_TAG([[:space:]]*[:=])' docker-compose.yml)`,
+        `[ "$image_line_count" -eq 1 ] || { echo "ERROR: expected exactly one hospital-backend image line, found $image_line_count"; exit 1; }`,
+        `[ "$version_line_count" -eq 1 ] || { echo "ERROR: expected exactly one IMAGE_TAG line, found $version_line_count"; exit 1; }`,
         `cp docker-compose.yml docker-compose.yml.bak.$(date +%Y%m%d%H%M%S)`,
-        `sed -i -E 's#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\1${escapeSedReplacement(imageTag)}#' docker-compose.yml`
+        `sed -i -E 's#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\1${escapeSedReplacement(imageTag)}#' docker-compose.yml`,
+        `sed -i -E 's#^([[:space:]]*-[[:space:]]*IMAGE_TAG=).*$#\\1${escapeSedReplacement(appTag)}#' docker-compose.yml`,
+        `sed -i -E 's#^([[:space:]]*IMAGE_TAG:[[:space:]]*).*$#\\1"${escapeSedReplacement(appTag)}"#' docker-compose.yml`,
+        `docker stack config -c docker-compose.yml >/dev/null`
       ])),
       validation: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
-        `grep -nE '^[[:space:]]*image:[[:space:]]*${escapeEgrepPattern(imageTag)}$' docker-compose.yml`
+        `grep -nE '^[[:space:]]*image:[[:space:]]*${escapeEgrepPattern(imageTag)}$' docker-compose.yml`,
+        `grep -nE '^[[:space:]]*-[[:space:]]*IMAGE_TAG=${escapeEgrepPattern(appTag)}[[:space:]]*$|^[[:space:]]*IMAGE_TAG:[[:space:]]*"?${escapeEgrepPattern(appTag)}"?[[:space:]]*$' docker-compose.yml`,
+        `docker stack config -c docker-compose.yml >/dev/null`
       ])),
       validationCommand: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
-        `grep -nE '^[[:space:]]*image:[[:space:]]*${escapeEgrepPattern(imageTag)}$' docker-compose.yml`
+        `grep -nE '^[[:space:]]*image:[[:space:]]*${escapeEgrepPattern(imageTag)}$' docker-compose.yml`,
+        `grep -nE '^[[:space:]]*-[[:space:]]*IMAGE_TAG=${escapeEgrepPattern(appTag)}[[:space:]]*$|^[[:space:]]*IMAGE_TAG:[[:space:]]*"?${escapeEgrepPattern(appTag)}"?[[:space:]]*$' docker-compose.yml`,
+        `docker stack config -c docker-compose.yml >/dev/null`
       ])),
       actionType: 'production',
       productionAction: true,
@@ -309,10 +320,10 @@ function createPlan(projectRoot, request, env = process.env) {
     steps.push(releaseStep({
       key: 'final-runtime-check',
       title: '最终运行校验',
-      summary: '确认 stack 服务、任务状态和服务镜像都已经指向本次 TAG',
+      summary: '等待 Swarm 滚动完成，确认镜像、运行版本、健康副本和旧任务全部收敛',
       command: remoteSshCommand(remoteImageTarget,
-        remoteBashScriptCommand(finalRuntimeCheckCommand(config.stackName, config.containerName, imageTag))),
-      validation: `服务镜像必须包含 ${imageTag}，任务不能处于 Failed 或 Rejected`,
+        remoteBashScriptCommand(finalRuntimeCheckCommand(config.stackName, config.containerName, imageTag, appTag))),
+      validation: `服务镜像和 IMAGE_TAG 必须为 ${imageTag}，Swarm 更新完成且只有目标版本健康副本运行`,
       actionType: 'remote-check',
       executable: true,
       finalCheck: true
@@ -1440,16 +1451,52 @@ function publishImageCommand(imageTag, target) {
   ].join('; ');
 }
 
-function finalRuntimeCheckCommand(stackName, containerName, imageTag) {
+function finalRuntimeCheckCommand(stackName, containerName, imageTag, appTag) {
   const serviceName = `${stackName}_${containerName}`;
   return [
+    `service_name=${shellToken(serviceName)}`,
+    `expected_image=${shellToken(imageTag)}`,
+    `expected_version=${shellToken(appTag)}`,
+    `rollout_timeout_seconds="${'${RELEASE_PUBLISHER_ROLLOUT_TIMEOUT_SECONDS:-900}'}"`,
+    `rollout_deadline=$(( $(date +%s) + rollout_timeout_seconds ))`,
+    `while true; do`,
+    `  service_image=$(docker service inspect "$service_name" --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}')`,
+    `  service_version=$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' | sed -n 's/^IMAGE_TAG=//p' | head -n 1)`,
+    `  update_state=$(docker service inspect "$service_name" --format '{{if .UpdateStatus}}{{.UpdateStatus.State}}{{else}}completed{{end}}')`,
+    `  expected_replicas=$(docker service inspect "$service_name" --format '{{if .Spec.Mode.Replicated}}{{.Spec.Mode.Replicated.Replicas}}{{else}}1{{end}}')`,
+    `  active_target_count=0`,
+    `  active_other_count=0`,
+    `  while IFS='|' read -r task_image task_state; do`,
+    `    [ -n "$task_image" ] || continue`,
+    `    case "$task_image" in`,
+    `      "$expected_image"|"$expected_image"@*) case "$task_state" in Running*) active_target_count=$((active_target_count + 1));; esac ;;`,
+    `      *) active_other_count=$((active_other_count + 1)) ;;`,
+    `    esac`,
+    `  done <<EOF`,
+    `$(docker service ps "$service_name" --filter desired-state=running --format '{{.Image}}|{{.CurrentState}}')`,
+    `EOF`,
+    `  healthy_target_count=0`,
+    `  for container_id in $(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name"); do`,
+    `    container_image=$(docker inspect "$container_id" --format '{{.Config.Image}}')`,
+    `    container_health=$(docker inspect "$container_id" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}')`,
+    `    case "$container_image" in`,
+    `      "$expected_image"|"$expected_image"@*) [ "$container_health" = healthy ] && healthy_target_count=$((healthy_target_count + 1)) ;;`,
+    `    esac`,
+    `  done`,
+    `  image_matches=false`,
+    `  case "$service_image" in "$expected_image"|"$expected_image"@*) image_matches=true ;; esac`,
+    `  echo "rollout_state=$update_state image=$service_image version=$service_version expected_replicas=$expected_replicas active_target=$active_target_count active_other=$active_other_count healthy_target=$healthy_target_count"`,
+    `  if [ "$image_matches" = true ] && [ "$service_version" = "$expected_version" ] && [ "$update_state" = completed ] && [ "$active_target_count" -eq "$expected_replicas" ] && [ "$healthy_target_count" -eq "$expected_replicas" ] && [ "$active_other_count" -eq 0 ]; then`,
+    `    break`,
+    `  fi`,
+    `  case "$update_state" in paused|rollback_started|rollback_paused|rollback_completed) echo "ERROR: Swarm rollout ended in $update_state"; exit 1 ;; esac`,
+    `  if [ "$(date +%s)" -ge "$rollout_deadline" ]; then echo "ERROR: Swarm rollout did not converge within ${'${rollout_timeout_seconds}'} seconds"; exit 1; fi`,
+    `  sleep 5`,
+    `done`,
     `docker stack services ${shellToken(stackName)}`,
-    `docker stack ps ${shellToken(stackName)} --no-trunc`,
-    `service_image=$(docker service inspect ${shellToken(serviceName)} --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}')`,
-    `echo service_image=$service_image`,
-    `case "$service_image" in *${imageTag}*) ;; *) echo "ERROR: service image is not ${imageTag}"; exit 1;; esac`,
-    `if docker stack ps ${shellToken(stackName)} --no-trunc --format '{{.CurrentState}} {{.Error}}' | grep -E 'Failed|Rejected'; then echo "ERROR: stack task has failed state"; exit 1; fi`
-  ].join(' && ');
+    `docker service ps "$service_name" --no-trunc`,
+    `echo rollout_validation=PASS`
+  ];
 }
 
 function forumImageValidationCommand(dockerTarget, imageTag) {
