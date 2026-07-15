@@ -14,6 +14,7 @@ const {
   resolveIdeaDockerServerDetails,
   listGitBranches,
   listGitCommits,
+  refreshGitRefs,
   parseSshGOutput,
   parseIdeaRunConfig,
   proposeNextTag,
@@ -674,6 +675,21 @@ test('lists branches and commits from a git project', () => {
   assert.match(commits.commits[0].subject, /release commit/);
 });
 
+test('refreshes origin refs before reloading commits', () => {
+  const calls = [];
+  const result = refreshGitRefs('C:\\repo', {}, (command, args, options) => {
+    calls.push({command, args, options});
+    return {status: 0, stdout: '', stderr: ''};
+  });
+
+  assert.equal(result.refreshed, true);
+  assert.equal(result.remote, 'origin');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].command, 'git');
+  assert.deepEqual(calls[0].args, ['fetch', '--prune', 'origin']);
+  assert.equal(calls[0].options.cwd, 'C:\\repo');
+});
+
 test('rejects invalid git branch and commit', () => {
   assert.throws(() => validateGitBranch('origin/master;rm'), /Git 分支/);
   assert.throws(() => validateGitBranch('../master'), /Git 分支/);
@@ -697,6 +713,19 @@ test('default project root points to sibling hospital backend unless overridden'
 test('completed final flow node uses the same success background as other completed nodes', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   assert.match(css, /\.flow-node\.checked\.final-node\s*\{\s*background:\s*var\(--mint\);/);
+});
+
+test('commit selector includes a refresh control wired to the git refresh endpoint', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+
+  assert.match(html, /id="git-refresh"/);
+  assert.match(html, /aria-label="刷新提交列表"/);
+  assert.match(app, /requestJson\('\/api\/git\/refresh', \{method: 'POST'\}\)/);
+  assert.match(app, /gitRefresh\.addEventListener\('click'/);
+  assert.match(css, /\.select-action-row\s*\{/);
+  assert.match(css, /grid-template-columns:\s*minmax\(0, 1fr\) 44px;/);
 });
 
 function tempProject(xml) {

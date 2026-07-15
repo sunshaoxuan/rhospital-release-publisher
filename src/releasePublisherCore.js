@@ -927,6 +927,14 @@ function listGitCommits(projectRoot, branch, limit = 60, gitRunner = spawnSync) 
   return {branch: selectedBranch, commits};
 }
 
+function refreshGitRefs(projectRoot, env = process.env, gitRunner = spawnSync) {
+  if (env.RELEASE_PUBLISHER_DISABLE_GIT_REFRESH === 'true') {
+    return {refreshed: false, skipped: true, remote: 'origin'};
+  }
+  runGit(projectRoot, ['fetch', '--prune', 'origin'], gitRunner);
+  return {refreshed: true, skipped: false, remote: 'origin'};
+}
+
 function runGit(projectRoot, args, gitRunner = spawnSync) {
   const git = gitRunner('git', args, {
     cwd: projectRoot,
@@ -1594,6 +1602,7 @@ module.exports = {
   readRemoteComposeImageTag,
   listGitBranches,
   listGitCommits,
+  refreshGitRefs,
   parseSshGOutput,
   proposeNextTag,
   validateTag,

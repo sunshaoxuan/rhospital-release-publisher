@@ -43,9 +43,14 @@
       </div>
       <div class="field">
         <label for="git-commit">发布提交</label>
-        <select id="git-commit" name="gitCommit">
-          <option value="latest">最新提交</option>
-        </select>
+        <div class="select-action-row">
+          <select id="git-commit" name="gitCommit">
+            <option value="latest">最新提交</option>
+          </select>
+          <button id="git-refresh" class="icon-button" type="button" aria-label="刷新提交列表" title="刷新提交列表">
+            <span class="refresh-icon" aria-hidden="true">&#x21BB;</span>
+          </button>
+        </div>
       </div>
       <div class="field">
         <label for="docker-context">Docker Server / context</label>

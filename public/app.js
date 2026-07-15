@@ -4,6 +4,7 @@
   const appTag = document.getElementById('app-tag');
   const gitBranch = document.getElementById('git-branch');
   const gitCommit = document.getElementById('git-commit');
+  const gitRefresh = document.getElementById('git-refresh');
   const dockerContext = document.getElementById('docker-context');
   const remoteSshTarget = document.getElementById('remote-ssh-target');
   const remoteComposeDir = document.getElementById('remote-compose-dir');
@@ -526,6 +527,23 @@
     }
   }
 
+  async function refreshCommits() {
+    gitRefresh.disabled = true;
+    gitRefresh.classList.add('is-loading');
+    gitRefresh.setAttribute('aria-busy', 'true');
+    setStatus('正在刷新远端提交', '');
+    try {
+      await requestJson('/api/git/refresh', {method: 'POST'});
+      await loadBranches();
+      await plan();
+      setStatus('提交列表已刷新', 'success');
+    } finally {
+      gitRefresh.disabled = false;
+      gitRefresh.classList.remove('is-loading');
+      gitRefresh.removeAttribute('aria-busy');
+    }
+  }
+
   async function loadHistory() {
     const result = await requestJson(`/api/history?page=${historyPage}&limit=10`);
     renderHistory(result);
@@ -671,6 +689,9 @@
   });
   gitBranch.addEventListener('change', () => {
     loadCommits(true).catch(error => setStatus(error.message, 'error'));
+  });
+  gitRefresh.addEventListener('click', () => {
+    refreshCommits().catch(error => setStatus(`提交刷新失败: ${error.message}`, 'error'));
   });
   gitCommit.addEventListener('change', () => {
     renderConfig(latestConfig || {});

@@ -293,6 +293,44 @@ select:focus {
   outline: 3px solid rgba(47, 99, 255, 0.26);
 }
 
+.select-action-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 8px;
+  align-items: stretch;
+}
+
+button.icon-button {
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 0;
+  display: inline-grid;
+  place-items: center;
+}
+
+.refresh-icon {
+  display: block;
+  font-size: 24px;
+  line-height: 1;
+}
+
+button.icon-button.is-loading .refresh-icon {
+  animation: refresh-spin 0.8s linear infinite;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.58;
+}
+
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .muted-field {
   opacity: 0.62;
 }

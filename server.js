@@ -17,6 +17,7 @@ const {
   clearReleaseHistory,
   listGitBranches,
   listGitCommits,
+  refreshGitRefs,
   proposeNextTag,
   resolveSshTargetDetails,
   resolveDockerContextDetails,
@@ -124,6 +125,9 @@ const server = http.createServer(async (req, res) => {
         requestUrl.searchParams.get('branch') || 'origin/master',
         requestUrl.searchParams.get('limit') || 60
       ));
+    }
+    if (pathname === '/api/git/refresh' && req.method === 'POST') {
+      return sendJson(res, 200, refreshGitRefs(projectRoot, process.env));
     }
     if (pathname === '/api/plan' && req.method === 'POST') {
       const body = await readBody(req);

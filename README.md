@@ -6,6 +6,7 @@ RHospital 发布控制台，用于替代 IDEA 中的 `148.135.9.123` Docker Run 
 
 - 读取开发环境中的 `hospital-backend/.run/148.135.9.123.run.xml`
 - 支持从分支列表选择发布分支，并从该分支提交列表选择最新提交或指定提交
+- 发布提交下拉框旁提供刷新按钮，执行 `git fetch --prune origin` 后重新读取当前分支提交
 - 解析当前 `hospital-backend:<TAG>` 和 `APP_TAG`
 - 默认把页面 TAG 输入框初始化为建议 `APP_TAG`
 - 同步更新本地发布配置中的镜像 TAG 和 `APP_TAG`
@@ -172,6 +173,7 @@ C:\workspace\rhospital-release-publisher\.release-history.json
 
 - `发布分支`：页面从本地仓库读取分支列表，包含本地分支和 `origin/*` 远端分支
 - `发布提交`：选择分支后，页面读取该分支最近提交，默认是 `最新提交`
+- `刷新提交`：点击发布提交右侧刷新按钮，发布器会更新 `origin` 远端引用并重新加载当前分支的提交列表；原选择仍存在时会继续保留
 
 执行流程会先显示 Git 状态检查节点，再执行 `git fetch --prune origin`。如果选择 `最新提交`，发布器会切换到所选分支的最新提交；如果选择具体提交，发布器会执行 `git checkout <commit>`，并用 `git merge-base --is-ancestor <commit> <branch>` 校验该提交属于所选分支。
 
