@@ -232,6 +232,7 @@ test('creates reusable forum compose release plan with backup validation and rol
   assert.ok(plan.steps.some(step => step.key === 'validate-forum-source'
     && step.command.includes('ForumFlarumImageAssetTest,ForumDeploymentConfigTest')
     && step.command.includes('git diff --quiet HEAD -- integrations/flarum/04-rhospital-secret.sh integrations/flarum/05-rhospital-env.sh')
+    && step.command.includes('integrations/flarum/rhospital-sso/validate-runtime.php')
     && step.command.includes("bash -o pipefail -c 'git show HEAD:integrations/flarum/04-rhospital-secret.sh | bash -n'")
     && step.command.includes("bash -o pipefail -c 'git show HEAD:integrations/flarum/05-rhospital-env.sh | bash -n'")
     && !step.command.includes('bash -n integrations/flarum/')));

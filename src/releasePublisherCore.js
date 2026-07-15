@@ -15,6 +15,7 @@ const DEFAULT_FORUM_INIT_SCRIPTS = [
   'integrations/flarum/04-rhospital-secret.sh',
   'integrations/flarum/05-rhospital-env.sh'
 ];
+const DEFAULT_FORUM_RUNTIME_VALIDATOR = 'integrations/flarum/rhospital-sso/validate-runtime.php';
 const DEFAULT_FORUM_REMOTE_COMPOSE_DIR = '/opt/1panel/apps/flarum/flarum';
 const DEFAULT_FORUM_CONTAINER_NAME = 'flarum';
 const DEFAULT_JETBRAINS_PRODUCT_DIR = 'IntelliJIdea2026.1';
@@ -1227,7 +1228,9 @@ function chainPowerShellCommands(commands) {
 }
 
 function forumSourceScriptValidationCommands() {
-  const paths = DEFAULT_FORUM_INIT_SCRIPTS.map(shellToken).join(' ');
+  const paths = [...DEFAULT_FORUM_INIT_SCRIPTS, DEFAULT_FORUM_RUNTIME_VALIDATOR]
+    .map(shellToken)
+    .join(' ');
   return [
     `git diff --quiet HEAD -- ${paths}`,
     ...DEFAULT_FORUM_INIT_SCRIPTS.map(scriptPath =>
