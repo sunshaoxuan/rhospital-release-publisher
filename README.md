@@ -377,7 +377,7 @@ docker build --pull=false -f integrations/flarum/Dockerfile `
 docker compose up -d --no-deps --force-recreate flarum
 ```
 
-该命令只替换 Flarum 容器。论坛当前为单实例 Compose，切换期间会有短暂连接中断。容器进入 `Running` 后，最终校验还会等待最多 180 秒，直到初始化脚本完成、Secret 可由 `flarum` 读取、Flarum 与 SSO 扩展可用，再检查公网访问。最终校验失败时，页面会保留恢复上一个 Compose 的回滚命令；MySQL 和 `data` 的完整恢复仍需要人工确认，发布器不会自动执行破坏性恢复。
+该命令只替换 Flarum 容器。论坛当前为单实例 Compose，切换期间会有短暂连接中断。容器进入 `Running` 后，最终校验还会等待最多 180 秒，直到初始化脚本以 `flarum` 用户完成语言目录预热、Secret 可读、Flarum 与 SSO 扩展可用，并写入运行时就绪标记。发布器只读取该标记，随后检查缓存所有权、公网访问和 `zh-Hans` 资源内容；禁止在验收阶段以 root 运行会生成 Flarum 缓存的 CLI 命令。最终校验失败时，页面会保留恢复上一个 Compose 的回滚命令；MySQL 和 `data` 的完整恢复仍需要人工确认，发布器不会自动执行破坏性恢复。
 
 ## 测试
 

@@ -259,6 +259,13 @@ test('creates reusable forum compose release plan with backup validation and rol
   assert.ok(plan.steps.some(step => step.key === 'final-runtime-check'
     && step.finalCheck
     && decodedRemoteScript(step.command).includes('docker exec -u flarum flarum test -r /run/rhospital-secrets/forum_sso_secret')
+    && decodedRemoteScript(step.command).includes('/run/rhospital-ready/forum-ready')
+    && decodedRemoteScript(step.command).includes('forum_translation_count=[1-9][0-9]*')
+    && decodedRemoteScript(step.command).includes('forum_translation_probe=Profile')
+    && decodedRemoteScript(step.command).includes('forum-zh-Hans\\.js')
+    && decodedRemoteScript(step.command).includes('core.forum.header.profile_button":"\\u4e2a\\u4eba\\u4e3b\\u9875')
+    && decodedRemoteScript(step.command).includes('forum locale asset is empty')
+    && !decodedRemoteScript(step.command).includes('php flarum info')
     && decodedRemoteScript(step.command).includes('for attempt in $(seq 1 90)')
     && decodedRemoteScript(step.command).includes('forum_readiness attempt=')
     && decodedRemoteScript(step.command).includes('forum did not become ready within 180 seconds')
