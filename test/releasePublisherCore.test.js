@@ -874,6 +874,20 @@ test('commit selector includes a refresh control wired to the git refresh endpoi
   assert.match(css, /grid-template-columns:\s*minmax\(0, 1fr\) 44px;/);
 });
 
+test('startup task restores the release console after process and standby exits', () => {
+  const runner = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'run-release-console.ps1'), 'utf8');
+  const installer = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'install-startup-task.ps1'), 'utf8');
+
+  assert.match(runner, /while \(\$true\)/);
+  assert.match(runner, /release console exited with code \$exitCode; restarting in \$RestartDelaySeconds seconds/);
+  assert.match(runner, /Start-Sleep -Seconds \$RestartDelaySeconds/);
+  assert.match(installer, /RepetitionInterval \(New-TimeSpan -Minutes 5\)/);
+  assert.match(installer, /\$triggers = @\(\$logonTrigger, \$watchdogTrigger\)/);
+  assert.match(installer, /-AllowStartIfOnBatteries/);
+  assert.match(installer, /-DontStopIfGoingOnBatteries/);
+  assert.match(installer, /-StartWhenAvailable/);
+});
+
 test('release console exposes game and forum targets with target-aware API payloads', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');

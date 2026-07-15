@@ -1,7 +1,8 @@
 param(
   [string]$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
   [string]$ProjectRoot = 'C:\workspace\hospital-backend',
-  [int]$Port = 8787
+  [int]$Port = 8787,
+  [int]$RestartDelaySeconds = 10
 )
 
 $ErrorActionPreference = 'Stop'
@@ -15,5 +16,10 @@ $env:RELEASE_PUBLISHER_PORT = [string]$Port
 $env:RHOSPITAL_PROJECT_ROOT = $ProjectRoot
 
 Set-Location $repo
-Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] starting RHospital Release Console on 127.0.0.1:$Port"
-node server.js *>> $logFile
+while ($true) {
+  Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] starting RHospital Release Console on 127.0.0.1:$Port"
+  node server.js *>> $logFile
+  $exitCode = if ($null -eq $LASTEXITCODE) { 1 } else { $LASTEXITCODE }
+  Add-Content -Path $logFile -Value "[$(Get-Date -Format o)] release console exited with code $exitCode; restarting in $RestartDelaySeconds seconds"
+  Start-Sleep -Seconds $RestartDelaySeconds
+}

@@ -74,6 +74,8 @@ npm run service:uninstall
 C:\workspace\rhospital-release-publisher\.service\release-console.log
 ```
 
+启动脚本会守护 Node 进程，进程意外退出后等待 10 秒重新启动。计划任务每 5 分钟检查一次运行状态，并在 Modern Standby 恢复或错过触发后补启动。任务允许在电池供电时运行，也不会因电源状态切换被停止。
+
 发布器固定使用 8787 端口。若端口已被占用，服务会直接退出并在日志中提示，不会自动改到其他端口，避免页面连接到非预期实例。
 
 ## Dry Run
