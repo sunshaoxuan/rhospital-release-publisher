@@ -1230,13 +1230,8 @@ function forumSourceScriptValidationCommands() {
   const paths = DEFAULT_FORUM_INIT_SCRIPTS.map(shellToken).join(' ');
   return [
     `git diff --quiet HEAD -- ${paths}`,
-    ...DEFAULT_FORUM_INIT_SCRIPTS.flatMap(scriptPath => {
-      const blob = shellToken(`HEAD:${scriptPath}`);
-      return [
-        `git cat-file -e ${blob}`,
-        `git show ${blob} | bash -n`
-      ];
-    })
+    ...DEFAULT_FORUM_INIT_SCRIPTS.map(scriptPath =>
+      `bash -o pipefail -c ${shellToken(`git show HEAD:${scriptPath} | bash -n`)}`)
   ];
 }
 
