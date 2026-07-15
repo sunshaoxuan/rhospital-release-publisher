@@ -259,6 +259,9 @@ test('creates reusable forum compose release plan with backup validation and rol
   assert.ok(plan.steps.some(step => step.key === 'final-runtime-check'
     && step.finalCheck
     && decodedRemoteScript(step.command).includes('docker exec -u flarum flarum test -r /run/rhospital-secrets/forum_sso_secret')
+    && decodedRemoteScript(step.command).includes('for attempt in $(seq 1 90)')
+    && decodedRemoteScript(step.command).includes('forum_readiness attempt=')
+    && decodedRemoteScript(step.command).includes('forum did not become ready within 180 seconds')
     && decodedRemoteScript(step.command).includes('forum_runtime_validation=PASS')));
   const rollback = plan.steps.find(step => step.key === 'forum-rollback-command');
   assert.ok(rollback);

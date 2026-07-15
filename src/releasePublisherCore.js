@@ -1589,17 +1589,33 @@ function forumContainerRunningCheck(containerName) {
 }
 
 function finalForumRuntimeCheckCommand(containerName, imageTag) {
+  const safeContainerName = shellToken(containerName);
   return [
-    `container_image=$(docker inspect ${shellToken(containerName)} --format '{{.Config.Image}}')`,
+    `container_image=$(docker inspect ${safeContainerName} --format '{{.Config.Image}}')`,
     'echo "container_image=$container_image"',
     `test \"$container_image\" = ${shellToken(imageTag)}`,
-    `docker exec -u flarum ${shellToken(containerName)} test -r /run/rhospital-secrets/forum_sso_secret`,
-    `forum_info=$(docker exec ${shellToken(containerName)} php flarum info)`,
+    'ready=false',
+    'forum_info=',
+    'for attempt in $(seq 1 90); do',
+    `  container_running=$(docker inspect -f '{{.State.Running}}' ${safeContainerName} 2>/dev/null || true)`,
+    '  secret_ready=false',
+    '  forum_ready=false',
+    `  if [ "$container_running" = 'true' ] && docker exec -u flarum ${safeContainerName} test -r /run/rhospital-secrets/forum_sso_secret 2>/dev/null; then secret_ready=true; fi`,
+    `  if [ "$secret_ready" = 'true' ]; then forum_info=$(docker exec ${safeContainerName} php flarum info 2>/dev/null || true); fi`,
+    '  if printf "%s\\n" "$forum_info" | grep -q "Flarum core: 1.8.17" && printf "%s\\n" "$forum_info" | grep -q "rhospital-sso"; then forum_ready=true; fi',
+    '  echo "forum_readiness attempt=$attempt running=$container_running secret=$secret_ready application=$forum_ready"',
+    '  if [ "$container_running" = true ] && [ "$secret_ready" = true ] && [ "$forum_ready" = true ]; then ready=true; break; fi',
+    '  sleep 2',
+    'done',
+    `if [ "$ready" != true ]; then docker logs --tail 120 ${safeContainerName} 2>&1; echo 'ERROR: forum did not become ready within 180 seconds'; exit 1; fi`,
+    `docker exec -u flarum ${safeContainerName} test -r /run/rhospital-secrets/forum_sso_secret`,
     'printf "%s\\n" "$forum_info"',
     'printf "%s\\n" "$forum_info" | grep -q "Flarum core: 1.8.17"',
     'printf "%s\\n" "$forum_info" | grep -q "rhospital-sso"',
-    'curl -fsS -o /dev/null https://bbs.rhospital.cc/',
-    `if docker logs --since 5m ${shellToken(containerName)} 2>&1 | grep -E 'forum_sso_secret.*Permission denied|Permission denied.*forum_sso_secret'; then echo 'ERROR: forum SSO secret permission failure'; exit 1; fi`,
+    'public_ready=false',
+    'for attempt in $(seq 1 30); do if curl -fsS -o /dev/null https://bbs.rhospital.cc/; then public_ready=true; break; fi; sleep 2; done',
+    '[ "$public_ready" = true ]',
+    `if docker logs --since 5m ${safeContainerName} 2>&1 | grep -E 'forum_sso_secret.*Permission denied|Permission denied.*forum_sso_secret'; then echo 'ERROR: forum SSO secret permission failure'; exit 1; fi`,
     "echo 'forum_runtime_validation=PASS'"
   ];
 }
