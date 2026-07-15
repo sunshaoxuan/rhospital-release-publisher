@@ -230,7 +230,12 @@ test('creates reusable forum compose release plan with backup validation and rol
   assert.equal(plan.steps.some(step => step.key === 'save-run-config'), false);
   assert.equal(plan.steps.some(step => step.key === 'compile-artifact'), false);
   assert.ok(plan.steps.some(step => step.key === 'validate-forum-source'
-    && step.command.includes('ForumFlarumImageAssetTest,ForumDeploymentConfigTest')));
+    && step.command.includes('ForumFlarumImageAssetTest,ForumDeploymentConfigTest')
+    && step.command.includes('git diff --quiet HEAD -- integrations/flarum/04-rhospital-secret.sh integrations/flarum/05-rhospital-env.sh')
+    && step.command.includes('git cat-file -e HEAD:integrations/flarum/04-rhospital-secret.sh')
+    && step.command.includes('git show HEAD:integrations/flarum/04-rhospital-secret.sh | bash -n')
+    && step.command.includes('git show HEAD:integrations/flarum/05-rhospital-env.sh | bash -n')
+    && !step.command.includes('bash -n integrations/flarum/')));
   assert.ok(plan.steps.some(step => step.key === 'build-image'
     && step.command.includes('-f integrations/flarum/Dockerfile')
     && step.command.includes('-t rhospital/flarum-sso:2026071501 integrations/flarum')));

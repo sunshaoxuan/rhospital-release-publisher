@@ -11,6 +11,10 @@ const DEFAULT_REMOTE_COMPOSE_DIR = '/opt/1panel/docker/compose/hospital-stack';
 const DEFAULT_FORUM_IMAGE_NAME = 'rhospital/flarum-sso';
 const DEFAULT_FORUM_DOCKERFILE = 'integrations/flarum/Dockerfile';
 const DEFAULT_FORUM_BUILD_CONTEXT = 'integrations/flarum';
+const DEFAULT_FORUM_INIT_SCRIPTS = [
+  'integrations/flarum/04-rhospital-secret.sh',
+  'integrations/flarum/05-rhospital-env.sh'
+];
 const DEFAULT_FORUM_REMOTE_COMPOSE_DIR = '/opt/1panel/apps/flarum/flarum';
 const DEFAULT_FORUM_CONTAINER_NAME = 'flarum';
 const DEFAULT_JETBRAINS_PRODUCT_DIR = 'IntelliJIdea2026.1';
@@ -446,9 +450,9 @@ function createForumPlan(projectRoot, request, env = process.env) {
       summary: '执行论坛镜像契约测试和初始化脚本语法检查',
       command: chainPowerShellCommands([
         '.\\mvnw.cmd -q "-Dtest=ForumFlarumImageAssetTest,ForumDeploymentConfigTest" test',
-        'bash -n integrations/flarum/04-rhospital-secret.sh integrations/flarum/05-rhospital-env.sh'
+        ...forumSourceScriptValidationCommands()
       ]),
-      validation: '论坛镜像契约测试与两个初始化脚本语法检查必须通过',
+      validation: '论坛镜像契约测试必须通过，两个初始化脚本必须与发布提交一致且语法有效',
       actionType: 'local-check',
       executable: true
     }));
@@ -1220,6 +1224,20 @@ function chainPowerShellCommands(commands) {
       ? command
       : `if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; ${command}`)
     .join('; ');
+}
+
+function forumSourceScriptValidationCommands() {
+  const paths = DEFAULT_FORUM_INIT_SCRIPTS.map(shellToken).join(' ');
+  return [
+    `git diff --quiet HEAD -- ${paths}`,
+    ...DEFAULT_FORUM_INIT_SCRIPTS.flatMap(scriptPath => {
+      const blob = shellToken(`HEAD:${scriptPath}`);
+      return [
+        `git cat-file -e ${blob}`,
+        `git show ${blob} | bash -n`
+      ];
+    })
+  ];
 }
 
 function isRemoteBranch(branch) {
