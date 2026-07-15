@@ -38,17 +38,24 @@
           <option value="forum">论坛</option>
         </select>
       </div>
+      <div class="field" id="forum-image-mode-field" hidden>
+        <label for="forum-image-mode">论坛镜像处理</label>
+        <select id="forum-image-mode" name="forumImageMode">
+          <option value="build">构建并上传新镜像</option>
+          <option value="reuse">复用生产已有镜像</option>
+        </select>
+      </div>
       <div class="field">
         <label for="app-tag">镜像 TAG</label>
         <input id="app-tag" name="appTag" required maxlength="64">
       </div>
-      <div class="field">
+      <div class="field" id="git-branch-field">
         <label for="git-branch">发布分支</label>
         <select id="git-branch" name="gitBranch">
           <option value="origin/master">读取中</option>
         </select>
       </div>
-      <div class="field">
+      <div class="field" id="git-commit-field">
         <label for="git-commit">发布提交</label>
         <div class="select-action-row">
           <select id="git-commit" name="gitCommit">
@@ -92,6 +99,7 @@
       <div class="metrics summary-metrics">
         <div class="metric"><span>发布目标</span><strong id="release-target-current">读取中</strong></div>
         <div class="metric"><span>发布方式</span><strong id="deployment-mode">读取中</strong></div>
+        <div class="metric"><span>镜像处理</span><strong id="image-handling">读取中</strong></div>
         <div class="metric"><span>项目目录</span><strong id="project-root">读取中</strong></div>
         <div class="metric"><span>配置文件</span><strong id="run-config">读取中</strong></div>
         <div class="metric"><span>当前镜像</span><strong id="current-image">读取中</strong></div>

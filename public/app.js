@@ -2,7 +2,11 @@
   const bootStartedAt = performance.now();
   const status = document.getElementById('status');
   const releaseTarget = document.getElementById('release-target');
+  const forumImageModeField = document.getElementById('forum-image-mode-field');
+  const forumImageMode = document.getElementById('forum-image-mode');
   const appTag = document.getElementById('app-tag');
+  const gitBranchField = document.getElementById('git-branch-field');
+  const gitCommitField = document.getElementById('git-commit-field');
   const gitBranch = document.getElementById('git-branch');
   const gitCommit = document.getElementById('git-commit');
   const gitRefresh = document.getElementById('git-refresh');
@@ -26,6 +30,7 @@
   const fields = {
     releaseTargetCurrent: document.getElementById('release-target-current'),
     deploymentMode: document.getElementById('deployment-mode'),
+    imageHandling: document.getElementById('image-handling'),
     projectRoot: document.getElementById('project-root'),
     runConfig: document.getElementById('run-config'),
     currentImage: document.getElementById('current-image'),
@@ -84,6 +89,7 @@
   function payload() {
     return {
       releaseTarget: releaseTarget.value,
+      forumImageMode: forumImageMode.value,
       appTag: appTag.value.trim(),
       gitBranch: gitBranch.value,
       gitCommit: gitCommit.value,
@@ -109,14 +115,26 @@
     const previousTarget = latestConfig && latestConfig.releaseTarget;
     latestConfig = config;
     releaseTarget.value = config.releaseTarget || releaseTarget.value || 'game';
-    fields.releaseTargetCurrent.textContent = config.releaseTargetLabel || (releaseTarget.value === 'forum' ? '论坛' : '游戏');
+    const isForum = releaseTarget.value === 'forum';
+    forumImageMode.value = config.forumImageMode || forumImageMode.value || 'build';
+    forumImageModeField.hidden = !isForum;
+    const reuseForumImage = isForum && forumImageMode.value === 'reuse';
+    gitBranch.disabled = reuseForumImage;
+    gitCommit.disabled = reuseForumImage;
+    gitRefresh.disabled = reuseForumImage;
+    gitBranchField.hidden = reuseForumImage;
+    gitCommitField.hidden = reuseForumImage;
+    fields.releaseTargetCurrent.textContent = config.releaseTargetLabel || (isForum ? '论坛' : '游戏');
     fields.deploymentMode.textContent = config.deploymentMode === 'compose' ? 'Docker Compose 容器替换' : 'Docker Swarm start-first';
+    fields.imageHandling.textContent = isForum
+      ? config.forumImageModeLabel || (reuseForumImage ? '复用生产已有镜像' : '构建并上传新镜像')
+      : '构建并上传新镜像';
     fields.projectRoot.textContent = config.projectRoot || '';
     fields.runConfig.textContent = config.runConfigPath || '不修改 IDEA 发布配置';
     fields.currentImage.textContent = config.imageTag || '';
     fields.currentTag.textContent = config.appTag || '按远程镜像计算';
-    fields.gitBranchCurrent.textContent = gitBranch.value || '未选择';
-    fields.gitCommitCurrent.textContent = commitLabel(gitCommit.value);
+    fields.gitBranchCurrent.textContent = reuseForumImage ? '复用镜像，无需选择' : gitBranch.value || '未选择';
+    fields.gitCommitCurrent.textContent = reuseForumImage ? '复用镜像，无需选择' : commitLabel(gitCommit.value);
     fields.serverName.textContent = config.serverName || '';
     fields.sshTarget.textContent = config.remoteSshTarget || config.serverName || '';
     renderDockerContextResolution(config.dockerContextResolution);
@@ -131,7 +149,7 @@
       ? config.remoteComposeDir || ''
       : remoteComposeDir.value || config.remoteComposeDir || '';
     appTag.value = appTag.value || config.suggestedTag || config.appTag || '';
-    deployToggleLabel.textContent = config.releaseTarget === 'forum'
+    deployToggleLabel.textContent = isForum
       ? '执行论坛 Compose 发布'
       : '执行游戏 Swarm 热滚';
     renderExecutionState(config);
@@ -400,9 +418,11 @@
     for (const item of entries) {
       const card = document.createElement('article');
       card.className = `history-card ${String(item.status || '').toLowerCase()}`;
-      const codeSource = item.gitCommit && item.gitCommit !== 'latest'
-        ? `${item.gitBranch || '未选择'} @ ${item.gitCommit}`
-        : `${item.gitBranch || '未选择'} 最新提交`;
+      const codeSource = item.forumImageMode === 'reuse'
+        ? '复用已有镜像，不读取源码'
+        : item.gitCommit && item.gitCommit !== 'latest'
+          ? `${item.gitBranch || '未选择'} @ ${item.gitCommit}`
+          : `${item.gitBranch || '未选择'} 最新提交`;
       const actualCommit = item.releaseCommitShort
         ? `${item.releaseCommitShort}${item.releaseCommitSubject ? ` ${item.releaseCommitSubject}` : ''}`
         : '未记录';
@@ -417,6 +437,7 @@
         <div class="history-grid">
           <div><span>时间</span><b>${escapeHtml(formatDateTime(item.createdAt))}</b></div>
           <div><span>发布目标</span><b>${escapeHtml(item.releaseTargetLabel || (item.releaseTarget === 'forum' ? '论坛' : '游戏'))}</b></div>
+          <div><span>镜像处理</span><b>${escapeHtml(item.forumImageModeLabel || '构建并上传新镜像')}</b></div>
           <div><span>选择代码</span><b>${escapeHtml(codeSource)}</b></div>
           <div><span>实际提交</span><b>${escapeHtml(actualCommit)}</b></div>
           <div><span>提交时间</span><b>${escapeHtml(item.releaseCommitDate || '未记录')}</b></div>
@@ -454,25 +475,30 @@
 
   async function loadConfig(resetTargetValues = false) {
     setStatus('读取配置中', '');
-    if (resetTargetValues) {
-      appTag.value = '';
-      remoteComposeDir.value = '';
-      appTagEdited = false;
+    forumImageMode.disabled = true;
+    try {
+      if (resetTargetValues) {
+        appTag.value = '';
+        remoteComposeDir.value = '';
+        appTagEdited = false;
+      }
+      const config = await requestJson(`/api/config?releaseTarget=${encodeURIComponent(releaseTarget.value)}`);
+      renderConfig(config);
+      await plan();
+      setStatus('流程已生成，正在读取分支和历史', '');
+      loadRemoteTag(config).catch(error => setStatus(`远程 TAG 读取失败: ${error.message}`, 'error'));
+      const results = await Promise.allSettled([
+        loadBranches().then(() => plan()),
+        loadHistory()
+      ]);
+      const failed = results.find(result => result.status === 'rejected');
+      if (failed) {
+        throw failed.reason;
+      }
+      setStatus('配置已读取', 'success');
+    } finally {
+      forumImageMode.disabled = releaseTarget.value !== 'forum';
     }
-    const config = await requestJson(`/api/config?releaseTarget=${encodeURIComponent(releaseTarget.value)}`);
-    renderConfig(config);
-    await plan();
-    setStatus('流程已生成，正在读取分支和历史', '');
-    loadRemoteTag(config).catch(error => setStatus(`远程 TAG 读取失败: ${error.message}`, 'error'));
-    const results = await Promise.allSettled([
-      loadBranches().then(() => plan()),
-      loadHistory()
-    ]);
-    const failed = results.find(result => result.status === 'rejected');
-    if (failed) {
-      throw failed.reason;
-    }
-    setStatus('配置已读取', 'success');
   }
 
   async function loadRemoteTag(config) {
@@ -482,21 +508,27 @@
       remoteComposeDir: remoteComposeDir.value.trim() || config.remoteComposeDir || ''
     });
     const remote = await requestJson(`/api/remote-tag?${params.toString()}`);
-    const canApplySuggestion = remote.suggestedTag
+    const reuseForumImage = releaseTarget.value === 'forum' && forumImageMode.value === 'reuse';
+    const targetTag = reuseForumImage ? remote.appTag : remote.suggestedTag;
+    const canApplySuggestion = targetTag
       && !appTagEdited
       && (!appTag.value
         || appTag.value === config.suggestedTag
         || appTag.value === config.appTag);
     if (canApplySuggestion) {
-      appTag.value = remote.suggestedTag;
+      appTag.value = targetTag;
       latestConfig = {
         ...(latestConfig || config),
-        suggestedTag: remote.suggestedTag,
+        forumImageMode: forumImageMode.value,
+        forumImageModeLabel: reuseForumImage ? '复用生产已有镜像' : '构建并上传新镜像',
+        suggestedTag: targetTag,
         remoteOnlineTag: remote.appTag,
         remoteOnlineImage: remote.imageTag
       };
       await plan();
-      setStatus(`已按远程上线 TAG 建议 ${remote.suggestedTag}`, 'success');
+      setStatus(reuseForumImage
+        ? `将复用生产已有镜像 ${remote.imageTag}`
+        : `已按远程上线 TAG 建议 ${targetTag}`, 'success');
     }
   }
 
@@ -707,6 +739,18 @@
   });
   releaseTarget.addEventListener('change', () => {
     loadConfig(true).catch(error => setStatus(error.message, 'error'));
+  });
+  forumImageMode.addEventListener('change', () => {
+    appTag.value = '';
+    appTagEdited = false;
+    renderConfig({
+      ...(latestConfig || {}),
+      forumImageMode: forumImageMode.value,
+      forumImageModeLabel: forumImageMode.value === 'reuse' ? '复用生产已有镜像' : '构建并上传新镜像'
+    });
+    plan()
+      .then(() => loadRemoteTag(latestConfig || {}))
+      .catch(error => setStatus(`论坛镜像处理切换失败: ${error.message}`, 'error'));
   });
   appTag.addEventListener('change', () => {
     appTagEdited = true;

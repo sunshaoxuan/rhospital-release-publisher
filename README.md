@@ -16,7 +16,7 @@ RHospital 发布控制台，用于替代 IDEA 中的 `148.135.9.123` Docker Run 
 - 使用 `docker save`、`scp`、`docker load` 发布到生产 Docker 镜像池
 - 通过 SSH 预览生产端 `hospital-stack/docker-compose.yml` 的 TAG 替换
 - 生成进入生产编排目录后执行 `docker stack deploy` 的热发布命令
-- 论坛目标会构建 `rhospital/flarum-sso:<TAG>`，生成 MySQL、data、Compose 和镜像证据备份，再用 Docker Compose 只替换 Flarum 容器
+- 论坛目标可选择构建并上传新镜像，或复用生产镜像池中已有的 `rhospital/flarum-sso:<TAG>`，随后生成 MySQL、data、Compose 和镜像证据备份，再用 Docker Compose 只替换 Flarum 容器
 - 默认只执行 dry run
 - 记录本地构造历史，并在页面中展示最近执行记录
 
@@ -113,7 +113,7 @@ C:\workspace\rhospital-release-publisher\.service\release-console.log
 12. 执行 Docker Stack 热发布
 13. 最终运行校验
 
-论坛目标使用独立流水线：
+论坛目标使用独立流水线。代码发生变化时选择“构建并上传新镜像”：
 
 1. 检查、获取并切换 Git 提交
 2. 执行论坛镜像契约测试和初始化脚本语法检查
@@ -126,6 +126,8 @@ C:\workspace\rhospital-release-publisher\.service\release-console.log
 9. 只重建 Flarum 服务，MySQL、网络和持久数据保持不变
 10. 校验镜像、Flarum 版本、`rhospital-sso`、Secret 读取、公网 HTTP 和错误日志
 11. 记录回滚命令，流程不会自动执行回滚
+
+镜像已经存在于生产 Docker 镜像池时选择“复用生产已有镜像”。该模式只读执行 `docker image inspect` 确认指定 TAG 存在，跳过 Git 更新、Maven、Docker build、镜像运行验证、docker save、SCP 和 docker load，随后继续执行生产预检、备份、Compose 容器替换和最终运行验收。
 
 每一步都有动作命令和校验命令。正式执行时，带有校验命令的步骤会在动作命令成功后立即执行校验命令；校验命令失败会中断本次发布并写入构造历史。最终运行校验会检查 stack 服务、任务状态和服务镜像是否指向本次 `hospital-backend:<TAG>`。
 
@@ -342,6 +344,8 @@ docker stack deploy -c docker-compose.yml hospital_stack
 ```text
 rhospital/flarum-sso:2026071501
 ```
+
+“构建并上传新镜像”用于论坛源码、扩展、初始化脚本或基础镜像发生变化的发布。“复用生产已有镜像”用于重新创建容器、重新加载运行时 Secret、应用 Compose 参数变化或回到某个已经上传的不可变 TAG。复用模式不会重新打包论坛。
 
 本地构建使用：
 

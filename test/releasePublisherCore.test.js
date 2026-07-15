@@ -214,6 +214,8 @@ test('creates reusable forum compose release plan with backup validation and rol
   assert.equal(config.defaultRemoteComposeDir, DEFAULT_FORUM_REMOTE_COMPOSE_DIR);
   assert.equal(plan.releaseTarget, 'forum');
   assert.equal(plan.releaseTargetLabel, '论坛');
+  assert.equal(plan.forumImageMode, 'build');
+  assert.equal(plan.forumImageModeLabel, '构建并上传新镜像');
   assert.equal(plan.imageTag, 'rhospital/flarum-sso:2026071501');
   assert.equal(plan.config.remoteComposeDir, DEFAULT_FORUM_REMOTE_COMPOSE_DIR);
   assert.equal(plan.steps.some(step => step.key === 'save-run-config'), false);
@@ -252,6 +254,43 @@ test('creates reusable forum compose release plan with backup validation and rol
   assertStepType(plan, 'backup-forum-release', 'production', true);
   assertStepType(plan, 'deploy-forum-compose', 'production', true);
   assertStepType(plan, 'final-runtime-check', 'remote-check', false);
+});
+
+test('reuses an existing production forum image without rebuilding or uploading it', () => {
+  const root = tempProject(sampleXml);
+  const plan = createPlan(root, {
+    releaseTarget: 'forum',
+    forumImageMode: 'reuse',
+    appTag: '20260715',
+    dryRun: true,
+    dockerContext: 'SSH178',
+    remoteSshTarget: 'root@178.239.117.99',
+    includeStackDeploy: true
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+  });
+
+  assert.equal(plan.forumImageMode, 'reuse');
+  assert.equal(plan.forumImageModeLabel, '复用生产已有镜像');
+  assert.equal(plan.gitBranch, 'not-used');
+  assert.equal(plan.gitCommit, 'not-used');
+  assert.equal(plan.steps.some(step => step.key === 'git-fetch'), false);
+  assert.equal(plan.steps.some(step => step.key === 'git-update'), false);
+  assert.equal(plan.steps.some(step => step.key === 'validate-forum-source'), false);
+  assert.equal(plan.steps.some(step => step.key === 'build-image'), false);
+  assert.equal(plan.steps.some(step => step.key === 'validate-forum-image'), false);
+  assert.equal(plan.steps.some(step => step.key === 'publish-image'), false);
+  const existingImageCheck = plan.steps.find(step => step.key === 'validate-existing-forum-image');
+  assert.ok(existingImageCheck);
+  assert.ok(existingImageCheck.command.includes('docker image inspect'));
+  assert.ok(existingImageCheck.command.includes('rhospital/flarum-sso:20260715'));
+  assertStepType(plan, 'validate-existing-forum-image', 'remote-check', false);
+  assert.ok(plan.steps.some(step => step.key === 'backup-forum-release'));
+  assert.ok(plan.steps.some(step => step.key === 'deploy-forum-compose'));
+  assert.ok(plan.steps.some(step => step.key === 'final-runtime-check'));
+  assert.ok(plan.guardrails.some(rule => rule.includes('不执行源码更新')));
 });
 
 test('creates specified branch latest update plan', () => {
@@ -838,13 +877,22 @@ test('commit selector includes a refresh control wired to the git refresh endpoi
 test('release console exposes game and forum targets with target-aware API payloads', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 
   assert.match(html, /id="release-target"/);
   assert.match(html, /option value="game">游戏后端<\/option>/);
   assert.match(html, /option value="forum">论坛<\/option>/);
+  assert.match(html, /id="forum-image-mode"/);
+  assert.match(html, /option value="build">构建并上传新镜像<\/option>/);
+  assert.match(html, /option value="reuse">复用生产已有镜像<\/option>/);
   assert.match(html, /id="deploy-toggle-label"/);
   assert.match(app, /releaseTarget:\s*releaseTarget\.value/);
+  assert.match(app, /forumImageMode:\s*forumImageMode\.value/);
+  assert.match(app, /gitBranch\.disabled = reuseForumImage/);
+  assert.match(app, /gitBranchField\.hidden = reuseForumImage/);
+  assert.match(app, /将复用生产已有镜像/);
+  assert.match(css, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
   assert.match(app, /api\/config\?releaseTarget=/);
   assert.match(app, /执行论坛 Compose 发布/);
   assert.match(app, /function compactBranchLabel/);

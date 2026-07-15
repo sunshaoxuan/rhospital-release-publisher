@@ -20,6 +20,10 @@
   box-sizing: border-box;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
@@ -815,5 +819,9 @@ button.danger {
 @media (max-width: 460px) {
   h1 {
     font-size: 50px;
+  }
+
+  #remote-compose-dir {
+    font-size: 15px;
   }
 }

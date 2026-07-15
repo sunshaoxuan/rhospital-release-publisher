@@ -54,6 +54,8 @@ function readReleaseConfig(projectRoot, releaseTarget = 'game', runConfigPath = 
     ...gameConfig,
     releaseTarget: 'forum',
     releaseTargetLabel: '论坛',
+    forumImageMode: 'build',
+    forumImageModeLabel: '构建并上传新镜像',
     deploymentMode: 'compose',
     runConfigPath: '',
     absolutePath: '',
@@ -352,6 +354,8 @@ function createPlan(projectRoot, request, env = process.env) {
 
 function createForumPlan(projectRoot, request, env = process.env) {
   const config = readReleaseConfig(projectRoot, 'forum', request.runConfigPath || DEFAULT_RUN_CONFIG);
+  const forumImageMode = validateForumImageMode(request.forumImageMode || config.forumImageMode);
+  const forumImageModeLabel = forumImageMode === 'reuse' ? '复用生产已有镜像' : '构建并上传新镜像';
   const appTag = validateTag(request.appTag || proposeNextTag(''));
   const imageTag = `${config.imageName}:${appTag}`;
   const dockerContext = request.dockerContext || env.RELEASE_PUBLISHER_DOCKER_CONTEXT || config.serverName;
@@ -365,11 +369,17 @@ function createForumPlan(projectRoot, request, env = process.env) {
   const dockerTarget = resolveDockerCommandTarget(dockerContext, dockerContextResolution);
   const remoteImageTarget = resolveRemoteImageTarget(remoteSshTarget, ideaDockerServerResolution);
   const includeStackDeploy = Boolean(request.includeStackDeploy);
-  const gitBranch = validateGitBranch(request.gitBranch || env.RELEASE_PUBLISHER_GIT_BRANCH || 'origin/master');
-  const gitCommit = validateGitCommit(request.gitCommit || 'latest');
-  const gitUpdate = gitUpdateStep(gitBranch, gitCommit);
-  const steps = [
-    releaseStep({
+  const gitBranch = forumImageMode === 'build'
+    ? validateGitBranch(request.gitBranch || env.RELEASE_PUBLISHER_GIT_BRANCH || 'origin/master')
+    : 'not-used';
+  const gitCommit = forumImageMode === 'build'
+    ? validateGitCommit(request.gitCommit || 'latest')
+    : 'not-used';
+  const steps = [];
+
+  if (forumImageMode === 'build') {
+    const gitUpdate = gitUpdateStep(gitBranch, gitCommit);
+    steps.push(releaseStep({
       key: 'git-status-before-update',
       title: '检查本地代码状态',
       summary: '读取当前分支、当前提交和工作区状态，确认论坛发布代码来源',
@@ -377,8 +387,8 @@ function createForumPlan(projectRoot, request, env = process.env) {
       validation: '确认工作区状态可接受，避免拉取代码时覆盖未处理改动',
       actionType: 'local-check',
       executable: true
-    }),
-    releaseStep({
+    }));
+    steps.push(releaseStep({
       key: 'git-fetch',
       title: '获取远端代码',
       summary: '从 origin 拉取远端引用，供最新发布或指定提交发布使用',
@@ -386,8 +396,8 @@ function createForumPlan(projectRoot, request, env = process.env) {
       validation: 'git fetch 必须成功，远端引用必须可解析',
       actionType: 'local-code',
       executable: true
-    }),
-    releaseStep({
+    }));
+    steps.push(releaseStep({
       key: 'git-update',
       title: gitUpdate.title,
       summary: gitUpdate.summary,
@@ -395,8 +405,8 @@ function createForumPlan(projectRoot, request, env = process.env) {
       validation: gitUpdate.validation,
       actionType: 'local-code',
       executable: true
-    }),
-    releaseStep({
+    }));
+    steps.push(releaseStep({
       key: 'capture-release-commit',
       title: '记录发布提交',
       summary: '记录本次实际发布使用的 Git HEAD，作为论坛镜像审计证据',
@@ -404,16 +414,22 @@ function createForumPlan(projectRoot, request, env = process.env) {
       validation: '历史记录必须包含实际提交 hash、提交时间和提交说明',
       actionType: 'local-check',
       executable: true
-    }),
-    releaseStep({
+    }));
+  }
+
+  steps.push(releaseStep({
       key: 'validate-release-input',
       title: '校验论坛发布 TAG',
-      summary: '确认论坛 Dockerfile、构建目录和不可变镜像 TAG',
-      command: `读取 ${config.dockerfile}`,
-      validation: `target=forum, tag=${appTag}, image=${imageTag}`,
+      summary: forumImageMode === 'build'
+        ? '确认论坛 Dockerfile、构建目录和不可变镜像 TAG'
+        : '确认要复用的生产镜像 TAG，不执行本地构建和上传',
+      command: forumImageMode === 'build' ? `读取 ${config.dockerfile}` : `复用 ${imageTag}`,
+      validation: `target=forum, imageMode=${forumImageMode}, tag=${appTag}, image=${imageTag}`,
       actionType: 'local-check'
-    }),
-    releaseStep({
+  }));
+
+  if (forumImageMode === 'build') {
+    steps.push(releaseStep({
       key: 'validate-forum-source',
       title: '校验论坛发布源码',
       summary: '执行论坛镜像契约测试和初始化脚本语法检查',
@@ -424,8 +440,8 @@ function createForumPlan(projectRoot, request, env = process.env) {
       validation: '论坛镜像契约测试与两个初始化脚本语法检查必须通过',
       actionType: 'local-check',
       executable: true
-    }),
-    releaseStep({
+    }));
+    steps.push(releaseStep({
       key: 'build-image',
       title: '制作论坛 Docker 镜像',
       summary: '在本机 Docker 构建带扩展和初始化逻辑的论坛不可变镜像',
@@ -436,8 +452,8 @@ function createForumPlan(projectRoot, request, env = process.env) {
       validationCommand: dockerCommand(dockerTarget, ['image', 'inspect', imageTag, '--format', '{{.Id}} {{.RepoTags}}']),
       actionType: 'build',
       executable: true
-    }),
-    releaseStep({
+    }));
+    steps.push(releaseStep({
       key: 'validate-forum-image',
       title: '验证论坛镜像运行边界',
       summary: '验证 root-only Secret 转存、Flarum 用户读取、PHP 语法和 Composer 安全公告',
@@ -445,8 +461,8 @@ function createForumPlan(projectRoot, request, env = process.env) {
       validation: 'Secret 权限、重复初始化、PHP 语法和 Composer 审计必须全部通过',
       actionType: 'local-check',
       executable: true
-    }),
-    releaseStep({
+    }));
+    steps.push(releaseStep({
       key: 'publish-image',
       title: '发布论坛镜像到生产镜像池',
       summary: '把本机论坛镜像保存为 tar，经 SSH 上传到生产 Docker 主机并执行 docker load',
@@ -456,8 +472,19 @@ function createForumPlan(projectRoot, request, env = process.env) {
       actionType: 'production',
       productionAction: true,
       executable: true
-    })
-  ];
+    }));
+  } else {
+    steps.push(releaseStep({
+      key: 'validate-existing-forum-image',
+      title: '校验生产已有论坛镜像',
+      summary: '只读确认生产 Docker 镜像池中已经存在指定不可变 TAG',
+      command: remoteSshCommand(remoteImageTarget,
+        `docker image inspect ${shellToken(imageTag)} --format '{{.Id}} {{.RepoTags}}'`),
+      validation: `生产镜像池必须存在 ${imageTag}，不存在时流程立即停止`,
+      actionType: 'remote-check',
+      executable: true
+    }));
+  }
 
   if (includeStackDeploy) {
     steps.push(releaseStep({
@@ -570,6 +597,8 @@ function createForumPlan(projectRoot, request, env = process.env) {
   return {
     config: {
       ...config,
+      forumImageMode,
+      forumImageModeLabel,
       dockerContext,
       remoteSshTarget,
       remoteComposeDir,
@@ -582,6 +611,8 @@ function createForumPlan(projectRoot, request, env = process.env) {
     },
     releaseTarget: 'forum',
     releaseTargetLabel: '论坛',
+    forumImageMode,
+    forumImageModeLabel,
     appTag,
     imageTag,
     gitBranch,
@@ -590,7 +621,10 @@ function createForumPlan(projectRoot, request, env = process.env) {
     dryRun: request.dryRun !== false,
     steps,
     guardrails: [
-      '论坛发布必须使用新镜像 TAG，不覆盖已经上线的镜像标签',
+      '论坛镜像 TAG 必须保持不可变；构建模式使用新 TAG，复用模式只使用生产镜像池中已经存在的 TAG',
+      forumImageMode === 'reuse'
+        ? '复用模式只校验生产已有镜像，不执行源码更新、Maven、Docker build、docker save、SCP 或 docker load'
+        : '构建模式执行源码校验、镜像构建、运行验证和镜像上传',
       '正式执行先生成 MySQL、data、Compose 和镜像证据备份，再替换论坛容器',
       '回滚命令只记录不自动执行，完整数据恢复需要人工确认'
     ]
@@ -884,6 +918,8 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
     dryRun: plan.dryRun,
     releaseTarget: plan.releaseTarget || 'game',
     releaseTargetLabel: plan.releaseTargetLabel || '游戏',
+    forumImageMode: plan.forumImageMode || '',
+    forumImageModeLabel: plan.forumImageModeLabel || '',
     appTag: plan.appTag,
     imageTag: plan.imageTag,
     gitBranch: plan.gitBranch,
@@ -1108,6 +1144,14 @@ function validateReleaseTarget(releaseTarget) {
   const value = String(releaseTarget || 'game').trim().toLowerCase();
   if (value !== 'game' && value !== 'forum') {
     throw new Error('发布目标只能是 game 或 forum');
+  }
+  return value;
+}
+
+function validateForumImageMode(mode) {
+  const value = String(mode || 'build').trim().toLowerCase();
+  if (value !== 'build' && value !== 'reuse') {
+    throw new Error('论坛镜像处理只能是 build 或 reuse');
   }
   return value;
 }
@@ -2021,6 +2065,7 @@ module.exports = {
   parseSshGOutput,
   proposeNextTag,
   validateReleaseTarget,
+  validateForumImageMode,
   validateTag,
   validateGitBranch,
   validateGitCommit
