@@ -5,6 +5,7 @@ RHospital 发布控制台，用于替代 IDEA 中的 `148.135.9.123` Docker Run 
 ## 作用
 
 - 读取开发环境中的 `hospital-backend/.run/148.135.9.123.run.xml`
+- 在同一控制台选择“游戏后端”或“论坛”发布目标
 - 支持从分支列表选择发布分支，并从该分支提交列表选择最新提交或指定提交
 - 发布提交下拉框旁提供刷新按钮，执行 `git fetch --prune origin` 后重新读取当前分支提交
 - 解析当前 `hospital-backend:<TAG>` 和 `APP_TAG`
@@ -15,6 +16,7 @@ RHospital 发布控制台，用于替代 IDEA 中的 `148.135.9.123` Docker Run 
 - 使用 `docker save`、`scp`、`docker load` 发布到生产 Docker 镜像池
 - 通过 SSH 预览生产端 `hospital-stack/docker-compose.yml` 的 TAG 替换
 - 生成进入生产编排目录后执行 `docker stack deploy` 的热发布命令
+- 论坛目标会构建 `rhospital/flarum-sso:<TAG>`，生成 MySQL、data、Compose 和镜像证据备份，再用 Docker Compose 只替换 Flarum 容器
 - 默认只执行 dry run
 - 记录本地构造历史，并在页面中展示最近执行记录
 
@@ -110,6 +112,20 @@ C:\workspace\rhospital-release-publisher\.service\release-console.log
 11. 备份并替换生产编排 TAG
 12. 执行 Docker Stack 热发布
 13. 最终运行校验
+
+论坛目标使用独立流水线：
+
+1. 检查、获取并切换 Git 提交
+2. 执行论坛镜像契约测试和初始化脚本语法检查
+3. 构建 `rhospital/flarum-sso:<TAG>`
+4. 在一次性本地容器中验证 root-only Secret 转存、Flarum 用户读取、PHP 语法和 Composer 安全公告
+5. 上传镜像到生产 Docker 主机
+6. 只读检查论坛 Compose、Flarum、MySQL、Secret 元数据和磁盘空间
+7. 备份论坛 MySQL、`data`、Compose、环境文件、容器和镜像证据，并生成 SHA256 校验和
+8. 替换论坛 Compose 镜像 TAG并执行 `docker compose config`
+9. 只重建 Flarum 服务，MySQL、网络和持久数据保持不变
+10. 校验镜像、Flarum 版本、`rhospital-sso`、Secret 读取、公网 HTTP 和错误日志
+11. 记录回滚命令，流程不会自动执行回滚
 
 每一步都有动作命令和校验命令。正式执行时，带有校验命令的步骤会在动作命令成功后立即执行校验命令；校验命令失败会中断本次发布并写入构造历史。最终运行校验会检查 stack 服务、任务状态和服务镜像是否指向本次 `hospital-backend:<TAG>`。
 
@@ -253,6 +269,18 @@ ssh -G SSH178
 $env:RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR='/opt/1panel/docker/compose/hospital-stack'
 ```
 
+论坛生产编排目录默认是：
+
+```text
+/opt/1panel/apps/flarum/flarum
+```
+
+也可以单独覆盖：
+
+```powershell
+$env:RELEASE_PUBLISHER_FORUM_REMOTE_COMPOSE_DIR='/opt/1panel/apps/flarum/flarum'
+```
+
 当前 `Dockerfile` 是多阶段构建。第一阶段使用 Maven 编译，第二阶段制作运行镜像。发布器会在本机 Docker 完成构建，再把镜像保存为 tar，通过 SSH 上传到目标 Docker 主机并执行 `docker load`。页面会把它拆成三个独立节点显示。
 
 当 `APP_TAG=2026070702` 时，编译应用产物命令类似：
@@ -307,6 +335,37 @@ cd /opt/1panel/docker/compose/hospital-stack
 docker stack deploy -c docker-compose.yml hospital_stack
 ```
 
+## 论坛发布
+
+论坛目标不修改游戏 IDEA Run Configuration。TAG 只用于论坛不可变镜像，例如：
+
+```text
+rhospital/flarum-sso:2026071501
+```
+
+本地构建使用：
+
+```powershell
+docker build --pull=false -f integrations/flarum/Dockerfile `
+  -t rhospital/flarum-sso:2026071501 integrations/flarum
+```
+
+正式执行并勾选“执行论坛 Compose 发布”时，发布器会先完成在线备份。备份目录格式为：
+
+```text
+/opt/1panel/backup/forum-release-YYYYMMDDTHHMMSSZ
+```
+
+备份包含论坛 MySQL 单事务导出、`data` 归档、Compose、环境文件、当前容器和镜像证据以及 `SHA256SUMS`。备份目录路径写入编排目录的 root-only `.last-forum-release-backup`，供生成的回滚命令定位。
+
+论坛容器替换命令为：
+
+```bash
+docker compose up -d --no-deps --force-recreate flarum
+```
+
+该命令只替换 Flarum 容器。论坛当前为单实例 Compose，切换期间会有短暂连接中断。最终校验失败时，页面会保留恢复上一个 Compose 的回滚命令；MySQL 和 `data` 的完整恢复仍需要人工确认，发布器不会自动执行破坏性恢复。
+
 ## 测试
 
 ```powershell
@@ -324,4 +383,6 @@ npm test
 - dry run 写入本地构造历史
 - 正式执行后运行步骤校验命令
 - SSH 热发布命令计划
+- 论坛目标 TAG、镜像构建、Secret 运行时校验、生产预检、备份、Compose 发布和回滚命令计划
+- 论坛 dry run 不修改游戏 IDEA Run Configuration
 - 非法 TAG 拦截

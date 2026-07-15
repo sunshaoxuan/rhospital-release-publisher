@@ -1,6 +1,7 @@
 (function () {
   const bootStartedAt = performance.now();
   const status = document.getElementById('status');
+  const releaseTarget = document.getElementById('release-target');
   const appTag = document.getElementById('app-tag');
   const gitBranch = document.getElementById('git-branch');
   const gitCommit = document.getElementById('git-commit');
@@ -10,6 +11,7 @@
   const remoteComposeDir = document.getElementById('remote-compose-dir');
   const dryRun = document.getElementById('dry-run');
   const includeStack = document.getElementById('include-stack');
+  const deployToggleLabel = document.getElementById('deploy-toggle-label');
   const cancelBtn = document.getElementById('cancel-btn');
   const pipeline = document.getElementById('pipeline');
   const steps = document.getElementById('steps');
@@ -22,6 +24,8 @@
   const executionState = document.getElementById('execution-state');
 
   const fields = {
+    releaseTargetCurrent: document.getElementById('release-target-current'),
+    deploymentMode: document.getElementById('deployment-mode'),
     projectRoot: document.getElementById('project-root'),
     runConfig: document.getElementById('run-config'),
     currentImage: document.getElementById('current-image'),
@@ -79,6 +83,7 @@
 
   function payload() {
     return {
+      releaseTarget: releaseTarget.value,
       appTag: appTag.value.trim(),
       gitBranch: gitBranch.value,
       gitCommit: gitCommit.value,
@@ -101,11 +106,15 @@
   }
 
   function renderConfig(config) {
+    const previousTarget = latestConfig && latestConfig.releaseTarget;
     latestConfig = config;
+    releaseTarget.value = config.releaseTarget || releaseTarget.value || 'game';
+    fields.releaseTargetCurrent.textContent = config.releaseTargetLabel || (releaseTarget.value === 'forum' ? '论坛' : '游戏');
+    fields.deploymentMode.textContent = config.deploymentMode === 'compose' ? 'Docker Compose 容器替换' : 'Docker Swarm start-first';
     fields.projectRoot.textContent = config.projectRoot || '';
-    fields.runConfig.textContent = config.runConfigPath || '';
+    fields.runConfig.textContent = config.runConfigPath || '不修改 IDEA 发布配置';
     fields.currentImage.textContent = config.imageTag || '';
-    fields.currentTag.textContent = config.appTag || '';
+    fields.currentTag.textContent = config.appTag || '按远程镜像计算';
     fields.gitBranchCurrent.textContent = gitBranch.value || '未选择';
     fields.gitCommitCurrent.textContent = commitLabel(gitCommit.value);
     fields.serverName.textContent = config.serverName || '';
@@ -118,8 +127,13 @@
     fields.remoteComposePath.textContent = config.remoteComposeDir || '';
     dockerContext.value = dockerContext.value || config.serverName || '';
     remoteSshTarget.value = remoteSshTarget.value || config.remoteSshTarget || config.serverName || '';
-    remoteComposeDir.value = remoteComposeDir.value || config.remoteComposeDir || '';
+    remoteComposeDir.value = !previousTarget || previousTarget !== config.releaseTarget
+      ? config.remoteComposeDir || ''
+      : remoteComposeDir.value || config.remoteComposeDir || '';
     appTag.value = appTag.value || config.suggestedTag || config.appTag || '';
+    deployToggleLabel.textContent = config.releaseTarget === 'forum'
+      ? '执行论坛 Compose 发布'
+      : '执行游戏 Swarm 热滚';
     renderExecutionState(config);
   }
 
@@ -402,6 +416,7 @@
         </div>
         <div class="history-grid">
           <div><span>时间</span><b>${escapeHtml(formatDateTime(item.createdAt))}</b></div>
+          <div><span>发布目标</span><b>${escapeHtml(item.releaseTargetLabel || (item.releaseTarget === 'forum' ? '论坛' : '游戏'))}</b></div>
           <div><span>选择代码</span><b>${escapeHtml(codeSource)}</b></div>
           <div><span>实际提交</span><b>${escapeHtml(actualCommit)}</b></div>
           <div><span>提交时间</span><b>${escapeHtml(item.releaseCommitDate || '未记录')}</b></div>
@@ -437,9 +452,14 @@
     return `${step.title} · ${formatDuration(step.durationMs || 0)}`;
   }
 
-  async function loadConfig() {
+  async function loadConfig(resetTargetValues = false) {
     setStatus('读取配置中', '');
-    const config = await requestJson('/api/config');
+    if (resetTargetValues) {
+      appTag.value = '';
+      remoteComposeDir.value = '';
+      appTagEdited = false;
+    }
+    const config = await requestJson(`/api/config?releaseTarget=${encodeURIComponent(releaseTarget.value)}`);
     renderConfig(config);
     await plan();
     setStatus('流程已生成，正在读取分支和历史', '');
@@ -457,6 +477,7 @@
 
   async function loadRemoteTag(config) {
     const params = new URLSearchParams({
+      releaseTarget: releaseTarget.value,
       remoteSshTarget: remoteSshTarget.value.trim() || config.remoteSshTarget || config.serverName || '',
       remoteComposeDir: remoteComposeDir.value.trim() || config.remoteComposeDir || ''
     });
@@ -489,7 +510,8 @@
     for (const branch of gitBranches) {
       const option = document.createElement('option');
       option.value = branch.name;
-      option.textContent = `${branch.name}${branch.current ? ' 当前' : ''}`;
+      option.textContent = `${compactBranchLabel(branch.name)}${branch.current ? ' 当前' : ''}`;
+      option.title = branch.name;
       gitBranch.appendChild(option);
     }
     if (!gitBranches.length) {
@@ -683,6 +705,9 @@
   appTag.addEventListener('input', () => {
     appTagEdited = true;
   });
+  releaseTarget.addEventListener('change', () => {
+    loadConfig(true).catch(error => setStatus(error.message, 'error'));
+  });
   appTag.addEventListener('change', () => {
     appTagEdited = true;
     plan().catch(error => setStatus(error.message, 'error'));
@@ -733,5 +758,15 @@
     }
     const commit = gitCommits.find(item => item.hash === value);
     return commit ? `${commit.shortHash} ${commit.subject}` : value;
+  }
+
+  function compactBranchLabel(value, maxLength = window.innerWidth <= 640 ? 20 : 36) {
+    const text = String(value || '');
+    if (text.length <= maxLength) {
+      return text;
+    }
+    const headLength = Math.ceil((maxLength - 1) / 2);
+    const tailLength = Math.floor((maxLength - 1) / 2);
+    return `${text.slice(0, headLength)}…${text.slice(-tailLength)}`;
   }
 })();

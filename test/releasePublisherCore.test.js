@@ -7,6 +7,7 @@ const test = require('node:test');
 const {
   createPlan,
   DEFAULT_REMOTE_COMPOSE_DIR,
+  DEFAULT_FORUM_REMOTE_COMPOSE_DIR,
   defaultProjectRoot,
   executePlan,
   resolveDockerContextDetails,
@@ -17,6 +18,7 @@ const {
   refreshGitRefs,
   parseSshGOutput,
   parseIdeaRunConfig,
+  readReleaseConfig,
   proposeNextTag,
   readReleaseHistory,
   readReleaseHistoryPage,
@@ -75,7 +77,7 @@ const sampleXml = `<component name="ProjectRunConfigurationManager">
 </component>`;
 
 function decodedRemoteScript(command) {
-  const match = String(command).match(/printf %s "([0-9A-Za-z+/=]+)" \| base64 -d \| bash/);
+  const match = String(command).match(/printf %s "([0-9A-Za-z+/=]+)" \| base64 -d \| (?:bash|sh)/);
   assert.ok(match, `command does not contain an encoded remote script: ${command}`);
   return Buffer.from(match[1], 'base64').toString('utf8');
 }
@@ -185,6 +187,70 @@ test('creates dry run command plan without production execution enabled', () => 
   assertStepType(plan, 'read-remote-compose', 'remote-check', false);
   assertStepType(plan, 'update-remote-compose', 'production', true);
   assertStepType(plan, 'deploy-stack', 'production', true);
+  assertStepType(plan, 'final-runtime-check', 'remote-check', false);
+});
+
+test('creates reusable forum compose release plan with backup validation and rollback evidence', () => {
+  const root = tempProject(sampleXml);
+  const config = readReleaseConfig(root, 'forum');
+  const plan = createPlan(root, {
+    releaseTarget: 'forum',
+    appTag: '2026071501',
+    dryRun: true,
+    dockerContext: 'SSH178',
+    remoteSshTarget: 'root@178.239.117.99',
+    includeStackDeploy: true
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+  });
+
+  assert.equal(config.releaseTarget, 'forum');
+  assert.equal(config.deploymentMode, 'compose');
+  assert.equal(config.imageName, 'rhospital/flarum-sso');
+  assert.equal(config.dockerfile, 'integrations/flarum/Dockerfile');
+  assert.equal(config.buildContext, 'integrations/flarum');
+  assert.equal(config.defaultRemoteComposeDir, DEFAULT_FORUM_REMOTE_COMPOSE_DIR);
+  assert.equal(plan.releaseTarget, 'forum');
+  assert.equal(plan.releaseTargetLabel, '论坛');
+  assert.equal(plan.imageTag, 'rhospital/flarum-sso:2026071501');
+  assert.equal(plan.config.remoteComposeDir, DEFAULT_FORUM_REMOTE_COMPOSE_DIR);
+  assert.equal(plan.steps.some(step => step.key === 'save-run-config'), false);
+  assert.equal(plan.steps.some(step => step.key === 'compile-artifact'), false);
+  assert.ok(plan.steps.some(step => step.key === 'validate-forum-source'
+    && step.command.includes('ForumFlarumImageAssetTest,ForumDeploymentConfigTest')));
+  assert.ok(plan.steps.some(step => step.key === 'build-image'
+    && step.command.includes('-f integrations/flarum/Dockerfile')
+    && step.command.includes('-t rhospital/flarum-sso:2026071501 integrations/flarum')));
+  assert.ok(plan.steps.some(step => step.key === 'validate-forum-image'
+    && decodedRemoteScript(step.command).includes('forum_image_validation=PASS')
+    && decodedRemoteScript(step.command).includes('/run/rhospital-secrets/forum_sso_secret')));
+  assert.ok(plan.steps.some(step => step.key === 'read-remote-compose'
+    && decodedRemoteScript(step.command).includes(DEFAULT_FORUM_REMOTE_COMPOSE_DIR)
+    && decodedRemoteScript(step.command).includes('rhospital/flarum-sso:')));
+  assert.ok(plan.steps.some(step => step.key === 'forum-preflight'
+    && decodedRemoteScript(step.command).includes('docker compose config')
+    && decodedRemoteScript(step.command).includes('secret_meta=')));
+  assert.ok(plan.steps.some(step => step.key === 'backup-forum-release'
+    && decodedRemoteScript(step.command).includes('mysqldump --single-transaction')
+    && decodedRemoteScript(step.command).includes('flarum-data.tar.gz')
+    && decodedRemoteScript(step.command).includes('.last-forum-release-backup')));
+  assert.ok(plan.steps.some(step => step.key === 'update-remote-compose'
+    && decodedRemoteScript(step.command).includes('rhospital/flarum-sso:2026071501')
+    && decodedRemoteScript(step.command).includes('docker compose config')));
+  assert.ok(plan.steps.some(step => step.key === 'deploy-forum-compose'
+    && decodedRemoteScript(step.command).includes('docker compose up -d --no-deps --force-recreate flarum')));
+  assert.ok(plan.steps.some(step => step.key === 'final-runtime-check'
+    && step.finalCheck
+    && decodedRemoteScript(step.command).includes('docker exec -u flarum flarum test -r /run/rhospital-secrets/forum_sso_secret')
+    && decodedRemoteScript(step.command).includes('forum_runtime_validation=PASS')));
+  const rollback = plan.steps.find(step => step.key === 'forum-rollback-command');
+  assert.ok(rollback);
+  assert.equal(rollback.executable, false);
+  assert.ok(decodedRemoteScript(rollback.command).includes('.last-forum-release-backup'));
+  assertStepType(plan, 'backup-forum-release', 'production', true);
+  assertStepType(plan, 'deploy-forum-compose', 'production', true);
   assertStepType(plan, 'final-runtime-check', 'remote-check', false);
 });
 
@@ -302,6 +368,19 @@ test('reads remote compose image tag through SSH output', () => {
   assert.equal(calls[0].command, 'ssh');
   assert.ok(calls[0].args.includes('-i'));
   assert.ok(calls[0].args.some(arg => String(arg).includes('base64 -d | bash')));
+});
+
+test('reads namespaced forum image tag from the forum compose', () => {
+  const result = readRemoteComposeImageTag('root@178.239.117.99', DEFAULT_FORUM_REMOTE_COMPOSE_DIR,
+    'rhospital/flarum-sso', {}, () => ({
+      status: 0,
+      stdout: '34:        image: rhospital/flarum-sso:20260715\n',
+      stderr: ''
+    }));
+
+  assert.equal(result.resolved, true);
+  assert.equal(result.imageTag, 'rhospital/flarum-sso:20260715');
+  assert.equal(result.appTag, '20260715');
 });
 
 test('parses ssh -G output for display', () => {
@@ -463,6 +542,34 @@ test('execute dry run marks every pipeline step checked without mutating file', 
   assert.equal(history[0].status, 'DRY_RUN');
   assert.equal(history[0].imageTag, 'hospital-backend:2026070702');
   assert.equal(history[0].completedStepCount, result.plan.steps.length);
+});
+
+test('forum dry run records target and never changes the game IDEA release config', async () => {
+  const root = tempProject(sampleXml);
+  const configPath = path.join(root, '.run', '148.135.9.123.run.xml');
+  const historyPath = path.join(root, 'forum-history.json');
+  const result = await executePlan(root, {
+    releaseTarget: 'forum',
+    appTag: '2026071501',
+    dryRun: true,
+    dockerContext: 'SSH178',
+    includeStackDeploy: true
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  });
+
+  assert.equal(result.status, 'DRY_RUN');
+  assert.equal(result.plan.releaseTarget, 'forum');
+  assert.equal(result.plan.steps.some(step => step.key === 'save-run-config'), false);
+  assert.equal(fs.readFileSync(configPath, 'utf8'), sampleXml);
+  const history = readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
+  assert.equal(history.length, 1);
+  assert.equal(history[0].releaseTarget, 'forum');
+  assert.equal(history[0].releaseTargetLabel, '论坛');
+  assert.equal(history[0].imageTag, 'rhospital/flarum-sso:2026071501');
 });
 
 test('execute runs validation commands after executable steps', async () => {
@@ -726,6 +833,24 @@ test('commit selector includes a refresh control wired to the git refresh endpoi
   assert.match(app, /gitRefresh\.addEventListener\('click'/);
   assert.match(css, /\.select-action-row\s*\{/);
   assert.match(css, /grid-template-columns:\s*minmax\(0, 1fr\) 44px;/);
+});
+
+test('release console exposes game and forum targets with target-aware API payloads', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+
+  assert.match(html, /id="release-target"/);
+  assert.match(html, /option value="game">游戏后端<\/option>/);
+  assert.match(html, /option value="forum">论坛<\/option>/);
+  assert.match(html, /id="deploy-toggle-label"/);
+  assert.match(app, /releaseTarget:\s*releaseTarget\.value/);
+  assert.match(app, /api\/config\?releaseTarget=/);
+  assert.match(app, /执行论坛 Compose 发布/);
+  assert.match(app, /function compactBranchLabel/);
+  assert.match(app, /option\.title = branch\.name/);
+  assert.match(app, /previousTarget !== config\.releaseTarget/);
+  assert.match(server, /RELEASE_PUBLISHER_FORUM_REMOTE_COMPOSE_DIR/);
 });
 
 function tempProject(xml) {

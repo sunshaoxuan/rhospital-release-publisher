@@ -4,8 +4,10 @@ const path = require('path');
 const {
   DEFAULT_RUN_CONFIG,
   DEFAULT_REMOTE_COMPOSE_DIR,
+  DEFAULT_FORUM_REMOTE_COMPOSE_DIR,
   defaultProjectRoot,
   readConfig,
+  readReleaseConfig,
   createPlan,
   saveTag,
   executePlan,
@@ -19,6 +21,7 @@ const {
   listGitCommits,
   refreshGitRefs,
   proposeNextTag,
+  validateReleaseTarget,
   resolveSshTargetDetails,
   resolveDockerContextDetails,
   resolveReleaseDockerServerDetails,
@@ -55,7 +58,8 @@ const server = http.createServer(async (req, res) => {
       return sendFile(res, filePath);
     }
     if (pathname === '/api/config' && req.method === 'GET') {
-      const config = readConfig(projectRoot, DEFAULT_RUN_CONFIG);
+      const releaseTarget = validateReleaseTarget(requestUrl.searchParams.get('releaseTarget') || 'game');
+      const config = readReleaseConfig(projectRoot, releaseTarget, DEFAULT_RUN_CONFIG);
       const remoteSshTarget = process.env.RELEASE_PUBLISHER_SSH_TARGET
         || process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT
         || config.serverName;
@@ -66,7 +70,9 @@ const server = http.createServer(async (req, res) => {
         ...config,
         suggestedTag: proposeNextTag(config.appTag),
         remoteSshTarget,
-        remoteComposeDir: process.env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR,
+        remoteComposeDir: releaseTarget === 'forum'
+          ? process.env.RELEASE_PUBLISHER_FORUM_REMOTE_COMPOSE_DIR || DEFAULT_FORUM_REMOTE_COMPOSE_DIR
+          : process.env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR,
         sshResolution: resolveSshTargetDetails(remoteSshTarget, process.env),
         dockerContextResolution,
         ideaDockerServerResolution,
@@ -75,14 +81,16 @@ const server = http.createServer(async (req, res) => {
       });
     }
     if (pathname === '/api/remote-tag' && req.method === 'GET') {
-      const config = readConfig(projectRoot, DEFAULT_RUN_CONFIG);
+      const releaseTarget = validateReleaseTarget(requestUrl.searchParams.get('releaseTarget') || 'game');
+      const config = readReleaseConfig(projectRoot, releaseTarget, DEFAULT_RUN_CONFIG);
       const remoteSshTarget = requestUrl.searchParams.get('remoteSshTarget')
         || process.env.RELEASE_PUBLISHER_SSH_TARGET
         || process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT
         || config.serverName;
       const remoteComposeDir = requestUrl.searchParams.get('remoteComposeDir')
-        || process.env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR
-        || DEFAULT_REMOTE_COMPOSE_DIR;
+        || (releaseTarget === 'forum'
+          ? process.env.RELEASE_PUBLISHER_FORUM_REMOTE_COMPOSE_DIR || DEFAULT_FORUM_REMOTE_COMPOSE_DIR
+          : process.env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR);
       const dockerServerName = process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT || config.serverName;
       const serverResolution = resolveReleaseDockerServerDetails(dockerServerName, process.env);
       const target = serverResolution && serverResolution.resolved
@@ -99,6 +107,7 @@ const server = http.createServer(async (req, res) => {
         ...remote,
         suggestedTag: remote.resolved ? proposeNextTag(remote.appTag) : proposeNextTag(config.appTag),
         localAppTag: config.appTag,
+        releaseTarget,
         remoteComposeDir,
         remoteSshTarget
       });

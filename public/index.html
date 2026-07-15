@@ -32,7 +32,14 @@
     <form class="panel" id="release-form">
       <h2>版本输入</h2>
       <div class="field">
-        <label for="app-tag">APP_TAG</label>
+        <label for="release-target">发布目标</label>
+        <select id="release-target" name="releaseTarget">
+          <option value="game">游戏后端</option>
+          <option value="forum">论坛</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="app-tag">镜像 TAG</label>
         <input id="app-tag" name="appTag" required maxlength="64">
       </div>
       <div class="field">
@@ -70,7 +77,7 @@
       </label>
       <label class="check-row">
         <input id="include-stack" type="checkbox" checked>
-        生成 SSH 热发布命令
+        <span id="deploy-toggle-label">执行游戏 Swarm 热滚</span>
       </label>
       <div class="actions">
         <button type="button" class="secondary" id="reload-btn">刷新</button>
@@ -83,6 +90,8 @@
     <aside class="panel config-panel">
       <h2>发布参数</h2>
       <div class="metrics summary-metrics">
+        <div class="metric"><span>发布目标</span><strong id="release-target-current">读取中</strong></div>
+        <div class="metric"><span>发布方式</span><strong id="deployment-mode">读取中</strong></div>
         <div class="metric"><span>项目目录</span><strong id="project-root">读取中</strong></div>
         <div class="metric"><span>配置文件</span><strong id="run-config">读取中</strong></div>
         <div class="metric"><span>当前镜像</span><strong id="current-image">读取中</strong></div>

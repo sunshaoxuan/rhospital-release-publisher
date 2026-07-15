@@ -8,6 +8,11 @@ const DEFAULT_IMAGE_NAME = 'hospital-backend';
 const DEFAULT_COMPOSE_FILE = 'docker-compose.yml';
 const DEFAULT_STACK_NAME = 'hospital_stack';
 const DEFAULT_REMOTE_COMPOSE_DIR = '/opt/1panel/docker/compose/hospital-stack';
+const DEFAULT_FORUM_IMAGE_NAME = 'rhospital/flarum-sso';
+const DEFAULT_FORUM_DOCKERFILE = 'integrations/flarum/Dockerfile';
+const DEFAULT_FORUM_BUILD_CONTEXT = 'integrations/flarum';
+const DEFAULT_FORUM_REMOTE_COMPOSE_DIR = '/opt/1panel/apps/flarum/flarum';
+const DEFAULT_FORUM_CONTAINER_NAME = 'flarum';
 const DEFAULT_JETBRAINS_PRODUCT_DIR = 'IntelliJIdea2026.1';
 const DEFAULT_HISTORY_FILE = '.release-history.json';
 const DEFAULT_PUBLISHER_CONFIG = 'release-publisher.config.json';
@@ -29,6 +34,39 @@ function readConfig(projectRoot, runConfigPath = DEFAULT_RUN_CONFIG) {
     absolutePath,
     projectRoot: path.resolve(projectRoot),
     ...parseIdeaRunConfig(xml)
+  };
+}
+
+function readReleaseConfig(projectRoot, releaseTarget = 'game', runConfigPath = DEFAULT_RUN_CONFIG) {
+  const target = validateReleaseTarget(releaseTarget);
+  const gameConfig = readConfig(projectRoot, runConfigPath);
+  if (target === 'game') {
+    return {
+      ...gameConfig,
+      releaseTarget: 'game',
+      releaseTargetLabel: '游戏',
+      deploymentMode: 'swarm',
+      buildContext: '.',
+      defaultRemoteComposeDir: DEFAULT_REMOTE_COMPOSE_DIR
+    };
+  }
+  return {
+    ...gameConfig,
+    releaseTarget: 'forum',
+    releaseTargetLabel: '论坛',
+    deploymentMode: 'compose',
+    runConfigPath: '',
+    absolutePath: '',
+    imageTag: `${DEFAULT_FORUM_IMAGE_NAME}:latest`,
+    imageName: DEFAULT_FORUM_IMAGE_NAME,
+    appTag: '',
+    dockerfile: DEFAULT_FORUM_DOCKERFILE,
+    buildContext: DEFAULT_FORUM_BUILD_CONTEXT,
+    containerName: DEFAULT_FORUM_CONTAINER_NAME,
+    volumeHostPath: '/opt/1panel/apps/flarum/flarum/data',
+    composeFile: DEFAULT_COMPOSE_FILE,
+    stackName: '',
+    defaultRemoteComposeDir: DEFAULT_FORUM_REMOTE_COMPOSE_DIR
   };
 }
 
@@ -63,6 +101,9 @@ function parseIdeaRunConfig(xml) {
 }
 
 function createPlan(projectRoot, request, env = process.env) {
+  if (validateReleaseTarget(request.releaseTarget || 'game') === 'forum') {
+    return createForumPlan(projectRoot, request, env);
+  }
   const config = readConfig(projectRoot, request.runConfigPath || DEFAULT_RUN_CONFIG);
   const appTag = validateTag(request.appTag || config.appTag);
   const imageName = config.imageName || DEFAULT_IMAGE_NAME;
@@ -279,6 +320,10 @@ function createPlan(projectRoot, request, env = process.env) {
   return {
     config: {
       ...config,
+      releaseTarget: 'game',
+      releaseTargetLabel: '游戏',
+      deploymentMode: 'swarm',
+      buildContext: '.',
       dockerContext,
       remoteSshTarget,
       remoteComposeDir,
@@ -289,6 +334,8 @@ function createPlan(projectRoot, request, env = process.env) {
       remoteImageTarget,
       executionEnabled: true
     },
+    releaseTarget: 'game',
+    releaseTargetLabel: '游戏',
     appTag,
     imageTag,
     gitBranch,
@@ -299,6 +346,253 @@ function createPlan(projectRoot, request, env = process.env) {
     guardrails: [
       '勾选 dry run 时只生成命令和写入预览',
       '取消 dry run 后会执行本地编译、镜像上传和勾选范围内的远端发布步骤'
+    ]
+  };
+}
+
+function createForumPlan(projectRoot, request, env = process.env) {
+  const config = readReleaseConfig(projectRoot, 'forum', request.runConfigPath || DEFAULT_RUN_CONFIG);
+  const appTag = validateTag(request.appTag || proposeNextTag(''));
+  const imageTag = `${config.imageName}:${appTag}`;
+  const dockerContext = request.dockerContext || env.RELEASE_PUBLISHER_DOCKER_CONTEXT || config.serverName;
+  const remoteSshTarget = request.remoteSshTarget || env.RELEASE_PUBLISHER_SSH_TARGET || dockerContext;
+  const remoteComposeDir = request.remoteComposeDir
+    || env.RELEASE_PUBLISHER_FORUM_REMOTE_COMPOSE_DIR
+    || DEFAULT_FORUM_REMOTE_COMPOSE_DIR;
+  const sshResolution = resolveSshTargetDetails(remoteSshTarget, env);
+  const dockerContextResolution = resolveDockerContextDetails(dockerContext, env);
+  const ideaDockerServerResolution = resolveReleaseDockerServerDetails(dockerContext, env);
+  const dockerTarget = resolveDockerCommandTarget(dockerContext, dockerContextResolution);
+  const remoteImageTarget = resolveRemoteImageTarget(remoteSshTarget, ideaDockerServerResolution);
+  const includeStackDeploy = Boolean(request.includeStackDeploy);
+  const gitBranch = validateGitBranch(request.gitBranch || env.RELEASE_PUBLISHER_GIT_BRANCH || 'origin/master');
+  const gitCommit = validateGitCommit(request.gitCommit || 'latest');
+  const gitUpdate = gitUpdateStep(gitBranch, gitCommit);
+  const steps = [
+    releaseStep({
+      key: 'git-status-before-update',
+      title: '检查本地代码状态',
+      summary: '读取当前分支、当前提交和工作区状态，确认论坛发布代码来源',
+      command: chainPowerShellCommands(['git status --short --branch', 'git rev-parse --short HEAD']),
+      validation: '确认工作区状态可接受，避免拉取代码时覆盖未处理改动',
+      actionType: 'local-check',
+      executable: true
+    }),
+    releaseStep({
+      key: 'git-fetch',
+      title: '获取远端代码',
+      summary: '从 origin 拉取远端引用，供最新发布或指定提交发布使用',
+      command: 'git fetch --prune origin',
+      validation: 'git fetch 必须成功，远端引用必须可解析',
+      actionType: 'local-code',
+      executable: true
+    }),
+    releaseStep({
+      key: 'git-update',
+      title: gitUpdate.title,
+      summary: gitUpdate.summary,
+      command: gitUpdate.command,
+      validation: gitUpdate.validation,
+      actionType: 'local-code',
+      executable: true
+    }),
+    releaseStep({
+      key: 'capture-release-commit',
+      title: '记录发布提交',
+      summary: '记录本次实际发布使用的 Git HEAD，作为论坛镜像审计证据',
+      command: chainPowerShellCommands(['git rev-parse HEAD', 'git log -1 --format="%h%x09%ci%x09%s"']),
+      validation: '历史记录必须包含实际提交 hash、提交时间和提交说明',
+      actionType: 'local-check',
+      executable: true
+    }),
+    releaseStep({
+      key: 'validate-release-input',
+      title: '校验论坛发布 TAG',
+      summary: '确认论坛 Dockerfile、构建目录和不可变镜像 TAG',
+      command: `读取 ${config.dockerfile}`,
+      validation: `target=forum, tag=${appTag}, image=${imageTag}`,
+      actionType: 'local-check'
+    }),
+    releaseStep({
+      key: 'validate-forum-source',
+      title: '校验论坛发布源码',
+      summary: '执行论坛镜像契约测试和初始化脚本语法检查',
+      command: chainPowerShellCommands([
+        '.\\mvnw.cmd -q "-Dtest=ForumFlarumImageAssetTest,ForumDeploymentConfigTest" test',
+        'bash -n integrations/flarum/04-rhospital-secret.sh integrations/flarum/05-rhospital-env.sh'
+      ]),
+      validation: '论坛镜像契约测试与两个初始化脚本语法检查必须通过',
+      actionType: 'local-check',
+      executable: true
+    }),
+    releaseStep({
+      key: 'build-image',
+      title: '制作论坛 Docker 镜像',
+      summary: '在本机 Docker 构建带扩展和初始化逻辑的论坛不可变镜像',
+      command: dockerCommand(dockerTarget, [
+        'build', '--pull=false', '-f', config.dockerfile, '-t', imageTag, config.buildContext
+      ]),
+      validation: dockerCommand(dockerTarget, ['image', 'inspect', imageTag, '--format', '{{.Id}} {{.RepoTags}}']),
+      validationCommand: dockerCommand(dockerTarget, ['image', 'inspect', imageTag, '--format', '{{.Id}} {{.RepoTags}}']),
+      actionType: 'build',
+      executable: true
+    }),
+    releaseStep({
+      key: 'validate-forum-image',
+      title: '验证论坛镜像运行边界',
+      summary: '验证 root-only Secret 转存、Flarum 用户读取、PHP 语法和 Composer 安全公告',
+      command: forumImageValidationCommand(dockerTarget, imageTag),
+      validation: 'Secret 权限、重复初始化、PHP 语法和 Composer 审计必须全部通过',
+      actionType: 'local-check',
+      executable: true
+    }),
+    releaseStep({
+      key: 'publish-image',
+      title: '发布论坛镜像到生产镜像池',
+      summary: '把本机论坛镜像保存为 tar，经 SSH 上传到生产 Docker 主机并执行 docker load',
+      command: publishImageCommand(imageTag, remoteImageTarget),
+      validation: remoteSshCommand(remoteImageTarget, `docker image inspect ${shellToken(imageTag)} --format '{{.Id}} {{.RepoTags}}'`),
+      validationCommand: remoteSshCommand(remoteImageTarget, `docker image inspect ${shellToken(imageTag)} --format '{{.Id}} {{.RepoTags}}'`),
+      actionType: 'production',
+      productionAction: true,
+      executable: true
+    })
+  ];
+
+  if (includeStackDeploy) {
+    steps.push(releaseStep({
+      key: 'resolve-ssh-target',
+      title: '确认 SSH 连接配置',
+      summary: '展开本机 SSH 配置，确认实际 HostName、User、Port 和密钥来源',
+      command: `ssh -G ${shellToken(sshTargetValue(remoteImageTarget))}`,
+      validation: remoteImageTarget.host
+        ? `HostName=${remoteImageTarget.host}, User=${remoteImageTarget.user || '未解析'}, Port=${remoteImageTarget.port || '未解析'}, Key=${remoteImageTarget.keyPath || '默认 SSH key'}`
+        : sshResolution.resolved
+          ? `HostName=${sshResolution.hostName || '未解析'}, User=${sshResolution.user || '未解析'}, Port=${sshResolution.port || '未解析'}`
+          : sshResolution.note || 'SSH 目标未解析',
+      actionType: 'local-check'
+    }));
+    steps.push(releaseStep({
+      key: 'read-remote-compose',
+      title: '读取论坛生产编排当前镜像',
+      summary: '进入 Flarum 编排目录，确认当前论坛镜像行',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
+        `cd ${shellToken(remoteComposeDir)}`,
+        `grep -nE '^[[:space:]]*image:[[:space:]]*${escapeEgrepPattern(config.imageName)}:' docker-compose.yml`
+      ])),
+      validation: `必须能读到 image: ${config.imageName}:<TAG>`,
+      actionType: 'remote-check',
+      executable: true
+    }));
+    steps.push(releaseStep({
+      key: 'forum-preflight',
+      title: '检查论坛生产发布前状态',
+      summary: '只读确认 Compose、论坛容器、MySQL、Secret 元数据和磁盘空间',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(forumPreflightCommand(remoteComposeDir))),
+      validation: 'Compose 必须可渲染，论坛和 MySQL 容器必须运行，Secret 只能读取元数据且磁盘空间充足',
+      actionType: 'remote-check',
+      executable: true
+    }));
+    steps.push(releaseStep({
+      key: 'backup-forum-release',
+      title: '生成论坛发布备份点',
+      summary: '备份 MySQL、data、Compose、环境文件和当前镜像证据，生成校验和',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(forumBackupCommand(remoteComposeDir))),
+      validation: '备份目录中的数据库、data、Compose、镜像证据和 SHA256SUMS 必须非空',
+      actionType: 'production',
+      productionAction: true,
+      executable: true
+    }));
+    steps.push(releaseStep({
+      key: 'update-remote-compose',
+      title: '替换论坛生产编排 TAG',
+      summary: '保留修改前 Compose 副本，然后把论坛镜像替换成本次不可变 TAG',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
+        `cd ${shellToken(remoteComposeDir)}`,
+        'cp docker-compose.yml docker-compose.yml.pre-release.$(date -u +%Y%m%dT%H%M%SZ)',
+        `sed -i -E 's#^([[:space:]]*image:[[:space:]]*)${escapeEgrepPattern(config.imageName)}:[^[:space:]]+#\\1${escapeSedReplacement(imageTag)}#' docker-compose.yml`,
+        'docker compose config >/dev/null'
+      ])),
+      validation: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
+        `cd ${shellToken(remoteComposeDir)}`,
+        `grep -nE '^[[:space:]]*image:[[:space:]]*${escapeEgrepPattern(imageTag)}$' docker-compose.yml`,
+        'docker compose config >/dev/null'
+      ])),
+      validationCommand: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
+        `cd ${shellToken(remoteComposeDir)}`,
+        `grep -nE '^[[:space:]]*image:[[:space:]]*${escapeEgrepPattern(imageTag)}$' docker-compose.yml`,
+        'docker compose config >/dev/null'
+      ])),
+      actionType: 'production',
+      productionAction: true,
+      executable: true
+    }));
+    steps.push(releaseStep({
+      key: 'deploy-forum-compose',
+      title: '替换论坛容器',
+      summary: '使用 Docker Compose 只重建 Flarum 服务，保留 MySQL、网络和持久数据',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
+        `cd ${shellToken(remoteComposeDir)}`,
+        `docker compose up -d --no-deps --force-recreate ${shellToken(config.containerName)}`
+      ])),
+      validation: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        forumContainerRunningCheck(config.containerName)
+      )),
+      validationCommand: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        forumContainerRunningCheck(config.containerName)
+      )),
+      actionType: 'production',
+      productionAction: true,
+      executable: true
+    }));
+    steps.push(releaseStep({
+      key: 'final-runtime-check',
+      title: '论坛最终运行校验',
+      summary: '确认论坛镜像、Flarum 版本、扩展、Secret 读取、公网 HTTP 和错误日志',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        finalForumRuntimeCheckCommand(config.containerName, imageTag)
+      )),
+      validation: `容器必须运行 ${imageTag}，Flarum 和 rhospital-sso 正常，Secret 可由 flarum 读取，公网返回成功`,
+      actionType: 'remote-check',
+      executable: true,
+      finalCheck: true
+    }));
+    steps.push(releaseStep({
+      key: 'forum-rollback-command',
+      title: '记录论坛回滚命令',
+      summary: '保留上一个 Compose 和备份目录的回滚入口，发布流程不会自动执行回滚',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(forumRollbackCommand(remoteComposeDir))),
+      validation: '仅在验收失败且人工确认后执行；数据库和 data 完整恢复另行确认',
+      actionType: 'local-check'
+    }));
+  }
+
+  return {
+    config: {
+      ...config,
+      dockerContext,
+      remoteSshTarget,
+      remoteComposeDir,
+      sshResolution,
+      dockerContextResolution,
+      ideaDockerServerResolution,
+      dockerCommandTarget: dockerTarget,
+      remoteImageTarget,
+      executionEnabled: true
+    },
+    releaseTarget: 'forum',
+    releaseTargetLabel: '论坛',
+    appTag,
+    imageTag,
+    gitBranch,
+    gitCommit,
+    includeStackDeploy,
+    dryRun: request.dryRun !== false,
+    steps,
+    guardrails: [
+      '论坛发布必须使用新镜像 TAG，不覆盖已经上线的镜像标签',
+      '正式执行先生成 MySQL、data、Compose 和镜像证据备份，再替换论坛容器',
+      '回滚命令只记录不自动执行，完整数据恢复需要人工确认'
     ]
   };
 }
@@ -393,16 +687,20 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
     });
   };
   if (plan.dryRun) {
-    const saved = saveTag(projectRoot, {
-      appTag: plan.appTag,
-      runConfigPath: request.runConfigPath,
-      dryRun: true
-    });
+    const saved = plan.releaseTarget === 'game'
+      ? saveTag(projectRoot, {
+          appTag: plan.appTag,
+          runConfigPath: request.runConfigPath,
+          dryRun: true
+        })
+      : {status: 'DRY_RUN', appTag: plan.appTag, imageTag: plan.imageTag, changed: false};
     logs.push(`${saved.status}: ${plan.imageTag}`);
     completedStepKeys.push(...plan.steps.map(step => step.key));
     const stepLogs = {};
     for (const step of plan.steps) {
-      stepLogs[step.key] = step.key === 'save-run-config' ? logs.slice() : [];
+      stepLogs[step.key] = step.key === (plan.releaseTarget === 'game' ? 'save-run-config' : 'validate-release-input')
+        ? logs.slice()
+        : [];
     }
     const markedPlan = markCompletedSteps(plan, completedStepKeys, 'dry-run-checked', stepLogs, {});
     appendReleaseHistory(projectRoot, buildHistoryEntry('DRY_RUN', markedPlan, logs, completedStepKeys), env);
@@ -584,6 +882,8 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
     createdAt: new Date().toISOString(),
     status,
     dryRun: plan.dryRun,
+    releaseTarget: plan.releaseTarget || 'game',
+    releaseTargetLabel: plan.releaseTargetLabel || '游戏',
     appTag: plan.appTag,
     imageTag: plan.imageTag,
     gitBranch: plan.gitBranch,
@@ -800,6 +1100,14 @@ function validateTag(tag) {
   const value = String(tag || '').trim();
   if (!TAG_PATTERN.test(value)) {
     throw new Error('APP_TAG 只能包含字母、数字、点、下划线和连字符，长度不超过 64');
+  }
+  return value;
+}
+
+function validateReleaseTarget(releaseTarget) {
+  const value = String(releaseTarget || 'game').trim().toLowerCase();
+  if (value !== 'game' && value !== 'forum') {
+    throw new Error('发布目标只能是 game 或 forum');
   }
   return value;
 }
@@ -1098,6 +1406,111 @@ function finalRuntimeCheckCommand(stackName, containerName, imageTag) {
     `case "$service_image" in *${imageTag}*) ;; *) echo "ERROR: service image is not ${imageTag}"; exit 1;; esac`,
     `if docker stack ps ${shellToken(stackName)} --no-trunc --format '{{.CurrentState}} {{.Error}}' | grep -E 'Failed|Rejected'; then echo "ERROR: stack task has failed state"; exit 1; fi`
   ].join(' && ');
+}
+
+function forumImageValidationCommand(dockerTarget, imageTag) {
+  const script = [
+    'set -eu',
+    'mkdir -p /run/secrets',
+    "printf 'release-validator-secret' > /run/secrets/forum_sso_secret",
+    'chmod 0600 /run/secrets/forum_sso_secret',
+    'sh /etc/cont-init.d/04-rhospital-secret.sh',
+    "test \"$(stat -c '%a|%u|%g' /run/secrets/forum_sso_secret)\" = '600|0|0'",
+    "test \"$(stat -c '%a|%u|%g' /run/rhospital-secrets)\" = '700|1000|1000'",
+    "test \"$(stat -c '%a|%u|%g' /run/rhospital-secrets/forum_sso_secret)\" = '400|1000|1000'",
+    "yasu flarum:flarum php -r '$v=file_get_contents(\"/run/rhospital-secrets/forum_sso_secret\"); exit(strlen($v)>0 ? 0 : 1);'",
+    "printf 'release-validator-secret-2' > /run/secrets/forum_sso_secret",
+    'sh /etc/cont-init.d/04-rhospital-secret.sh',
+    "yasu flarum:flarum php -r '$v=file_get_contents(\"/run/rhospital-secrets/forum_sso_secret\"); exit(str_ends_with($v, \"-2\") ? 0 : 1);'",
+    "find /opt/rhospital-sso -name '*.php' -type f -exec php -l {} \\; | grep -q 'No syntax errors detected'",
+    'cd /opt/flarum',
+    "composer audit --abandoned=report --format=json | php -r '$d=json_decode(stream_get_contents(STDIN),true); exit(count($d[\"advisories\"] ?? [])===0 ? 0 : 1);'",
+    "echo 'forum_image_validation=PASS'"
+  ].join('\n');
+  const encoded = Buffer.from(`${script}\n`, 'utf8').toString('base64');
+  return dockerCommand(dockerTarget, [
+    'run', '--rm', '--entrypoint', 'sh', imageTag, '-lc',
+    `printf %s "${encoded}" | base64 -d | sh`
+  ]);
+}
+
+function forumPreflightCommand(remoteComposeDir) {
+  return [
+    `cd ${shellToken(remoteComposeDir)}`,
+    'docker compose config >/dev/null',
+    "test \"$(docker inspect -f '{{.State.Running}}' flarum)\" = 'true'",
+    "test \"$(docker inspect -f '{{.State.Running}}' mysql)\" = 'true'",
+    'test -s ./secrets/forum_sso_secret',
+    "stat -c 'secret_meta=%a|%u|%g' ./secrets/forum_sso_secret",
+    "test \"$(stat -c '%a|%u|%g' ./secrets/forum_sso_secret)\" = '600|0|0'",
+    "df -Pk . | awk 'NR==2 {if ($4 < 1048576) exit 1; print \"free_kb=\" $4}'",
+    "docker ps --filter name='^/flarum$' --filter name='^/mysql$' --format '{{.Names}}|{{.Image}}|{{.Status}}'"
+  ];
+}
+
+function forumBackupCommand(remoteComposeDir) {
+  return [
+    `cd ${shellToken(remoteComposeDir)}`,
+    'backup_dir=/opt/1panel/backup/forum-release-$(date -u +%Y%m%dT%H%M%SZ)',
+    'umask 077',
+    'mkdir -p "$backup_dir"',
+    'cp docker-compose.yml "$backup_dir/docker-compose.yml"',
+    '[ ! -f .env ] || cp .env "$backup_dir/.env"',
+    "db_name=$(docker inspect flarum --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^DB_NAME=//p' | head -n 1)",
+    'test -n "$db_name"',
+    "docker exec mysql sh -lc 'exec mysqldump --single-transaction --quick --routines --triggers -uroot -p\"$MYSQL_ROOT_PASSWORD\" \"$1\"' sh \"$db_name\" > \"$backup_dir/flarum.sql\"",
+    'tar -czf "$backup_dir/flarum-data.tar.gz" -C data .',
+    'docker inspect flarum > "$backup_dir/flarum.inspect.json"',
+    "current_image=$(docker inspect flarum --format '{{.Config.Image}}')",
+    'docker image inspect "$current_image" > "$backup_dir/flarum-image.inspect.json"',
+    '(cd "$backup_dir" && sha256sum docker-compose.yml flarum.sql flarum-data.tar.gz flarum.inspect.json flarum-image.inspect.json > SHA256SUMS)',
+    'test -s "$backup_dir/flarum.sql"',
+    'test -s "$backup_dir/flarum-data.tar.gz"',
+    'test -s "$backup_dir/SHA256SUMS"',
+    'printf "%s\\n" "$backup_dir" > .last-forum-release-backup',
+    'echo "backup_dir=$backup_dir"'
+  ];
+}
+
+function forumContainerRunningCheck(containerName) {
+  return [
+    'ready=false',
+    'for attempt in $(seq 1 60); do',
+    `  if [ \"$(docker inspect -f '{{.State.Running}}' ${shellToken(containerName)} 2>/dev/null || true)\" = 'true' ]; then ready=true; break; fi`,
+    '  sleep 2',
+    'done',
+    '[ "$ready" = true ]',
+    `docker ps --filter name='^/${containerName}$' --format '{{.Names}}|{{.Image}}|{{.Status}}'`
+  ].join('\n');
+}
+
+function finalForumRuntimeCheckCommand(containerName, imageTag) {
+  return [
+    `container_image=$(docker inspect ${shellToken(containerName)} --format '{{.Config.Image}}')`,
+    'echo "container_image=$container_image"',
+    `test \"$container_image\" = ${shellToken(imageTag)}`,
+    `docker exec -u flarum ${shellToken(containerName)} test -r /run/rhospital-secrets/forum_sso_secret`,
+    `forum_info=$(docker exec ${shellToken(containerName)} php flarum info)`,
+    'printf "%s\\n" "$forum_info"',
+    'printf "%s\\n" "$forum_info" | grep -q "Flarum core: 1.8.17"',
+    'printf "%s\\n" "$forum_info" | grep -q "rhospital-sso"',
+    'curl -fsS -o /dev/null https://bbs.rhospital.cc/',
+    `if docker logs --since 5m ${shellToken(containerName)} 2>&1 | grep -E 'forum_sso_secret.*Permission denied|Permission denied.*forum_sso_secret'; then echo 'ERROR: forum SSO secret permission failure'; exit 1; fi`,
+    "echo 'forum_runtime_validation=PASS'"
+  ];
+}
+
+function forumRollbackCommand(remoteComposeDir) {
+  return [
+    `cd ${shellToken(remoteComposeDir)}`,
+    'backup_dir=$(cat .last-forum-release-backup)',
+    'test -s "$backup_dir/docker-compose.yml"',
+    'cp docker-compose.yml docker-compose.yml.failed.$(date -u +%Y%m%dT%H%M%SZ)',
+    'cp "$backup_dir/docker-compose.yml" docker-compose.yml',
+    'docker compose config >/dev/null',
+    'docker compose up -d --no-deps --force-recreate flarum',
+    forumContainerRunningCheck('flarum')
+  ];
 }
 
 function remoteBashScriptCommand(script) {
@@ -1580,9 +1993,11 @@ function escapeRegExp(value) {
 module.exports = {
   DEFAULT_RUN_CONFIG,
   DEFAULT_REMOTE_COMPOSE_DIR,
+  DEFAULT_FORUM_REMOTE_COMPOSE_DIR,
   defaultProjectRoot,
   parseIdeaRunConfig,
   readConfig,
+  readReleaseConfig,
   createPlan,
   saveTag,
   updateIdeaRunConfigTag,
@@ -1605,6 +2020,7 @@ module.exports = {
   refreshGitRefs,
   parseSshGOutput,
   proposeNextTag,
+  validateReleaseTarget,
   validateTag,
   validateGitBranch,
   validateGitCommit
