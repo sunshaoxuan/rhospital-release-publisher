@@ -4,6 +4,7 @@ param(
   [string]$LegacyTaskName = 'RHospital Release Console',
   [string]$RepositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path,
   [string]$ProjectRoot = 'C:\workspace\hospital-backend',
+  [string]$BindAddress = '192.168.20.218',
   [int]$Port = 8787
 )
 
@@ -21,6 +22,12 @@ $builder = Join-Path $repo 'scripts\build-windows-service.ps1'
 $serviceExe = Join-Path $repo '.service\RHospitalReleaseConsoleService.exe'
 $builtServiceExe = Join-Path $repo '.service\RHospitalReleaseConsoleService.build.exe'
 $expectedUser = $identity.Name
+$firewallRuleName = "$DisplayName TCP $Port"
+$localAddress = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+  Where-Object { $_.IPAddress -eq $BindAddress -and $_.AddressState -eq 'Preferred' }
+if (!$localAddress) {
+  throw "Bind address is not active on this host: $BindAddress"
+}
 $legacyTask = Get-ScheduledTask -TaskName $LegacyTaskName -ErrorAction SilentlyContinue
 $legacyTaskWasEnabled = $legacyTask -and $legacyTask.Settings.Enabled
 
@@ -35,7 +42,7 @@ function Stop-LegacyTaskAndListener {
     Disable-ScheduledTask -TaskName $LegacyTaskName -ErrorAction SilentlyContinue | Out-Null
   }
 
-  $listener = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+  $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
   if (!$listener) {
     return
   }
@@ -59,7 +66,7 @@ function Wait-PortFree {
   $deadline = (Get-Date).AddSeconds(20)
   do {
     Start-Sleep -Milliseconds 300
-    $listener = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
   } while ($listener -and (Get-Date) -lt $deadline)
   if ($listener) {
     throw "Port $Port remained occupied"
@@ -93,8 +100,8 @@ try {
 
   Copy-Item -LiteralPath $builtServiceExe -Destination $serviceExe -Force
 
-  $binaryPath = '"{0}" --service --repository-root "{1}" --project-root "{2}" --user "{3}" --port {4}' -f `
-    $serviceExe, $repo, $project, $expectedUser, $Port
+  $binaryPath = '"{0}" --service --repository-root "{1}" --project-root "{2}" --user "{3}" --bind-address "{4}" --port {5}' -f `
+    $serviceExe, $repo, $project, $expectedUser, $BindAddress, $Port
   New-Service `
     -Name $ServiceName `
     -BinaryPathName $binaryPath `
@@ -116,6 +123,19 @@ try {
     throw 'Could not enable recovery for clean service exits'
   }
 
+  Get-NetFirewallRule -DisplayName $firewallRuleName -ErrorAction SilentlyContinue |
+    Remove-NetFirewallRule -ErrorAction SilentlyContinue
+  New-NetFirewallRule `
+    -DisplayName $firewallRuleName `
+    -Description 'Allows RHospital Release Console access from the local subnet only.' `
+    -Direction Inbound `
+    -Action Allow `
+    -Protocol TCP `
+    -LocalAddress $BindAddress `
+    -LocalPort $Port `
+    -RemoteAddress LocalSubnet `
+    -Profile Domain,Private | Out-Null
+
   Start-Service -Name $ServiceName
   $service = Get-Service -Name $ServiceName
   $service.WaitForStatus('Running', (New-TimeSpan -Seconds 20))
@@ -123,12 +143,12 @@ try {
   $deadline = (Get-Date).AddSeconds(40)
   do {
     Start-Sleep -Milliseconds 500
-    $listener = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    $listener = Get-NetTCPConnection -LocalAddress $BindAddress -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
   } while (!$listener -and (Get-Date) -lt $deadline)
   if (!$listener) {
     throw "Windows service started but port $Port did not open"
   }
-  $response = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/" -TimeoutSec 10
+  $response = Invoke-WebRequest -UseBasicParsing -Uri "http://${BindAddress}:$Port/" -TimeoutSec 10
   if ($response.StatusCode -ne 200) {
     throw "Release console health check returned $($response.StatusCode)"
   }
@@ -140,8 +160,10 @@ try {
   Write-Host "Installed Windows service: $ServiceName"
   Write-Host "Runs as service account: LocalSystem"
   Write-Host "Launches release console as: $expectedUser"
-  Write-Host "URL: http://127.0.0.1:$Port"
+  Write-Host "URL: http://${BindAddress}:$Port"
 } catch {
+  Get-NetFirewallRule -DisplayName $firewallRuleName -ErrorAction SilentlyContinue |
+    Remove-NetFirewallRule -ErrorAction SilentlyContinue
   $failedService = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
   if ($failedService) {
     Stop-Service -Name $ServiceName -Force -ErrorAction SilentlyContinue

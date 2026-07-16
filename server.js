@@ -34,6 +34,7 @@ const {
 const projectRoot = defaultProjectRoot();
 const publicRoot = path.join(__dirname, 'public');
 const port = Number(process.env.RELEASE_PUBLISHER_PORT || 8787);
+const bindAddress = process.env.RELEASE_PUBLISHER_HOST || '127.0.0.1';
 const jobs = new Map();
 const jobControllers = new Map();
 const jobStorePath = path.resolve(process.env.RELEASE_PUBLISHER_JOBS_FILE || path.join(__dirname, '.release-jobs.json'));
@@ -183,15 +184,15 @@ loadStoredJobs();
 
 server.on('error', error => {
   if (error.code === 'EADDRINUSE') {
-    console.error(`RHospital Release Console cannot start: 127.0.0.1:${port} is already in use.`);
-    console.error(`Run scripts\\status-startup-task.ps1 to find the active service or process.`);
+    console.error(`RHospital Release Console cannot start: ${bindAddress}:${port} is already in use.`);
+    console.error(`Run scripts\\status-windows-service.ps1 to find the active service or process.`);
     process.exit(1);
   }
   throw error;
 });
 
-server.listen(port, '127.0.0.1', () => {
-  console.log(`RHospital Release Console is running at http://127.0.0.1:${port}`);
+server.listen(port, bindAddress, () => {
+  console.log(`RHospital Release Console is running at http://${bindAddress}:${port}`);
   console.log(`Hospital project root: ${projectRoot}`);
   console.log('Dry run default: true');
 });

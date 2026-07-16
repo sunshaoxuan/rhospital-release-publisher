@@ -1041,6 +1041,7 @@ test('native Windows service runs the release console without an interactive win
   const runner = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'run-release-console.ps1'), 'utf8');
   const builder = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'build-windows-service.ps1'), 'utf8');
   const installer = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'install-windows-service.ps1'), 'utf8');
+  const uninstaller = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'uninstall-windows-service.ps1'), 'utf8');
   const serviceHost = fs.readFileSync(path.join(__dirname, '..', 'service', 'RHospitalReleaseConsoleService.cs'), 'utf8');
   const packageJson = fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8');
 
@@ -1051,6 +1052,9 @@ test('native Windows service runs the release console without an interactive win
   assert.match(installer, /obj= LocalSystem/);
   assert.match(installer, /sc\.exe failureflag \$ServiceName 1/);
   assert.match(installer, /Unregister-ScheduledTask/);
+  assert.match(installer, /-RemoteAddress LocalSubnet/);
+  assert.match(installer, /-LocalAddress \$BindAddress/);
+  assert.match(uninstaller, /Remove-NetFirewallRule/);
   assert.match(serviceHost, /class ReleaseConsoleService : ServiceBase/);
   assert.match(serviceHost, /WTSQueryUserToken/);
   assert.match(serviceHost, /CreateProcessAsUser/);
@@ -1058,6 +1062,8 @@ test('native Windows service runs the release console without an interactive win
   assert.match(serviceHost, /JobObjectLimitKillOnJobClose/);
   assert.match(serviceHost, /AssignProcessToJobObject/);
   assert.match(serviceHost, /identity\.Name, options\.ExpectedUser/);
+  assert.match(serviceHost, /--bind-address/);
+  assert.match(runner, /RELEASE_PUBLISHER_HOST = \$BindAddress/);
   assert.match(packageJson, /scripts\/install-windows-service\.ps1/);
   assert.doesNotMatch(packageJson, /install-startup-task\.ps1/);
 });

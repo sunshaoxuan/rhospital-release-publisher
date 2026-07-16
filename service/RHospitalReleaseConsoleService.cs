@@ -24,12 +24,14 @@ internal sealed class ServiceOptions
     internal string RepositoryRoot { get; private set; }
     internal string ProjectRoot { get; private set; }
     internal string ExpectedUser { get; private set; }
+    internal string BindAddress { get; private set; }
     internal int Port { get; private set; }
 
     internal static ServiceOptions Parse(string[] args)
     {
         ServiceOptions options = new ServiceOptions();
         options.Port = 8787;
+        options.BindAddress = "127.0.0.1";
 
         for (int index = 0; index < args.Length; index++)
         {
@@ -54,6 +56,10 @@ internal sealed class ServiceOptions
             else if (key == "--user")
             {
                 options.ExpectedUser = value;
+            }
+            else if (key == "--bind-address")
+            {
+                options.BindAddress = value;
             }
             else if (key == "--port")
             {
@@ -348,6 +354,7 @@ internal static class InteractiveProcessLauncher
                 + " -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File " + Quote(runner)
                 + " -RepositoryRoot " + Quote(options.RepositoryRoot)
                 + " -ProjectRoot " + Quote(options.ProjectRoot)
+                + " -BindAddress " + Quote(options.BindAddress)
                 + " -Port " + options.Port;
 
             NativeMethods.STARTUPINFO startupInfo = new NativeMethods.STARTUPINFO();

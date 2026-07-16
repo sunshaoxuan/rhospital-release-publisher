@@ -1,5 +1,6 @@
 param(
   [string]$ServiceName = 'RHospitalReleaseConsole',
+  [string]$BindAddress = '192.168.20.218',
   [int]$Port = 8787
 )
 
@@ -11,7 +12,7 @@ if (!$service) {
   exit 1
 }
 
-$listener = Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+$listener = Get-NetTCPConnection -LocalAddress $BindAddress -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
 $listenerProcess = if ($listener) {
   Get-CimInstance Win32_Process -Filter "ProcessId = $($listener.OwningProcess)"
 } else {
@@ -24,7 +25,7 @@ $parentProcess = if ($listenerProcess) {
 }
 $health = if ($listener) {
   try {
-    (Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:$Port/" -TimeoutSec 5).StatusCode
+    (Invoke-WebRequest -UseBasicParsing -Uri "http://${BindAddress}:$Port/" -TimeoutSec 5).StatusCode
   } catch {
     "ERROR: $($_.Exception.Message)"
   }
@@ -40,6 +41,7 @@ $health = if ($listener) {
   ServiceAccount = $service.StartName
   ServiceProcessId = $service.ProcessId
   ServicePath = $service.PathName
+  BindAddress = $BindAddress
   Listener = [bool]$listener
   ListenerProcessId = $listenerProcess.ProcessId
   ListenerProcess = $listenerProcess.Name

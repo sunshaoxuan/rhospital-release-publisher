@@ -53,7 +53,7 @@ npm start
 打开：
 
 ```text
-http://127.0.0.1:8787
+http://192.168.20.218:8787
 ```
 
 如果 `hospital-backend` 在其他位置，启动前指定：
@@ -63,7 +63,7 @@ $env:RHOSPITAL_PROJECT_ROOT='D:\dev\hospital-backend'
 npm start
 ```
 
-推荐安装为原生 Windows 系统服务，固定监听 `127.0.0.1:8787`：
+推荐安装为原生 Windows 系统服务，固定监听物理局域网地址 `192.168.20.218:8787`：
 
 ```powershell
 cd C:\workspace\rhospital-release-publisher
@@ -92,6 +92,8 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 ```
 
 启动脚本会守护 Node 进程，Node 退出后等待 10 秒重新启动。服务宿主监控隐藏 runner，并处理用户会话切换与 Modern Standby 恢复。服务宿主退出时，SCM 会按 5 秒、15 秒、30 秒的间隔重启。
+
+安装脚本会创建 Windows 防火墙入站规则 `RHospital Release Console TCP 8787`，只允许 `LocalSubnet` 访问 `192.168.20.218:8787`，并限定在域和专用网络配置文件。发布控制台包含生产执行能力，不应放行到公网、Tailscale 或 Hyper-V 虚拟网段。
 
 发布器固定使用 8787 端口。若端口已被占用，服务会直接退出并在日志中提示，不会自动改到其他端口，避免页面连接到非预期实例。
 
