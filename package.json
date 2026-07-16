@@ -5,9 +5,10 @@
   "description": "RHospital Release Console for local Docker release operations.",
   "scripts": {
     "start": "node server.js",
-    "service:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-startup-task.ps1",
-    "service:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/status-startup-task.ps1",
-    "service:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall-startup-task.ps1",
+    "service:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-windows-service.ps1",
+    "service:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-windows-service.ps1",
+    "service:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/status-windows-service.ps1",
+    "service:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall-windows-service.ps1",
     "test": "node --test test/*.test.js"
   },
   "engines": {

@@ -1037,18 +1037,29 @@ test('commit selector includes a refresh control wired to the git refresh endpoi
   assert.match(css, /grid-template-columns:\s*minmax\(0, 1fr\) 44px;/);
 });
 
-test('startup task restores the release console after process and standby exits', () => {
+test('native Windows service runs the release console without an interactive window', () => {
   const runner = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'run-release-console.ps1'), 'utf8');
-  const installer = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'install-startup-task.ps1'), 'utf8');
+  const builder = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'build-windows-service.ps1'), 'utf8');
+  const installer = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'install-windows-service.ps1'), 'utf8');
+  const serviceHost = fs.readFileSync(path.join(__dirname, '..', 'service', 'RHospitalReleaseConsoleService.cs'), 'utf8');
+  const packageJson = fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8');
 
   assert.match(runner, /while \(\$true\)/);
   assert.match(runner, /release console exited with code \$exitCode; restarting in \$RestartDelaySeconds seconds/);
-  assert.match(runner, /Start-Sleep -Seconds \$RestartDelaySeconds/);
-  assert.match(installer, /RepetitionInterval \(New-TimeSpan -Minutes 5\)/);
-  assert.match(installer, /\$triggers = @\(\$logonTrigger, \$watchdogTrigger\)/);
-  assert.match(installer, /-AllowStartIfOnBatteries/);
-  assert.match(installer, /-DontStopIfGoingOnBatteries/);
-  assert.match(installer, /-StartWhenAvailable/);
+  assert.match(builder, /\/target:winexe/);
+  assert.match(installer, /New-Service/);
+  assert.match(installer, /obj= LocalSystem/);
+  assert.match(installer, /sc\.exe failureflag \$ServiceName 1/);
+  assert.match(installer, /Unregister-ScheduledTask/);
+  assert.match(serviceHost, /class ReleaseConsoleService : ServiceBase/);
+  assert.match(serviceHost, /WTSQueryUserToken/);
+  assert.match(serviceHost, /CreateProcessAsUser/);
+  assert.match(serviceHost, /CreateNoWindow \| CreateSuspended \| CreateUnicodeEnvironment/);
+  assert.match(serviceHost, /JobObjectLimitKillOnJobClose/);
+  assert.match(serviceHost, /AssignProcessToJobObject/);
+  assert.match(serviceHost, /identity\.Name, options\.ExpectedUser/);
+  assert.match(packageJson, /scripts\/install-windows-service\.ps1/);
+  assert.doesNotMatch(packageJson, /install-startup-task\.ps1/);
 });
 
 test('release console exposes game and forum targets with target-aware API payloads', () => {

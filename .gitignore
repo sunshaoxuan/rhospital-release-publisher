@@ -4,5 +4,6 @@ coverage/
 playwright-report/
 test-results/
 screenshots/
+.service/
 .release-history.json
 .release-jobs.json

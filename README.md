@@ -63,32 +63,35 @@ $env:RHOSPITAL_PROJECT_ROOT='D:\dev\hospital-backend'
 npm start
 ```
 
-推荐注册为 Windows 登录后自动启动任务，固定监听 `127.0.0.1:8787`：
+推荐安装为原生 Windows 系统服务，固定监听 `127.0.0.1:8787`：
 
 ```powershell
 cd C:\workspace\rhospital-release-publisher
 npm run service:install
 ```
 
-查看启动任务和 8787 端口占用：
+查看系统服务、进程链和 8787 健康状态：
 
 ```powershell
 npm run service:status
 ```
 
-移除启动任务：
+移除系统服务：
 
 ```powershell
 npm run service:uninstall
 ```
 
-启动任务使用 Windows Task Scheduler，任务名为 `RHospital Release Console`，日志写入：
+服务名为 `RHospitalReleaseConsole`，显示名为 `RHospital Release Console`。服务由 Windows Service Control Manager 以 `LocalSystem` 自动启动，再通过当前登录用户令牌创建隐藏的 PowerShell 和 Node 子进程。发布操作继续使用当前用户的 GitHub 凭据、SSH 配置和 Docker 配置，运行期间不会创建控制台窗口。
+
+安装过程需要管理员权限，并会在新服务通过 HTTP 健康检查后删除旧的 `RHospital Release Console` 计划任务。服务日志写入：
 
 ```text
 C:\workspace\rhospital-release-publisher\.service\release-console.log
+C:\workspace\rhospital-release-publisher\.service\service-host.log
 ```
 
-启动脚本会守护 Node 进程，进程意外退出后等待 10 秒重新启动。计划任务每 5 分钟检查一次运行状态，并在 Modern Standby 恢复或错过触发后补启动。任务允许在电池供电时运行，也不会因电源状态切换被停止。
+启动脚本会守护 Node 进程，Node 退出后等待 10 秒重新启动。服务宿主监控隐藏 runner，并处理用户会话切换与 Modern Standby 恢复。服务宿主退出时，SCM 会按 5 秒、15 秒、30 秒的间隔重启。
 
 发布器固定使用 8787 端口。若端口已被占用，服务会直接退出并在日志中提示，不会自动改到其他端口，避免页面连接到非预期实例。
 
