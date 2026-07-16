@@ -181,15 +181,12 @@ p {
   background: var(--mint);
 }
 
-.flow-node.final-node {
-  background: var(--lavender);
-}
-
 .flow-node.checked.final-node {
   background: var(--mint);
 }
 
 .flow-node.running {
+  background: var(--lavender);
   outline: 3px solid var(--blue);
   outline-offset: -6px;
 }
@@ -491,11 +488,12 @@ button.danger {
   padding: 14px;
 }
 
-.step.final-step {
-  background: var(--lavender);
+.step.checked {
+  background: var(--mint);
 }
 
 .step.running {
+  background: var(--lavender);
   outline: 3px solid var(--blue);
   outline-offset: -5px;
 }

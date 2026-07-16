@@ -217,8 +217,10 @@
     renderPipeline(plan.steps);
     steps.innerHTML = '';
     for (const [index, step] of plan.steps.entries()) {
+      const status = step.status || 'pending';
+      const done = status === 'done' || status === 'dry-run-checked';
       const item = document.createElement('article');
-      item.className = `step ${step.finalCheck ? 'final-step' : ''} ${step.status === 'running' ? 'running' : ''} ${step.status === 'failed' || step.status === 'cancelled' || step.status === 'interrupted' ? 'failed' : ''}`;
+      item.className = `step ${done ? 'checked' : ''} ${status === 'running' ? 'running' : ''} ${status === 'failed' || status === 'cancelled' || status === 'interrupted' ? 'failed' : ''} ${step.finalCheck ? 'final-step' : ''}`;
       item.dataset.stepKey = step.key;
       const badge = actionTypeLabel(step);
       const stepLogs = Array.isArray(step.logs) ? step.logs : [];

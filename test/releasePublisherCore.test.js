@@ -1013,9 +1013,21 @@ test('default project root points to sibling hospital backend unless overridden'
   }
 });
 
-test('completed final flow node uses the same success background as other completed nodes', () => {
+test('step backgrounds communicate execution status instead of final-check type', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+
+  assert.doesNotMatch(css, /\.flow-node\.final-node\s*\{[^}]*background\s*:/s);
+  assert.doesNotMatch(css, /\.step\.final-step\s*\{[^}]*background\s*:/s);
+  assert.match(css, /\.flow-node\s*\{[^}]*background:\s*#fffdf6;/s);
+  assert.match(css, /\.step\s*\{[^}]*background:\s*#fffdf6;/s);
+  assert.match(css, /\.flow-node\.running\s*\{\s*background:\s*var\(--lavender\);/);
+  assert.match(css, /\.step\.running\s*\{\s*background:\s*var\(--lavender\);/);
   assert.match(css, /\.flow-node\.checked\.final-node\s*\{\s*background:\s*var\(--mint\);/);
+  assert.match(css, /\.step\.checked\s*\{\s*background:\s*var\(--mint\);/);
+  assert.match(css, /\.flow-node\.failed\s*\{\s*background:\s*#ffd8cf;/);
+  assert.match(css, /\.step\.failed\s*\{\s*background:\s*#ffd8cf;/);
+  assert.match(app, /const done = status === 'done' \|\| status === 'dry-run-checked';[\s\S]*item\.className = `step \$\{done \? 'checked' : ''\}/);
 });
 
 test('commit selector includes a refresh control wired to the git refresh endpoint', () => {
