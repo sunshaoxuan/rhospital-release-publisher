@@ -439,7 +439,7 @@
     if (!entries.length) {
       const empty = document.createElement('div');
       empty.className = 'history-empty';
-      empty.textContent = '暂无构造历史。执行一次 dry run 后会在这里出现记录。';
+      empty.textContent = '暂无构造历史。正式执行后会在这里出现记录。';
       history.appendChild(empty);
       return;
     }

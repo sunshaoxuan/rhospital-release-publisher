@@ -658,7 +658,7 @@ test('save tag dry run returns preview and does not mutate file', () => {
   assert.equal(fs.readFileSync(configPath, 'utf8'), sampleXml);
 });
 
-test('execute dry run marks every pipeline step checked without mutating file', async () => {
+test('execute dry run marks every pipeline step checked without mutating files or history', async () => {
   const root = tempProject(sampleXml);
   const configPath = path.join(root, '.run', '148.135.9.123.run.xml');
   const historyPath = path.join(root, 'history.json');
@@ -679,13 +679,10 @@ test('execute dry run marks every pipeline step checked without mutating file', 
   assert.ok(result.plan.steps.every(step => step.status === 'dry-run-checked'));
   assert.equal(fs.readFileSync(configPath, 'utf8'), sampleXml);
   const history = readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
-  assert.equal(history.length, 1);
-  assert.equal(history[0].status, 'DRY_RUN');
-  assert.equal(history[0].imageTag, 'hospital-backend:2026070702');
-  assert.equal(history[0].completedStepCount, result.plan.steps.length);
+  assert.equal(history.length, 0);
 });
 
-test('forum dry run records target and never changes the game IDEA release config', async () => {
+test('forum dry run returns its target without changing config or history', async () => {
   const root = tempProject(sampleXml);
   const configPath = path.join(root, '.run', '148.135.9.123.run.xml');
   const historyPath = path.join(root, 'forum-history.json');
@@ -707,10 +704,7 @@ test('forum dry run records target and never changes the game IDEA release confi
   assert.equal(result.plan.steps.some(step => step.key === 'save-run-config'), false);
   assert.equal(fs.readFileSync(configPath, 'utf8'), sampleXml);
   const history = readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
-  assert.equal(history.length, 1);
-  assert.equal(history[0].releaseTarget, 'forum');
-  assert.equal(history[0].releaseTargetLabel, '论坛');
-  assert.equal(history[0].imageTag, 'rhospital/flarum-sso:2026071501');
+  assert.equal(history.length, 0);
 });
 
 test('execute runs validation commands after executable steps', async () => {

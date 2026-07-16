@@ -863,7 +863,6 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
         : [];
     }
     const markedPlan = markCompletedSteps(plan, completedStepKeys, 'dry-run-checked', stepLogs, {});
-    appendReleaseHistory(projectRoot, buildHistoryEntry('DRY_RUN', markedPlan, logs, completedStepKeys), env);
     return {status: 'DRY_RUN', plan: markedPlan, logs, completedStepKeys};
   }
   const pushStepLog = (stepKey, line) => {

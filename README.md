@@ -19,7 +19,7 @@ RHospital 发布控制台，用于替代 IDEA 中的 `148.135.9.123` Docker Run 
 - 生成进入生产编排目录后执行 `docker stack deploy` 的热发布命令
 - 论坛目标可选择构建并上传新镜像，或复用生产镜像池中已有的 `rhospital/flarum-sso:<TAG>`，随后生成 MySQL、data、Compose 和镜像证据备份，再用 Docker Compose 只替换 Flarum 容器
 - 默认只执行 dry run
-- 记录本地构造历史，并在页面中展示最近执行记录
+- 记录正式执行历史，并在页面中展示最近执行记录
 
 ## 按变更发布
 
@@ -106,7 +106,7 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 - 建议 TAG
 - 生成命令计划
 - 预览配置写入结果
-- 记录一条 dry run 构造历史
+- 不写入构造历史或持久任务文件
 - 预览 SSH 更新生产 `docker-compose.yml` 的命令
 - 预览 SSH 执行 `docker stack deploy` 的命令
 - 在总进度流程中把每一步标记为 `dry run 已校验`
@@ -211,6 +211,8 @@ C:\workspace\rhospital-release-publisher\.release-history.json
 该文件是本地运行记录，已加入 `.gitignore`，不会提交到 Git。
 
 构造历史支持分页、单条删除和清空。删除只影响本地 `.release-history.json`，不会改目标项目代码或生产环境。
+
+Dry run 只在当前页面展示结果，不写入构造历史。`.release-jobs.json` 只持久化仍在执行或正在取消的任务；任务结束后由构造历史保存审计摘要，完整任务日志不会继续堆积在任务文件中。服务重启时只会把当时仍处于执行状态的任务记录一次 `INTERRUPTED`，已经结束或已经中断的旧任务不会重复生成历史。
 
 ## 正式执行
 
@@ -423,7 +425,8 @@ npm test
 - 游戏 Maven 测试门禁、交易池镜像内容、数据库备份、Catalog v15 结构和匿名鉴权契约
 - dry run 命令计划
 - dry run 不改写真实文件
-- dry run 写入本地构造历史
+- dry run 不写入本地构造历史或持久任务文件
+- 持久任务文件只保留运行中和取消中的任务
 - 正式执行后运行步骤校验命令
 - SSH 热发布命令计划
 - 论坛目标 TAG、镜像构建、Secret 运行时校验、生产预检、备份、Compose 发布和回滚命令计划

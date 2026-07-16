@@ -30,6 +30,10 @@ const {
   analyzeReleaseChanges,
   assertReleaseTargetChanged
 } = require('./src/releasePublisherCore');
+const {
+  isActiveJobStatus,
+  selectPersistedJobs
+} = require('./src/releaseJobStore');
 
 const projectRoot = defaultProjectRoot();
 const publicRoot = path.join(__dirname, 'public');
@@ -335,7 +339,7 @@ function isTerminalJobStatus(status) {
 }
 
 function persistJobs() {
-  const entries = Array.from(jobs.values()).slice(-50);
+  const entries = selectPersistedJobs(jobs.values(), 50);
   fs.writeFileSync(jobStorePath, `${JSON.stringify(entries, null, 2)}\n`, 'utf8');
 }
 
@@ -346,18 +350,12 @@ function loadStoredJobs() {
   try {
     const parsed = JSON.parse(fs.readFileSync(jobStorePath, 'utf8'));
     for (const item of Array.isArray(parsed) ? parsed : []) {
-      const job = item.status === 'RUNNING' || item.status === 'CANCELLING'
-        ? markInterruptedJob(item, '服务重启时发现任务未结束')
-        : item;
-      jobs.set(job.id, job);
-      if (job.status === 'INTERRUPTED' && job.plan) {
-        appendReleaseHistory(projectRoot, buildHistoryEntry(
-          'INTERRUPTED',
-          job.plan,
-          job.logs || [],
-          job.completedStepKeys || []
-        ), process.env);
+      if (!isActiveJobStatus(item.status)) {
+        continue;
       }
+      const job = markInterruptedJob(item, '服务重启时发现任务未结束');
+      jobs.set(job.id, job);
+      appendInterruptedJobHistory(job);
     }
     persistJobs();
   } catch (error) {
@@ -372,10 +370,24 @@ function interruptRunningJobs(reason) {
       if (controller) {
         controller.abort();
       }
-      jobs.set(id, markInterruptedJob(job, reason));
+      const interrupted = markInterruptedJob(job, reason);
+      jobs.set(id, interrupted);
+      appendInterruptedJobHistory(interrupted);
     }
   }
   persistJobs();
+}
+
+function appendInterruptedJobHistory(job) {
+  if (!job || !job.plan) {
+    return;
+  }
+  appendReleaseHistory(projectRoot, buildHistoryEntry(
+    'INTERRUPTED',
+    job.plan,
+    job.logs || [],
+    job.completedStepKeys || []
+  ), process.env);
 }
 
 function markInterruptedJob(job, reason) {
