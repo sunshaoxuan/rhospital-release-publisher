@@ -58,7 +58,8 @@
     volumePath: document.getElementById('volume-path'),
     remoteComposePath: document.getElementById('remote-compose-path'),
     targetImage: document.getElementById('target-image'),
-    targetImageFlow: document.getElementById('target-image-flow')
+    targetImageFlow: document.getElementById('target-image-flow'),
+    productionImageFlow: document.getElementById('production-image-flow')
   };
 
   let latestConfig = null;
@@ -85,6 +86,45 @@
   function setStatus(message, kind) {
     status.textContent = message || '';
     status.className = `status ${kind || ''}`.trim();
+  }
+
+  function setLoadingValue(field, message) {
+    field.classList.remove('is-error');
+    field.classList.add('is-loading');
+    field.replaceChildren();
+    const spinner = document.createElement('span');
+    spinner.className = 'loading-spinner';
+    spinner.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('span');
+    label.textContent = message;
+    field.append(spinner, label);
+  }
+
+  function setStaticValue(field, value, isError = false) {
+    field.classList.remove('is-loading', 'is-error');
+    if (isError) {
+      field.classList.add('is-error');
+    }
+    field.textContent = value;
+  }
+
+  function renderPlanLoading() {
+    setLoadingValue(fields.targetImageFlow, '正在计算');
+    setLoadingValue(fields.targetImage, '正在计算');
+    pipeline.setAttribute('aria-busy', 'true');
+  }
+
+  function renderProductionImage(config) {
+    if (config.remoteOnlineResolved === true && config.remoteOnlineImage) {
+      setStaticValue(fields.productionImageFlow, config.remoteOnlineImage);
+      return;
+    }
+    if (config.remoteOnlineResolved === false) {
+      const reason = config.remoteOnlineNote || '生产编排未返回镜像 TAG';
+      setStaticValue(fields.productionImageFlow, '读取失败：' + reason, true);
+      return;
+    }
+    setLoadingValue(fields.productionImageFlow, '正在读取');
   }
 
   function payload() {
@@ -135,6 +175,7 @@
     fields.runConfig.textContent = config.runConfigPath || '不修改 IDEA 发布配置';
     fields.currentImage.textContent = config.imageTag || '';
     fields.currentTag.textContent = config.appTag || '按远程镜像计算';
+    renderProductionImage(config);
     fields.gitBranchCurrent.textContent = reuseForumImage ? '复用镜像，无需选择' : gitBranch.value || '未选择';
     fields.gitCommitCurrent.textContent = reuseForumImage ? '复用镜像，无需选择' : commitLabel(gitCommit.value);
     fields.serverName.textContent = config.serverName || '';
@@ -207,13 +248,19 @@
         });
       }
     }
+    const remoteImageState = latestConfig ? {
+      remoteOnlineResolved: latestConfig.remoteOnlineResolved,
+      remoteOnlineImage: latestConfig.remoteOnlineImage,
+      remoteOnlineNote: latestConfig.remoteOnlineNote
+    } : {};
     renderConfig({
       ...plan.config,
+      ...remoteImageState,
       suggestedTag: latestConfig ? latestConfig.suggestedTag : plan.appTag
     });
     renderChangeAnalysis(plan.changeAnalysis);
-    fields.targetImage.textContent = plan.imageTag;
-    fields.targetImageFlow.textContent = plan.imageTag;
+    setStaticValue(fields.targetImage, plan.imageTag);
+    setStaticValue(fields.targetImageFlow, plan.imageTag);
     renderPipeline(plan.steps);
     steps.innerHTML = '';
     for (const [index, step] of plan.steps.entries()) {
@@ -310,6 +357,7 @@
     }
     window.__releaseConsoleLastFlowRenderedAt = performance.now() - bootStartedAt;
     pipeline.innerHTML = '';
+    pipeline.setAttribute('aria-busy', 'false');
     for (const [index, step] of planSteps.entries()) {
       const status = step.status || 'pending';
       const done = status === 'done' || status === 'dry-run-checked';
@@ -505,6 +553,8 @@
 
   async function loadConfig(resetTargetValues = false, allowAutomaticTarget = true) {
     setStatus('读取配置中', '');
+    renderPlanLoading();
+    renderProductionImage({});
     forumImageMode.disabled = true;
     try {
       if (resetTargetValues) {
@@ -560,12 +610,34 @@
   }
 
   async function loadRemoteTag(config) {
+    try {
+      return await loadRemoteTagValue(config);
+    } catch (error) {
+      latestConfig = {
+        ...(latestConfig || config),
+        remoteOnlineResolved: false,
+        remoteOnlineImage: '',
+        remoteOnlineNote: error.message
+      };
+      renderProductionImage(latestConfig);
+      throw error;
+    }
+  }
+
+  async function loadRemoteTagValue(config) {
     const params = new URLSearchParams({
       releaseTarget: releaseTarget.value,
       remoteSshTarget: remoteSshTarget.value.trim() || config.remoteSshTarget || config.serverName || '',
       remoteComposeDir: remoteComposeDir.value.trim() || config.remoteComposeDir || ''
     });
     const remote = await requestJson(`/api/remote-tag?${params.toString()}`);
+    latestConfig = {
+      ...(latestConfig || config),
+      remoteOnlineResolved: remote.resolved,
+      remoteOnlineImage: remote.imageTag,
+      remoteOnlineNote: remote.note || remote.error || ''
+    };
+    renderProductionImage(latestConfig);
     const reuseForumImage = releaseTarget.value === 'forum' && forumImageMode.value === 'reuse';
     const targetTag = reuseForumImage ? remote.appTag : remote.suggestedTag;
     const canApplySuggestion = targetTag
@@ -576,7 +648,7 @@
     if (canApplySuggestion) {
       appTag.value = targetTag;
       latestConfig = {
-        ...(latestConfig || config),
+        ...latestConfig,
         forumImageMode: forumImageMode.value,
         forumImageModeLabel: reuseForumImage ? '复用生产已有镜像' : '构建并上传新镜像',
         suggestedTag: targetTag,
@@ -662,12 +734,20 @@
   }
 
   async function plan() {
-    const result = await requestJson('/api/plan', {
-      method: 'POST',
-      body: JSON.stringify(payload())
-    });
-    renderPlan(result);
-    return result;
+    renderPlanLoading();
+    try {
+      const result = await requestJson('/api/plan', {
+        method: 'POST',
+        body: JSON.stringify(payload())
+      });
+      renderPlan(result);
+      return result;
+    } catch (error) {
+      setStaticValue(fields.targetImageFlow, '发布流程生成失败', true);
+      setStaticValue(fields.targetImage, '发布流程生成失败', true);
+      pipeline.setAttribute('aria-busy', 'false');
+      throw error;
+    }
   }
 
   async function execute() {

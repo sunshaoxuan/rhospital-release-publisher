@@ -23,9 +23,29 @@
         <span class="kicker">release flow</span>
         <h2>总进度流程</h2>
       </div>
-      <strong id="target-image-flow">未生成</strong>
+      <div class="plan-image-summary">
+        <div class="image-summary-row">
+          <span>本次计划发布镜像</span>
+          <strong id="target-image-flow" class="is-loading" aria-live="polite">
+            <span class="loading-spinner" aria-hidden="true"></span>
+            <span>正在计算</span>
+          </strong>
+        </div>
+        <div class="image-summary-row production-image-row">
+          <span>生产编排当前镜像</span>
+          <strong id="production-image-flow" class="is-loading" aria-live="polite">
+            <span class="loading-spinner" aria-hidden="true"></span>
+            <span>正在读取</span>
+          </strong>
+        </div>
+      </div>
     </div>
-    <div id="pipeline" class="pipeline"></div>
+    <div id="pipeline" class="pipeline" aria-busy="true">
+      <div class="pipeline-loading" role="status">
+        <span class="loading-spinner" aria-hidden="true"></span>
+        <span>正在生成发布流程</span>
+      </div>
+    </div>
   </section>
 
   <section class="layout">
@@ -103,8 +123,8 @@
         <div class="metric"><span>镜像处理</span><strong id="image-handling">读取中</strong></div>
         <div class="metric"><span>项目目录</span><strong id="project-root">读取中</strong></div>
         <div class="metric"><span>配置文件</span><strong id="run-config">读取中</strong></div>
-        <div class="metric"><span>当前镜像</span><strong id="current-image">读取中</strong></div>
-        <div class="metric"><span>当前 APP_TAG</span><strong id="current-tag">读取中</strong></div>
+        <div class="metric"><span>本地发布配置镜像</span><strong id="current-image">读取中</strong></div>
+        <div class="metric"><span>本地发布配置 APP_TAG</span><strong id="current-tag">读取中</strong></div>
         <div class="metric"><span>发布分支</span><strong id="git-branch-current">读取中</strong></div>
         <div class="metric"><span>发布提交</span><strong id="git-commit-current">读取中</strong></div>
         <div class="metric"><span>目标服务器</span><strong id="server-name">读取中</strong></div>
@@ -141,7 +161,15 @@
         <span class="kicker">step detail</span>
         <h2>步骤动作与校验</h2>
       </div>
-      <strong id="target-image">未生成</strong>
+      <div class="plan-image-summary compact-image-summary">
+        <div class="image-summary-row">
+          <span>本次计划发布镜像</span>
+          <strong id="target-image" class="is-loading" aria-live="polite">
+            <span class="loading-spinner" aria-hidden="true"></span>
+            <span>正在计算</span>
+          </strong>
+        </div>
+      </div>
     </div>
     <div id="steps" class="steps"></div>
     <details class="aggregate-logs">

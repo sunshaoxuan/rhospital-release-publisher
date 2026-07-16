@@ -1030,6 +1030,27 @@ test('step backgrounds communicate execution status instead of final-check type'
   assert.match(app, /const done = status === 'done' \|\| status === 'dry-run-checked';[\s\S]*item\.className = `step \$\{done \? 'checked' : ''\}/);
 });
 
+test('plan loading and image labels distinguish target from production compose', () => {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+
+  assert.doesNotMatch(html, />未生成</);
+  assert.match(html, /本次计划发布镜像/);
+  assert.match(html, /生产编排当前镜像/);
+  assert.match(html, /aria-busy="true"/);
+  assert.match(html, /pipeline-loading/);
+  assert.match(html, /本地发布配置镜像/);
+  assert.match(html, /本地发布配置 APP_TAG/);
+  assert.match(app, /productionImageFlow/);
+  assert.match(app, /remoteOnlineResolved: remote.resolved/);
+  assert.match(app, /remoteOnlineResolved: false/);
+  assert.match(app, /renderProductionImage/);
+  assert.match(app, /setStaticValue/);
+  assert.match(css, /loading-spinner/);
+  assert.match(css, /animation: refresh-spin 0.8s linear infinite/);
+});
+
 test('commit selector includes a refresh control wired to the git refresh endpoint', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
