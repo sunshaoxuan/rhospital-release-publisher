@@ -29,6 +29,7 @@
 
   const fields = {
     releaseTargetCurrent: document.getElementById('release-target-current'),
+    changeAnalysis: document.getElementById('change-analysis'),
     deploymentMode: document.getElementById('deployment-mode'),
     imageHandling: document.getElementById('image-handling'),
     projectRoot: document.getElementById('project-root'),
@@ -96,6 +97,7 @@
       dockerContext: dockerContext.value.trim(),
       remoteSshTarget: remoteSshTarget.value.trim(),
       remoteComposeDir: remoteComposeDir.value.trim(),
+      releaseChangedOnly: true,
       dryRun: dryRun.checked,
       includeStackDeploy: includeStack.checked
     };
@@ -209,6 +211,7 @@
       ...plan.config,
       suggestedTag: latestConfig ? latestConfig.suggestedTag : plan.appTag
     });
+    renderChangeAnalysis(plan.changeAnalysis);
     fields.targetImage.textContent = plan.imageTag;
     fields.targetImageFlow.textContent = plan.imageTag;
     renderPipeline(plan.steps);
@@ -261,6 +264,31 @@
       steps.appendChild(item);
       restoreLogScroll(stepLogList, logScrollState.get(step.key));
     }
+  }
+
+  function renderChangeAnalysis(analysis) {
+    if (!analysis || !analysis.targets) {
+      fields.changeAnalysis.textContent = '等待 Git 基线';
+      fields.changeAnalysis.title = '';
+      return;
+    }
+    const game = analysis.targets.game || {};
+    const forum = analysis.targets.forum || {};
+    const labels = [];
+    if (game.changed) {
+      labels.push(`游戏 ${game.changedPaths.length}`);
+    }
+    if (forum.changed) {
+      labels.push(`论坛 ${forum.changedPaths.length}`);
+    }
+    fields.changeAnalysis.textContent = labels.length
+      ? labels.join('，')
+      : '无运行变更';
+    fields.changeAnalysis.title = [
+      `目标提交 ${analysis.targetCommitShort || ''}`,
+      `游戏: ${game.note || '未判断'}`,
+      `论坛: ${forum.note || '未判断'}`
+    ].join('\n');
   }
 
   function restoreLogScroll(list, previousScroll) {
@@ -473,7 +501,7 @@
     return `${step.title} · ${formatDuration(step.durationMs || 0)}`;
   }
 
-  async function loadConfig(resetTargetValues = false) {
+  async function loadConfig(resetTargetValues = false, allowAutomaticTarget = true) {
     setStatus('读取配置中', '');
     forumImageMode.disabled = true;
     try {
@@ -484,20 +512,48 @@
       }
       const config = await requestJson(`/api/config?releaseTarget=${encodeURIComponent(releaseTarget.value)}`);
       renderConfig(config);
-      await plan();
       setStatus('流程已生成，正在读取分支和历史', '');
-      loadRemoteTag(config).catch(error => setStatus(`远程 TAG 读取失败: ${error.message}`, 'error'));
       const results = await Promise.allSettled([
-        loadBranches().then(() => plan()),
+        loadBranches(),
         loadHistory()
       ]);
       const failed = results.find(result => result.status === 'rejected');
       if (failed) {
         throw failed.reason;
       }
+      const targetSwitched = await loadChangeAnalysis(allowAutomaticTarget);
+      if (targetSwitched) {
+        return;
+      }
+      await plan();
+      await loadRemoteTag(config);
       setStatus('配置已读取', 'success');
     } finally {
       forumImageMode.disabled = releaseTarget.value !== 'forum';
+    }
+  }
+
+  async function loadChangeAnalysis(allowAutomaticTarget) {
+    const analysis = await requestJson('/api/changes', {
+      method: 'POST',
+      body: JSON.stringify(payload())
+    });
+    renderChangeAnalysis(analysis);
+    const recommendedTarget = analysis.recommendedTarget;
+    if (allowAutomaticTarget
+        && (recommendedTarget === 'game' || recommendedTarget === 'forum')
+        && releaseTarget.value !== recommendedTarget) {
+      releaseTarget.value = recommendedTarget;
+      await loadConfig(true, false);
+      return true;
+    }
+    return false;
+  }
+
+  async function refreshPlanForGitSelection() {
+    const targetSwitched = await loadChangeAnalysis(true);
+    if (!targetSwitched) {
+      await plan();
     }
   }
 
@@ -577,7 +633,7 @@
     gitCommit.value = gitCommits.some(commit => commit.hash === previousValue) ? previousValue : 'latest';
     renderConfig(latestConfig || {});
     if (shouldPlan) {
-      await plan();
+      await refreshPlanForGitSelection();
     }
   }
 
@@ -589,7 +645,7 @@
     try {
       await requestJson('/api/git/refresh', {method: 'POST'});
       await loadBranches();
-      await plan();
+      await refreshPlanForGitSelection();
       setStatus('提交列表已刷新', 'success');
     } finally {
       gitRefresh.disabled = false;
@@ -738,7 +794,7 @@
     appTagEdited = true;
   });
   releaseTarget.addEventListener('change', () => {
-    loadConfig(true).catch(error => setStatus(error.message, 'error'));
+    loadConfig(true, false).catch(error => setStatus(error.message, 'error'));
   });
   forumImageMode.addEventListener('change', () => {
     appTag.value = '';
@@ -764,7 +820,7 @@
   });
   gitCommit.addEventListener('change', () => {
     renderConfig(latestConfig || {});
-    plan().catch(error => setStatus(error.message, 'error'));
+    refreshPlanForGitSelection().catch(error => setStatus(error.message, 'error'));
   });
   dockerContext.addEventListener('change', () => {
     plan().catch(error => setStatus(error.message, 'error'));

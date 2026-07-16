@@ -31,6 +31,8 @@ const {
   validateTag,
   validateGitBranch,
   validateGitCommit,
+  analyzeReleaseChanges,
+  assertReleaseTargetChanged,
   readRemoteComposeImageTag
 } = require('../src/releasePublisherCore');
 
@@ -80,6 +82,21 @@ function decodedRemoteScript(command) {
   const match = String(command).match(/printf %s "([0-9A-Za-z+/=]+)" \| base64 -d \| (?:bash|sh)/);
   assert.ok(match, `command does not contain an encoded remote script: ${command}`);
   return Buffer.from(match[1], 'base64').toString('utf8');
+}
+
+function decodedScriptTree(command) {
+  const decoded = [];
+  const pending = [String(command)];
+  const pattern = /printf %s ["']([0-9A-Za-z+/=]+)["'] \| base64 -d/g;
+  while (pending.length > 0) {
+    const value = pending.shift();
+    decoded.push(value);
+    for (const match of value.matchAll(pattern)) {
+      const child = Buffer.from(match[1], 'base64').toString('utf8');
+      if (!decoded.includes(child) && !pending.includes(child)) pending.push(child);
+    }
+  }
+  return decoded.join('\n');
 }
 
 test('parses IDEA Docker run config release values', () => {
@@ -137,6 +154,12 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(plan.steps.some(step => step.key === 'git-update'
     && step.title === '切换到分支最新提交'
     && step.command === 'git checkout origin/master'));
+  assert.ok(plan.steps.some(step => step.key === 'validate-game-sso-source'
+    && step.command.includes('e54c5fba27b79b7d13ea9993e02eedf830875733')
+    && step.command.includes('ForumSsoController.java')
+    && step.command.includes('ForumSsoDatabaseUpgradeService.java')));
+  assert.ok(plan.steps.some(step => step.key === 'test-game-backend'
+    && step.command === '.\\mvnw.cmd -q test'));
   assert.ok(plan.steps.some(step => step.key === 'compile-artifact'
     && step.command.includes('docker build --target build')
     && !step.command.includes('-H')
@@ -147,19 +170,46 @@ test('creates dry run command plan without production execution enabled', () => 
     && !step.command.includes('-H')
     && !step.command.includes('--context')
     && step.command.includes('-t hospital-backend:2026070702')));
+  assert.ok(plan.steps.some(step => step.key === 'validate-game-image'
+    && decodedRemoteScript(step.command).includes('game_image_tradepool_validation=PASS')
+    && decodedRemoteScript(step.command).includes('ForumSsoController.class')
+    && decodedRemoteScript(step.command).includes('ForumSsoDatabaseUpgradeService.class')
+    && decodedRemoteScript(step.command).includes('AdminTradePoolPageController.class')
+    && decodedRemoteScript(step.command).includes('AdminToiletMarketController.class')
+    && decodedRemoteScript(step.command).includes('AdminTradePoolService.class')
+    && decodedRemoteScript(step.command).includes('admin_tradepool.html')
+    && decodedRemoteScript(step.command).includes('MARKER_VERSION = 15')
+    && decodedRemoteScript(step.command).includes('listing_source')
+    && decodedRemoteScript(step.command).includes('idx_toilet_listing_admin_batch')
+    && decodedRemoteScript(step.command).includes('idx_toilet_tx_type_id')
+    && decodedRemoteScript(step.command).includes('idx_toilet_tx_actor_id')
+    && decodedRemoteScript(step.command).includes('idx_toilet_tx_target_id')
+    && decodedRemoteScript(step.command).includes('test "$IMAGE_TAG" = 2026070702')));
   assert.ok(plan.steps.some(step => step.key === 'publish-image'
     && step.command.includes('docker save -o')
     && step.command.includes('scp')
     && step.command.includes('docker load -i')));
   assert.ok(plan.steps.some(step => step.key === 'read-remote-compose'
     && decodedRemoteScript(step.command).includes(`cd ${DEFAULT_REMOTE_COMPOSE_DIR}`)
-    && decodedRemoteScript(step.command).includes('IMAGE_TAG')));
+    && decodedRemoteScript(step.command).includes('IMAGE_TAG')
+    && decodedRemoteScript(step.command).includes('FORUM_SSO_ENABLED=true is missing or duplicated')
+    && decodedRemoteScript(step.command).includes('FORUM_SSO_SECRET_FILE is missing or duplicated')));
+  assert.ok(plan.steps.some(step => step.key === 'game-database-preflight'
+    && decodedScriptTree(step.command).includes('RELEASE_DB_AUDIT_MODE=inspect')
+    && decodedScriptTree(step.command).includes('tradepool_schema_preflight')));
+  assert.ok(plan.steps.some(step => step.key === 'backup-game-release'
+    && decodedScriptTree(step.command).includes('/opt/1panel/backup/game-release-')
+    && decodedScriptTree(step.command).includes('RELEASE_DB_AUDIT_MODE=backup')
+    && decodedScriptTree(step.command).includes('TRANSACTION_REPEATABLE_READ')
+    && decodedScriptTree(step.command).includes('t_toilet_market_listing')
+    && decodedScriptTree(step.command).includes('.last-game-release-backup')));
   assert.ok(plan.steps.some(step => step.key === 'update-remote-compose'
     && step.command.includes('base64 -d | bash')
     && decodedRemoteScript(step.command).includes('sed -i -E')
     && decodedRemoteScript(step.command).includes('s#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\1hospital-backend:2026070702#')
     && decodedRemoteScript(step.command).includes('s#^([[:space:]]*-[[:space:]]*IMAGE_TAG=).*$#\\12026070702#')
     && decodedRemoteScript(step.command).includes('s#^([[:space:]]*IMAGE_TAG:[[:space:]]*).*$#\\1"2026070702"#')
+    && decodedRemoteScript(step.command).includes('forum_sso_secret declaration is missing or duplicated')
     && decodedRemoteScript(step.command).includes('docker stack config -c docker-compose.yml')));
   assert.ok(plan.steps.some(step => step.key === 'deploy-stack'
     && decodedRemoteScript(step.command).includes('docker stack deploy -c docker-compose.yml hospital_stack')));
@@ -182,21 +232,48 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes("update_state=$(docker service inspect \"$service_name\" --format '{{if .UpdateStatus}}{{.UpdateStatus.State}}{{else}}completed{{end}}')")
     && decodedRemoteScript(step.command).includes('--filter desired-state=running')
     && decodedRemoteScript(step.command).includes('container_health=$(docker inspect')
+    && decodedRemoteScript(step.command).includes('container_version=$(printf')
+    && decodedRemoteScript(step.command).includes('container_sso_enabled=$(printf')
+    && decodedRemoteScript(step.command).includes('container_secret_ready=false')
+    && decodedRemoteScript(step.command).includes('service_sso_enabled')
+    && decodedRemoteScript(step.command).includes('service_sso_secret=')
     && decodedRemoteScript(step.command).includes('active_other_count')
     && decodedRemoteScript(step.command).includes('rollout_validation=PASS')));
+  assert.ok(plan.steps.some(step => step.key === 'verify-tradepool-release'
+    && decodedScriptTree(step.command).includes('RELEASE_DB_AUDIT_MODE=verify')
+    && decodedScriptTree(step.command).includes('EXPECTED_VERSION = 15')
+    && decodedScriptTree(step.command).includes('idx_toilet_tx_actor_id')
+    && decodedScriptTree(step.command).includes('idx_toilet_tx_target_id')
+    && decodedScriptTree(step.command).includes('Catalog marker is not COMPLETED at version')
+    && decodedScriptTree(step.command).includes('catalog database upgrade failed')
+    && decodedScriptTree(step.command).includes('/admin/tradepool')
+    && decodedScriptTree(step.command).includes('/api/admin/toilet-market/pool')
+    && decodedScriptTree(step.command).includes('tradepool_release_validation=PASS')));
+  const gameRollback = plan.steps.find(step => step.key === 'game-rollback-command');
+  assert.ok(gameRollback);
+  assert.equal(gameRollback.executable, false);
+  assert.ok(decodedScriptTree(gameRollback.command).includes('RELEASE_DB_AUDIT_MODE=suspend-admin'));
+  assert.ok(decodedScriptTree(gameRollback.command).includes('suspended_admin_listings='));
+  assert.ok(decodedScriptTree(gameRollback.command).includes('.last-game-release-backup'));
   assertStepType(plan, 'git-status-before-update', 'local-check', false);
   assertStepType(plan, 'git-fetch', 'local-code', false);
   assertStepType(plan, 'git-update', 'local-code', false);
+  assertStepType(plan, 'validate-game-sso-source', 'local-check', false);
+  assertStepType(plan, 'test-game-backend', 'local-check', false);
   assertStepType(plan, 'validate-release-input', 'local-check', false);
   assertStepType(plan, 'save-run-config', 'local-config', false);
   assertStepType(plan, 'compile-artifact', 'build', false);
   assertStepType(plan, 'build-image', 'build', false);
+  assertStepType(plan, 'validate-game-image', 'build', false);
   assertStepType(plan, 'publish-image', 'production', true);
   assertStepType(plan, 'resolve-ssh-target', 'local-check', false);
   assertStepType(plan, 'read-remote-compose', 'remote-check', false);
+  assertStepType(plan, 'game-database-preflight', 'remote-check', false);
+  assertStepType(plan, 'backup-game-release', 'production', true);
   assertStepType(plan, 'update-remote-compose', 'production', true);
   assertStepType(plan, 'deploy-stack', 'production', true);
   assertStepType(plan, 'final-runtime-check', 'remote-check', false);
+  assertStepType(plan, 'verify-tradepool-release', 'remote-check', false);
 });
 
 test('creates reusable forum compose release plan with backup validation and rollback evidence', () => {
@@ -231,8 +308,7 @@ test('creates reusable forum compose release plan with backup validation and rol
   assert.equal(plan.steps.some(step => step.key === 'compile-artifact'), false);
   assert.ok(plan.steps.some(step => step.key === 'validate-forum-source'
     && step.command.includes('ForumFlarumImageAssetTest,ForumDeploymentConfigTest')
-    && step.command.includes('git diff --quiet HEAD -- integrations/flarum/04-rhospital-secret.sh integrations/flarum/05-rhospital-env.sh')
-    && step.command.includes('integrations/flarum/rhospital-sso/validate-runtime.php')
+    && step.command.includes('git status --porcelain --untracked-files=all -- integrations/flarum')
     && step.command.includes("bash -o pipefail -c 'git show HEAD:integrations/flarum/04-rhospital-secret.sh | bash -n'")
     && step.command.includes("bash -o pipefail -c 'git show HEAD:integrations/flarum/05-rhospital-env.sh | bash -n'")
     && !step.command.includes('bash -n integrations/flarum/')));
@@ -241,7 +317,9 @@ test('creates reusable forum compose release plan with backup validation and rol
     && step.command.includes('-t rhospital/flarum-sso:2026071501 integrations/flarum')));
   assert.ok(plan.steps.some(step => step.key === 'validate-forum-image'
     && decodedRemoteScript(step.command).includes('forum_image_validation=PASS')
-    && decodedRemoteScript(step.command).includes('/run/rhospital-secrets/forum_sso_secret')));
+    && decodedRemoteScript(step.command).includes('/run/rhospital-secrets/forum_sso_secret')
+    && decodedRemoteScript(step.command).includes('/opt/flarum/vendor/flarum-lang/chinese-simplified/extend.php')
+    && decodedRemoteScript(step.command).includes('composer show flarum-lang/chinese-simplified')));
   assert.ok(plan.steps.some(step => step.key === 'read-remote-compose'
     && decodedRemoteScript(step.command).includes(DEFAULT_FORUM_REMOTE_COMPOSE_DIR)
     && decodedRemoteScript(step.command).includes('rhospital/flarum-sso:')));
@@ -829,6 +907,67 @@ test('rejects invalid app tag', () => {
   assert.throws(() => validateTag('20260707;rm'), /APP_TAG/);
 });
 
+test('detects deployable target changes and blocks unchanged or rollback releases', () => {
+  const root = tempGitProject();
+  const branch = runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const historyPath = path.join(root, 'history.json');
+  const history = [
+    {
+      status: 'EXECUTED',
+      releaseTarget: 'forum',
+      releaseCommit: baseline,
+      appTag: '2026071601',
+      imageTag: 'rhospital/flarum-sso:2026071601',
+      includeStackDeploy: true
+    },
+    {
+      status: 'EXECUTED',
+      releaseTarget: 'game',
+      releaseCommit: baseline,
+      appTag: '20260716',
+      imageTag: 'hospital-backend:20260716',
+      includeStackDeploy: true
+    }
+  ];
+  fs.writeFileSync(historyPath, `${JSON.stringify(history, null, 2)}\n`, 'utf8');
+  fs.mkdirSync(path.join(root, 'integrations', 'flarum'), {recursive: true});
+  fs.writeFileSync(path.join(root, 'integrations', 'flarum', 'Dockerfile'), 'FROM demo\n', 'utf8');
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'forum change']);
+
+  const forumOnly = analyzeReleaseChanges(root, {
+    gitBranch: branch,
+    gitCommit: 'latest'
+  }, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
+  assert.deepEqual(forumOnly.changedTargets, ['forum']);
+  assert.equal(forumOnly.recommendedTarget, 'forum');
+  assert.deepEqual(forumOnly.targets.forum.changedPaths, ['integrations/flarum/Dockerfile']);
+  assert.equal(assertReleaseTargetChanged(forumOnly, 'forum', 'build'), true);
+  assert.throws(() => assertReleaseTargetChanged(forumOnly, 'game', 'build'), /没有游戏运行文件变化/);
+
+  fs.mkdirSync(path.join(root, 'src', 'main'), {recursive: true});
+  fs.writeFileSync(path.join(root, 'src', 'main', 'runtime.txt'), 'game\n', 'utf8');
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'game change']);
+  const both = analyzeReleaseChanges(root, {
+    gitBranch: branch,
+    gitCommit: 'latest'
+  }, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
+  assert.deepEqual(both.changedTargets, ['game', 'forum']);
+  assert.equal(both.recommendedTarget, 'multiple');
+
+  const latestCommit = runGit(root, ['rev-parse', 'HEAD']).trim();
+  fs.writeFileSync(historyPath, `${JSON.stringify(history.map(entry => ({...entry, releaseCommit: latestCommit})), null, 2)}\n`, 'utf8');
+  const rollback = analyzeReleaseChanges(root, {
+    gitBranch: branch,
+    gitCommit: baseline
+  }, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
+  assert.equal(rollback.targets.game.direction, 'rollback');
+  assert.throws(() => assertReleaseTargetChanged(rollback, 'game', 'build'), /已阻止降级发布/);
+  assert.equal(assertReleaseTargetChanged(rollback, 'forum', 'reuse'), true);
+});
+
 test('lists branches and commits from a git project', () => {
   const root = tempGitProject();
   runGit(root, ['checkout', '-b', 'release/demo']);
@@ -919,6 +1058,7 @@ test('release console exposes game and forum targets with target-aware API paylo
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 
   assert.match(html, /id="release-target"/);
+  assert.match(html, /id="change-analysis"/);
   assert.match(html, /option value="game">游戏后端<\/option>/);
   assert.match(html, /option value="forum">论坛<\/option>/);
   assert.match(html, /id="forum-image-mode"/);
@@ -927,16 +1067,26 @@ test('release console exposes game and forum targets with target-aware API paylo
   assert.match(html, /id="deploy-toggle-label"/);
   assert.match(app, /releaseTarget:\s*releaseTarget\.value/);
   assert.match(app, /forumImageMode:\s*forumImageMode\.value/);
+  assert.match(app, /releaseChangedOnly:\s*true/);
+  assert.match(app, /api\/changes/);
+  assert.match(app, /recommendedTarget === 'game'/);
+  assert.match(app, /function renderChangeAnalysis/);
   assert.match(app, /gitBranch\.disabled = reuseForumImage/);
   assert.match(app, /gitBranchField\.hidden = reuseForumImage/);
   assert.match(app, /将复用生产已有镜像/);
   assert.match(css, /\[hidden\]\s*\{\s*display:\s*none\s*!important;/);
+  assert.match(css, /overflow-x:\s*clip/);
+  assert.match(css, /\.step-title\s*>\s*div,[\s\S]*?min-width:\s*0/);
+  assert.match(css, /word-break:\s*break-all/);
+  assert.match(css, /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
   assert.match(app, /api\/config\?releaseTarget=/);
   assert.match(app, /执行论坛 Compose 发布/);
   assert.match(app, /function compactBranchLabel/);
   assert.match(app, /option\.title = branch\.name/);
   assert.match(app, /previousTarget !== config\.releaseTarget/);
   assert.match(server, /RELEASE_PUBLISHER_FORUM_REMOTE_COMPOSE_DIR/);
+  assert.match(server, /assertReleaseTargetChanged/);
+  assert.match(server, /gitCommit:\s*body\.gitCommit === 'latest'[\s\S]*?analysis\.targetCommit/);
 });
 
 function tempProject(xml) {
@@ -944,6 +1094,7 @@ function tempProject(xml) {
   const runDir = path.join(root, '.run');
   fs.mkdirSync(runDir, {recursive: true});
   fs.writeFileSync(path.join(runDir, '148.135.9.123.run.xml'), xml, 'utf8');
+  fs.writeFileSync(path.join(root, 'mvnw.cmd'), '@echo off\r\nexit /b 0\r\n', 'utf8');
   return root;
 }
 
@@ -960,7 +1111,7 @@ function tempCommandBin() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-bin-'));
   fs.writeFileSync(path.join(root, 'git.cmd'), [
     '@echo off',
-    'if "%1"=="status" echo ## master...origin/master',
+    'if "%1"=="status" if "%2"=="--short" echo ## master...origin/master',
     'if "%1"=="rev-parse" echo 0123456789abcdef0123456789abcdef01234567',
     'if "%1"=="log" echo 0123456\t2026-07-07 20:30:40 +0900\tRelease hospital backend',
     'exit /b 0',

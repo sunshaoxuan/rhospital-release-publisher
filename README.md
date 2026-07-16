@@ -6,6 +6,7 @@ RHospital 发布控制台，用于替代 IDEA 中的 `148.135.9.123` Docker Run 
 
 - 读取开发环境中的 `hospital-backend/.run/148.135.9.123.run.xml`
 - 在同一控制台选择“游戏后端”或“论坛”发布目标
+- 对比目标提交与游戏、论坛各自最近一次成功生产发布提交，自动识别需要发布的目标
 - 支持从分支列表选择发布分支，并从该分支提交列表选择最新提交或指定提交
 - 发布提交下拉框旁提供刷新按钮，执行 `git fetch --prune origin` 后重新读取当前分支提交
 - 解析当前 `hospital-backend:<TAG>` 和 `APP_TAG`
@@ -19,6 +20,19 @@ RHospital 发布控制台，用于替代 IDEA 中的 `148.135.9.123` Docker Run 
 - 论坛目标可选择构建并上传新镜像，或复用生产镜像池中已有的 `rhospital/flarum-sso:<TAG>`，随后生成 MySQL、data、Compose 和镜像证据备份，再用 Docker Compose 只替换 Flarum 容器
 - 默认只执行 dry run
 - 记录本地构造历史，并在页面中展示最近执行记录
+
+## 按变更发布
+
+发布器分别维护游戏和论坛的成功生产发布基线。选择分支和提交后，页面会计算运行文件差异：
+
+- `src/main/`、根 `Dockerfile`、`pom.xml`、`entrypoint.sh`、`docker-compose.yml` 和 `newrelic/` 归入游戏镜像。
+- `integrations/flarum/` 归入论坛镜像。
+- 文档、测试和其他非运行文件不会触发镜像发布。
+- 只有一个目标发生变化时，页面自动切换到该目标。
+- 游戏和论坛同时变化时，页面标明两个目标，分别执行两条现有发布流水线。完成第一个目标后，重新检测只会保留尚未发布的目标。
+- 目标没有运行文件变化时，正式执行会被拒绝。论坛“复用生产已有镜像”保留为明确的运维例外。
+- 目标提交早于最近成功生产发布提交或与其分叉时，正式执行会被拒绝，防止误选历史提交降级。
+- 选择“最新提交”时，任务创建阶段立即解析并固定完整提交号，后续 fetch 不会改变本次构建内容。
 
 ## 启动
 
@@ -131,7 +145,15 @@ C:\workspace\rhospital-release-publisher\.service\release-console.log
 
 镜像已经存在于生产 Docker 镜像池时选择“复用生产已有镜像”。该模式只读执行 `docker image inspect` 确认指定 TAG 存在，跳过 Git 更新、Maven、Docker build、镜像运行验证、docker save、SCP 和 docker load，随后继续执行生产预检、备份、Compose 容器替换和最终运行验收。
 
-每一步都有动作命令和校验命令。正式执行时，带有校验命令的步骤会在动作命令成功后立即执行校验命令；校验命令失败会中断本次发布并写入构造历史。生产编排更新会同时替换 `hospital-backend:<TAG>` 和 `IMAGE_TAG=<TAG>`，避免运行镜像、页面版本号和静态资源缓存键不一致。最终运行校验会等待 Swarm 更新状态完成，并确认服务镜像、运行版本、健康副本数和旧版本任务全部收敛后再报告成功。
+每一步都有动作命令和校验命令。正式执行时，带有校验命令的步骤会在动作命令成功后立即执行校验命令；校验命令失败会中断本次发布并写入构造历史。游戏发布先运行完整 Maven 测试，再确认目标提交包含已上线的 SSO 基线，并检查构建镜像内的 SSO、Catalog 第 15 版迁移和管理员交易池代码。生产编排更新会同时替换 `hospital-backend:<TAG>` 和 `IMAGE_TAG=<TAG>`，并要求 `FORUM_SSO_ENABLED=true`、Secret 路径和 Secret 声明保持完整。最终运行校验会等待 Swarm 更新状态完成，逐个确认运行容器的镜像、`IMAGE_TAG`、SSO 开关、Secret 和健康状态，并要求旧版本运行任务归零。
+
+包含管理员交易池的游戏发布还会执行以下门禁：
+
+- 部署前通过当前健康容器做只读数据库盘点，并在同一个 PostgreSQL `REPEATABLE READ` 快照中将 Compose、服务、镜像证据以及 `t_backend_upgrade_markers`、`t_toilet_market_listing`、`t_toilet_market_transaction` 导出到 `/opt/1panel/backup/game-release-<UTC>`。
+- 镜像上传前反编译 Catalog 升级类，确认第 15 版标记、三个目标字段和四个目标索引的迁移内容已经进入镜像。
+- 部署后要求 `catalog_item_store_v1` 标记达到版本 15 且状态为 `COMPLETED`，三个新增字段和四个新增索引全部存在。
+- 部署后检查 Catalog 升级日志不存在失败记录，匿名访问 `/admin/tradepool` 必须跳转登录，匿名访问管理员 API 必须被拒绝。
+- 生成的旧版回滚命令会先把所有 `ACTIVE` 的 `ADMIN` 挂单改为 `SUSPENDED`，随后恢复发布前 Compose。该回滚命令只记录在流程中，不会自动执行。
 
 点击 `执行流程` 后，服务端会创建一个后台执行任务，页面会轮询任务状态并持续刷新：
 
@@ -342,7 +364,7 @@ cd /opt/1panel/docker/compose/hospital-stack
 docker stack deploy -c docker-compose.yml hospital_stack
 ```
 
-热发布使用 `start-first` 时，新旧任务会在健康观察期内短暂并存。发布器会持续轮询 `UpdateStatus`、目标镜像、`IMAGE_TAG`、健康副本数和仍处于运行目标态的旧镜像任务。只有更新状态为 `completed`、目标副本全部健康且旧版本运行任务为零时，最终节点才会完成。默认等待上限为 900 秒，可在远端通过 `RELEASE_PUBLISHER_ROLLOUT_TIMEOUT_SECONDS` 调整。
+热发布使用 `start-first` 时，新旧任务会在健康观察期内短暂并存。发布器会持续轮询 `UpdateStatus`、目标镜像、服务与容器 `IMAGE_TAG`、SSO 开关、Secret、健康副本数和仍处于运行目标态的旧镜像任务。只有更新状态为 `completed`、目标副本全部通过版本与 SSO 契约且旧版本运行任务为零时，最终节点才会完成。默认等待上限为 900 秒，可在远端通过 `RELEASE_PUBLISHER_ROLLOUT_TIMEOUT_SECONDS` 调整。
 
 ## 论坛发布
 
@@ -354,7 +376,7 @@ rhospital/flarum-sso:2026071501
 
 “构建并上传新镜像”用于论坛源码、扩展、初始化脚本或基础镜像发生变化的发布。“复用生产已有镜像”用于重新创建容器、重新加载运行时 Secret、应用 Compose 参数变化或回到某个已经上传的不可变 TAG。复用模式不会重新打包论坛。
 
-论坛源码校验会先确认两个初始化脚本相对发布提交没有内容改动，再直接读取 Git 提交中的 LF 脚本执行 Bash 语法检查。Windows 工作区的 CRLF 检出格式不会造成误报，未提交的脚本内容仍会阻止发布。
+论坛源码校验会先确认整个 `integrations/flarum/` 相对发布提交没有内容改动，再直接读取 Git 提交中的 LF 脚本执行 Bash 语法检查。Windows 工作区的 CRLF 检出格式不会造成误报，任何未提交的论坛镜像内容都会阻止发布。派生镜像直接固定安装 `flarum-lang/chinese-simplified 1.6.0` 和 `rhospital-sso`，镜像校验会确认中文包文件、Composer 锁定版本和 SSO Secret 边界。
 
 本地构建使用：
 
@@ -391,6 +413,9 @@ npm test
 - 发布器仓库 Docker Server 配置解析
 - 下一个 TAG 建议
 - 镜像 TAG 与 `APP_TAG` 联动更新
+- Git 变更自动识别、未变化目标拦截和历史提交降级拦截
+- 游戏 SSO 最低提交、镜像类、生产开关和 Secret 契约
+- 游戏 Maven 测试门禁、交易池镜像内容、数据库备份、Catalog v15 结构和匿名鉴权契约
 - dry run 命令计划
 - dry run 不改写真实文件
 - dry run 写入本地构造历史

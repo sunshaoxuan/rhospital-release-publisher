@@ -26,7 +26,9 @@ const {
   resolveDockerContextDetails,
   resolveReleaseDockerServerDetails,
   resolveDockerCommandTarget,
-  readRemoteComposeImageTag
+  readRemoteComposeImageTag,
+  analyzeReleaseChanges,
+  assertReleaseTargetChanged
 } = require('./src/releasePublisherCore');
 
 const projectRoot = defaultProjectRoot();
@@ -138,9 +140,13 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/git/refresh' && req.method === 'POST') {
       return sendJson(res, 200, refreshGitRefs(projectRoot, process.env));
     }
+    if (pathname === '/api/changes' && req.method === 'POST') {
+      const body = await readBody(req);
+      return sendJson(res, 200, analyzeReleaseChanges(projectRoot, body, process.env));
+    }
     if (pathname === '/api/plan' && req.method === 'POST') {
       const body = await readBody(req);
-      return sendJson(res, 200, createPlan(projectRoot, body));
+      return sendJson(res, 200, createPlan(projectRoot, prepareReleaseRequest(body, false)));
     }
     if (pathname === '/api/save-tag' && req.method === 'POST') {
       const body = await readBody(req);
@@ -148,7 +154,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/execute' && req.method === 'POST') {
       const body = await readBody(req);
-      const job = createExecutionJob(body);
+      const job = createExecutionJob(prepareReleaseRequest(body, true));
       return sendJson(res, 202, job);
     }
     if (pathname.startsWith('/api/jobs/') && req.method === 'GET') {
@@ -226,6 +232,20 @@ function readBody(req) {
     });
     req.on('error', reject);
   });
+}
+
+function prepareReleaseRequest(body, enforceChangedTarget) {
+  const analysis = analyzeReleaseChanges(projectRoot, body, process.env);
+  if (enforceChangedTarget && body.releaseChangedOnly !== false) {
+    assertReleaseTargetChanged(analysis, body.releaseTarget || 'game', body.forumImageMode || 'build');
+  }
+  return {
+    ...body,
+    gitCommit: body.gitCommit === 'latest' || !body.gitCommit
+      ? analysis.targetCommit
+      : body.gitCommit,
+    changeAnalysis: analysis
+  };
 }
 
 function createExecutionJob(body) {

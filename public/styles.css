@@ -27,6 +27,7 @@
 body {
   margin: 0;
   min-height: 100vh;
+  overflow-x: clip;
   color: var(--ink);
   background:
     linear-gradient(rgba(18, 18, 18, 0.06) 1px, transparent 1px),
@@ -261,6 +262,15 @@ p {
   gap: 20px;
   align-items: start;
   margin-bottom: 20px;
+}
+
+.layout > *,
+.steps,
+.step,
+.step-title,
+.step-title > div,
+.command-block {
+  min-width: 0;
 }
 
 .panel {
@@ -525,6 +535,7 @@ button.danger {
   margin-top: 6px;
   color: var(--muted);
   font-size: 13px;
+  overflow-wrap: anywhere;
 }
 
 .step-meta {
@@ -593,6 +604,7 @@ button.danger {
   line-height: 1.45;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .validation-block .command {
@@ -784,7 +796,7 @@ button.danger {
   .metrics,
   .history-grid,
   .pipeline {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   h1 {

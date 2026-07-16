@@ -15,7 +15,30 @@ const DEFAULT_FORUM_INIT_SCRIPTS = [
   'integrations/flarum/04-rhospital-secret.sh',
   'integrations/flarum/05-rhospital-env.sh'
 ];
-const DEFAULT_FORUM_RUNTIME_VALIDATOR = 'integrations/flarum/rhospital-sso/validate-runtime.php';
+const GAME_SSO_BASELINE_COMMIT = 'e54c5fba27b79b7d13ea9993e02eedf830875733';
+const GAME_SSO_SOURCE_PATHS = [
+  'src/main/java/com/zly/hospital/controller/api/ForumSsoController.java',
+  'src/main/java/com/zly/hospital/service/ForumSsoDatabaseUpgradeService.java',
+  'src/main/java/com/zly/hospital/service/ForumProvisioningService.java'
+];
+const GAME_RUNTIME_PATHS = ['Dockerfile', 'docker-compose.yml', 'entrypoint.sh', 'pom.xml'];
+const GAME_RUNTIME_PREFIXES = ['newrelic/', 'src/main/'];
+const TRADE_POOL_SCHEMA_VERSION = 15;
+const TRADE_POOL_REQUIRED_COLUMNS = ['listing_source', 'admin_source_email', 'admin_batch_id'];
+const TRADE_POOL_REQUIRED_INDEXES = [
+  'idx_toilet_listing_admin_batch',
+  'idx_toilet_tx_type_id',
+  'idx_toilet_tx_actor_id',
+  'idx_toilet_tx_target_id'
+];
+const GAME_TRADE_POOL_IMAGE_PATHS = [
+  'BOOT-INF/classes/com/zly/hospital/controller/page/AdminTradePoolPageController.class',
+  'BOOT-INF/classes/com/zly/hospital/controller/api/AdminToiletMarketController.class',
+  'BOOT-INF/classes/com/zly/hospital/service/AdminTradePoolService.class',
+  'BOOT-INF/classes/com/zly/hospital/service/catalog/CatalogDatabaseUpgradeService.class',
+  'BOOT-INF/classes/templates/admin_tradepool.html'
+];
+const FORUM_RUNTIME_PREFIX = 'integrations/flarum/';
 const DEFAULT_FORUM_REMOTE_COMPOSE_DIR = '/opt/1panel/apps/flarum/flarum';
 const DEFAULT_FORUM_CONTAINER_NAME = 'flarum';
 const DEFAULT_JETBRAINS_PRODUCT_DIR = 'IntelliJIdea2026.1';
@@ -24,6 +47,7 @@ const DEFAULT_PUBLISHER_CONFIG = 'release-publisher.config.json';
 const TAG_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
 const GIT_REF_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._/@:-]{0,127}$/;
 const GIT_COMMIT_PATTERN = /^[0-9a-fA-F]{7,40}$/;
+const releaseChangeAnalysisCache = new Map();
 
 function defaultProjectRoot() {
   return process.env.RHOSPITAL_PROJECT_ROOT
@@ -172,6 +196,31 @@ function createPlan(projectRoot, request, env = process.env) {
       executable: true
     }),
     releaseStep({
+      key: 'validate-game-sso-source',
+      title: '校验游戏 SSO 发布基线',
+      summary: '确认目标提交包含已上线的游戏论坛 SSO 和自动升级能力',
+      command: chainPowerShellCommands([
+        sourceCleanPowerShellCommand('gameReleaseChanges', [
+          ...GAME_RUNTIME_PATHS,
+          ...GAME_RUNTIME_PREFIXES.map(prefix => prefix.replace(/\/$/, ''))
+        ]),
+        `git merge-base --is-ancestor ${GAME_SSO_BASELINE_COMMIT} HEAD`,
+        ...GAME_SSO_SOURCE_PATHS.map(sourcePath => `git cat-file -e HEAD:${sourcePath}`)
+      ]),
+      validation: `目标提交必须包含 ${GAME_SSO_BASELINE_COMMIT.slice(0, 8)} 及三个游戏 SSO 核心文件`,
+      actionType: 'local-check',
+      executable: true
+    }),
+    releaseStep({
+      key: 'test-game-backend',
+      title: '执行游戏后端测试',
+      summary: '在制作镜像前运行完整 Maven 测试套件，阻止带失败测试的提交进入镜像',
+      command: '.\\mvnw.cmd -q test',
+      validation: '完整 Maven 测试套件必须通过',
+      actionType: 'local-check',
+      executable: true
+    }),
+    releaseStep({
       key: 'validate-release-input',
       title: '读取配置并校验 TAG',
       summary: '确认本地发布配置、镜像 TAG 和 APP_TAG 使用同一个版本号',
@@ -233,6 +282,15 @@ function createPlan(projectRoot, request, env = process.env) {
       executable: true
     }),
     releaseStep({
+      key: 'validate-game-image',
+      title: '验证游戏镜像版本与交易池能力',
+      summary: '确认运行镜像内的 TAG、SSO、Catalog 第 15 版迁移和管理员交易池代码完整',
+      command: gameImageValidationCommand(dockerTarget, imageTag, appTag),
+      validation: `镜像内 IMAGE_TAG=${appTag}，并包含 SSO、Catalog v${TRADE_POOL_SCHEMA_VERSION} 和管理员交易池代码`,
+      actionType: 'build',
+      executable: true
+    }),
+    releaseStep({
       key: 'publish-image',
       title: '发布到目标镜像池',
       summary: '把本机已经构建好的镜像保存为 tar，经 SSH 上传到生产 Docker 主机并执行 docker load',
@@ -266,10 +324,34 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '进入 hospital-stack 编排目录，确认当前镜像和前端运行版本使用同一个 TAG',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
-        `grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:|^[[:space:]]*(-[[:space:]]*)?IMAGE_TAG([[:space:]]*[:=])' docker-compose.yml`
+        `grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:|^[[:space:]]*(-[[:space:]]*)?(IMAGE_TAG|FORUM_SSO_ENABLED|FORUM_SSO_SECRET_FILE)([[:space:]]*[:=])' docker-compose.yml`,
+        ...gameComposeSsoContractCommands()
       ])),
-      validation: `必须同时读到 image: hospital-backend:<TAG> 和 IMAGE_TAG=<TAG>`,
+      validation: `必须同时读到游戏镜像、IMAGE_TAG、FORUM_SSO_ENABLED=true 和论坛 SSO Secret`,
       actionType: 'remote-check',
+      executable: true
+    }));
+    steps.push(releaseStep({
+      key: 'game-database-preflight',
+      title: '盘点交易池数据库升级前状态',
+      summary: '使用当前健康容器的 JDBC 驱动执行只读检查，记录 Catalog 标记、目标字段和索引现状',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        gameDatabasePreflightCommand(config.stackName, config.containerName)
+      )),
+      validation: '当前运行容器必须能够只读连接数据库并输出升级前结构状态',
+      actionType: 'remote-check',
+      executable: true
+    }));
+    steps.push(releaseStep({
+      key: 'backup-game-release',
+      title: '备份游戏编排与交易池数据',
+      summary: '在替换编排前保存 Compose、服务和镜像证据，并只读导出升级涉及的交易池表',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        gameReleaseBackupCommand(remoteComposeDir, config.stackName, config.containerName)
+      )),
+      validation: '备份目录、交易池数据导出和 SHA256SUMS 必须完整，并记录本次发布起始时间',
+      actionType: 'production',
+      productionAction: true,
       executable: true
     }));
     steps.push(releaseStep({
@@ -282,6 +364,7 @@ function createPlan(projectRoot, request, env = process.env) {
         `version_line_count=$(grep -Ec '^[[:space:]]*(-[[:space:]]*)?IMAGE_TAG([[:space:]]*[:=])' docker-compose.yml)`,
         `[ "$image_line_count" -eq 1 ] || { echo "ERROR: expected exactly one hospital-backend image line, found $image_line_count"; exit 1; }`,
         `[ "$version_line_count" -eq 1 ] || { echo "ERROR: expected exactly one IMAGE_TAG line, found $version_line_count"; exit 1; }`,
+        ...gameComposeSsoContractCommands(),
         `cp docker-compose.yml docker-compose.yml.bak.$(date +%Y%m%d%H%M%S)`,
         `sed -i -E 's#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\1${escapeSedReplacement(imageTag)}#' docker-compose.yml`,
         `sed -i -E 's#^([[:space:]]*-[[:space:]]*IMAGE_TAG=).*$#\\1${escapeSedReplacement(appTag)}#' docker-compose.yml`,
@@ -292,12 +375,14 @@ function createPlan(projectRoot, request, env = process.env) {
         `cd ${shellToken(remoteComposeDir)}`,
         `grep -nE '^[[:space:]]*image:[[:space:]]*${escapeEgrepPattern(imageTag)}$' docker-compose.yml`,
         `grep -nE '^[[:space:]]*-[[:space:]]*IMAGE_TAG=${escapeEgrepPattern(appTag)}[[:space:]]*$|^[[:space:]]*IMAGE_TAG:[[:space:]]*"?${escapeEgrepPattern(appTag)}"?[[:space:]]*$' docker-compose.yml`,
+        ...gameComposeSsoContractCommands(),
         `docker stack config -c docker-compose.yml >/dev/null`
       ])),
       validationCommand: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
         `grep -nE '^[[:space:]]*image:[[:space:]]*${escapeEgrepPattern(imageTag)}$' docker-compose.yml`,
         `grep -nE '^[[:space:]]*-[[:space:]]*IMAGE_TAG=${escapeEgrepPattern(appTag)}[[:space:]]*$|^[[:space:]]*IMAGE_TAG:[[:space:]]*"?${escapeEgrepPattern(appTag)}"?[[:space:]]*$' docker-compose.yml`,
+        ...gameComposeSsoContractCommands(),
         `docker stack config -c docker-compose.yml >/dev/null`
       ])),
       actionType: 'production',
@@ -333,6 +418,28 @@ function createPlan(projectRoot, request, env = process.env) {
       executable: true,
       finalCheck: true
     }));
+    steps.push(releaseStep({
+      key: 'verify-tradepool-release',
+      title: '验证管理员交易池发布结果',
+      summary: '核对 Catalog v15 标记、字段、索引、迁移日志、匿名页面跳转和管理员 API 拒绝未登录请求',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        tradePoolPostDeployCheckCommand(remoteComposeDir, config.stackName, config.containerName)
+      )),
+      validation: `Catalog 标记达到 ${TRADE_POOL_SCHEMA_VERSION} 且状态为 COMPLETED，交易池字段和索引完整，匿名访问保持受限`,
+      actionType: 'remote-check',
+      executable: true,
+      finalCheck: true
+    }));
+    steps.push(releaseStep({
+      key: 'game-rollback-command',
+      title: '记录游戏回滚命令',
+      summary: '回滚旧代码前先暂停所有在售 ADMIN 挂单，再恢复发布前 Compose；发布流程不会自动执行',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        gameRollbackCommand(remoteComposeDir, config.stackName, config.containerName)
+      )),
+      validation: '仅在人工确认后执行；必须先看到 suspended_admin_listings 结果，再允许部署旧镜像',
+      actionType: 'local-check'
+    }));
   }
 
   return {
@@ -358,12 +465,14 @@ function createPlan(projectRoot, request, env = process.env) {
     imageTag,
     gitBranch,
     gitCommit,
+    changeAnalysis: request.changeAnalysis || null,
     includeStackDeploy,
     dryRun: request.dryRun !== false,
     steps,
     guardrails: [
       '勾选 dry run 时只生成命令和写入预览',
-      '取消 dry run 后会执行本地编译、镜像上传和勾选范围内的远端发布步骤'
+      '取消 dry run 后会执行本地测试、镜像上传和勾选范围内的远端发布步骤',
+      '旧代码回滚前必须暂停所有 ACTIVE 的 ADMIN 挂单，避免旧版交易逻辑继续处理系统库存'
     ]
   };
 }
@@ -633,6 +742,7 @@ function createForumPlan(projectRoot, request, env = process.env) {
     imageTag,
     gitBranch,
     gitCommit,
+    changeAnalysis: request.changeAnalysis || null,
     includeStackDeploy,
     dryRun: request.dryRun !== false,
     steps,
@@ -887,6 +997,7 @@ function appendReleaseHistory(projectRoot, entry, env = process.env, limit = 100
   const entries = readReleaseHistory(projectRoot, limit, env).filter(item => item.id !== 'history-read-error');
   const nextEntries = [entry].concat(entries).slice(0, limit);
   fs.writeFileSync(filePath, `${JSON.stringify(nextEntries, null, 2)}\n`, 'utf8');
+  clearReleaseChangeAnalysisCache();
   return nextEntries;
 }
 
@@ -909,12 +1020,14 @@ function deleteReleaseHistoryEntry(projectRoot, id, env = process.env) {
   const entries = readReleaseHistoryAll(projectRoot, env).filter(item => item.id !== 'history-read-error');
   const nextEntries = entries.filter(item => item.id !== id);
   fs.writeFileSync(filePath, `${JSON.stringify(nextEntries, null, 2)}\n`, 'utf8');
+  clearReleaseChangeAnalysisCache();
   return {deleted: nextEntries.length !== entries.length, total: nextEntries.length};
 }
 
 function clearReleaseHistory(projectRoot, env = process.env) {
   const filePath = historyFile(env);
   fs.writeFileSync(filePath, '[]\n', 'utf8');
+  clearReleaseChangeAnalysisCache();
   return {deleted: true, total: 0};
 }
 
@@ -1191,6 +1304,158 @@ function validateGitCommit(commit) {
   return value;
 }
 
+function analyzeReleaseChanges(projectRoot, request = {}, env = process.env, gitRunner = spawnSync) {
+  const gitBranch = validateGitBranch(request.gitBranch || env.RELEASE_PUBLISHER_GIT_BRANCH || 'origin/master');
+  const gitCommit = validateGitCommit(request.gitCommit || 'latest');
+  const branchCommit = runGit(projectRoot, ['rev-parse', '--verify', `${gitBranch}^{commit}`], gitRunner).trim();
+  const targetCommit = gitCommit === 'latest'
+    ? branchCommit
+    : runGit(projectRoot, ['rev-parse', '--verify', `${gitCommit}^{commit}`], gitRunner).trim();
+  const analysisHistoryFile = historyFile(env);
+  const historyStat = fs.existsSync(analysisHistoryFile) ? fs.statSync(analysisHistoryFile) : null;
+  const cacheKey = `${path.resolve(projectRoot)}|${gitBranch}|${targetCommit}|${analysisHistoryFile}|${historyStat ? `${historyStat.mtimeMs}:${historyStat.size}` : 'missing'}`;
+  const cached = releaseChangeAnalysisCache.get(cacheKey);
+  if (cached && Date.now() - cached.createdAt < 10000) {
+    return cached.analysis;
+  }
+  if (gitCommit !== 'latest'
+      && !gitCommandSucceeds(projectRoot, ['merge-base', '--is-ancestor', targetCommit, branchCommit], gitRunner)) {
+    throw new Error(`目标提交 ${targetCommit.slice(0, 8)} 不属于发布分支 ${gitBranch}`);
+  }
+
+  const history = readReleaseHistoryAll(projectRoot, env);
+  const targets = {};
+  for (const target of ['game', 'forum']) {
+    const baseline = history.find(entry => isSuccessfulTargetRelease(entry, target));
+    const baselineCommit = baseline && GIT_COMMIT_PATTERN.test(String(baseline.releaseCommit || ''))
+      ? String(baseline.releaseCommit)
+      : '';
+    if (!baselineCommit) {
+      targets[target] = {
+        target,
+        baselineCommit: '',
+        baselineTag: '',
+        direction: 'unknown',
+        changed: null,
+        changedPaths: [],
+        ignoredPaths: [],
+        note: '没有可验证的成功生产发布基线'
+      };
+      continue;
+    }
+    const direction = releaseDirection(projectRoot, baselineCommit, targetCommit, gitRunner);
+    const allPaths = runGit(projectRoot, [
+      'diff', '--name-only', '--diff-filter=ACDMRTUXB', `${baselineCommit}..${targetCommit}`
+    ], gitRunner).split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+    const changedPaths = allPaths.filter(target === 'forum' ? isForumRuntimePath : isGameRuntimePath);
+    targets[target] = {
+      target,
+      baselineCommit,
+      baselineTag: String(baseline.appTag || tagFromImage(baseline.imageTag || '')),
+      direction,
+      changed: direction === 'forward' && changedPaths.length > 0,
+      changedPaths,
+      ignoredPaths: allPaths.filter(filePath => !changedPaths.includes(filePath)),
+      note: direction === 'same'
+        ? '目标提交与当前生产发布提交一致'
+        : direction === 'rollback'
+          ? '目标提交早于当前生产发布提交'
+          : direction === 'diverged'
+            ? '目标提交与当前生产发布提交分叉'
+            : changedPaths.length > 0
+              ? `检测到 ${changedPaths.length} 个运行文件变化`
+              : '只有文档、测试或其他非运行文件变化'
+    };
+  }
+
+  const changedTargets = ['game', 'forum'].filter(target => targets[target].changed === true);
+  const analysis = {
+    gitBranch,
+    requestedCommit: gitCommit,
+    targetCommit,
+    targetCommitShort: targetCommit.slice(0, 8),
+    changedTargets,
+    recommendedTarget: changedTargets.length === 1
+      ? changedTargets[0]
+      : changedTargets.length > 1 ? 'multiple' : 'none',
+    targets
+  };
+  releaseChangeAnalysisCache.set(cacheKey, {createdAt: Date.now(), analysis});
+  if (releaseChangeAnalysisCache.size > 20) {
+    releaseChangeAnalysisCache.delete(releaseChangeAnalysisCache.keys().next().value);
+  }
+  return analysis;
+}
+
+function clearReleaseChangeAnalysisCache() {
+  releaseChangeAnalysisCache.clear();
+}
+
+function assertReleaseTargetChanged(analysis, releaseTarget, forumImageMode = 'build') {
+  const target = validateReleaseTarget(releaseTarget);
+  if (target === 'forum' && validateForumImageMode(forumImageMode) === 'reuse') {
+    return true;
+  }
+  const detail = analysis && analysis.targets && analysis.targets[target];
+  if (!detail || !detail.baselineCommit) {
+    return true;
+  }
+  if (detail.direction === 'rollback' || detail.direction === 'diverged') {
+    throw new Error(`${target === 'game' ? '游戏' : '论坛'}目标提交不是当前生产基线的后续提交，已阻止降级发布`);
+  }
+  if (!detail.changed) {
+    throw new Error(`目标提交没有${target === 'game' ? '游戏' : '论坛'}运行文件变化，无需发布该镜像`);
+  }
+  return true;
+}
+
+function isSuccessfulTargetRelease(entry, target) {
+  if (!entry || entry.status !== 'EXECUTED' || !entry.releaseCommit || entry.includeStackDeploy === false) {
+    return false;
+  }
+  const inferredTarget = entry.releaseTarget === 'forum'
+    || String(entry.imageTag || '').startsWith(`${DEFAULT_FORUM_IMAGE_NAME}:`)
+    ? 'forum'
+    : 'game';
+  if (inferredTarget !== target) {
+    return false;
+  }
+  return !Array.isArray(entry.completedStepKeys)
+    || entry.completedStepKeys.includes('final-runtime-check');
+}
+
+function releaseDirection(projectRoot, baselineCommit, targetCommit, gitRunner) {
+  if (baselineCommit === targetCommit) {
+    return 'same';
+  }
+  if (gitCommandSucceeds(projectRoot, ['merge-base', '--is-ancestor', baselineCommit, targetCommit], gitRunner)) {
+    return 'forward';
+  }
+  if (gitCommandSucceeds(projectRoot, ['merge-base', '--is-ancestor', targetCommit, baselineCommit], gitRunner)) {
+    return 'rollback';
+  }
+  return 'diverged';
+}
+
+function gitCommandSucceeds(projectRoot, args, gitRunner = spawnSync) {
+  const result = gitRunner('git', args, {
+    cwd: projectRoot,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+  return result.status === 0;
+}
+
+function isGameRuntimePath(filePath) {
+  const normalized = String(filePath || '').replace(/\\/g, '/');
+  return GAME_RUNTIME_PATHS.includes(normalized)
+    || GAME_RUNTIME_PREFIXES.some(prefix => normalized.startsWith(prefix));
+}
+
+function isForumRuntimePath(filePath) {
+  return String(filePath || '').replace(/\\/g, '/').startsWith(FORUM_RUNTIME_PREFIX);
+}
+
 function gitUpdateStep(branch, commit) {
   if (commit !== 'latest') {
     return {
@@ -1228,14 +1493,17 @@ function chainPowerShellCommands(commands) {
 }
 
 function forumSourceScriptValidationCommands() {
-  const paths = [...DEFAULT_FORUM_INIT_SCRIPTS, DEFAULT_FORUM_RUNTIME_VALIDATOR]
-    .map(shellToken)
-    .join(' ');
   return [
-    `git diff --quiet HEAD -- ${paths}`,
+    sourceCleanPowerShellCommand('forumReleaseChanges', ['integrations/flarum']),
     ...DEFAULT_FORUM_INIT_SCRIPTS.map(scriptPath =>
       `bash -o pipefail -c ${shellToken(`git show HEAD:${scriptPath} | bash -n`)}`)
   ];
+}
+
+function sourceCleanPowerShellCommand(variableName, paths) {
+  const safeVariable = String(variableName || 'releaseChanges').replace(/[^0-9A-Za-z_]/g, '');
+  const pathList = paths.map(shellToken).join(' ');
+  return `$${safeVariable} = git status --porcelain --untracked-files=all -- ${pathList}; if ($${safeVariable}) { $${safeVariable}; exit 1 }`;
 }
 
 function isRemoteBranch(branch) {
@@ -1311,6 +1579,7 @@ function refreshGitRefs(projectRoot, env = process.env, gitRunner = spawnSync) {
     return {refreshed: false, skipped: true, remote: 'origin'};
   }
   runGit(projectRoot, ['fetch', '--prune', 'origin'], gitRunner);
+  clearReleaseChangeAnalysisCache();
   return {refreshed: true, skipped: false, remote: 'origin'};
 }
 
@@ -1467,6 +1736,394 @@ function publishImageCommand(imageTag, target) {
   ].join('; ');
 }
 
+function gameDatabaseAuditJavaSource() {
+  return String.raw`import java.io.BufferedWriter;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.Statement;
+import java.util.List;
+import java.util.Properties;
+import java.util.zip.GZIPOutputStream;
+
+public final class ReleaseTradePoolDatabaseAudit {
+    private static final int EXPECTED_VERSION = 15;
+    private static final List<String> REQUIRED_COLUMNS = List.of(
+            "listing_source", "admin_source_email", "admin_batch_id");
+    private static final List<String> REQUIRED_INDEXES = List.of(
+            "idx_toilet_listing_admin_batch", "idx_toilet_tx_type_id",
+            "idx_toilet_tx_actor_id", "idx_toilet_tx_target_id");
+    private static final List<String> BACKUP_TABLES = List.of(
+            "t_backend_upgrade_markers", "t_toilet_market_listing", "t_toilet_market_transaction");
+
+    private ReleaseTradePoolDatabaseAudit() {
+    }
+
+    public static void main(String[] args) throws Exception {
+        String mode = required("RELEASE_DB_AUDIT_MODE");
+        Class.forName("org.postgresql.Driver");
+        Properties properties = new Properties();
+        properties.setProperty("user", required("DB_USER"));
+        properties.setProperty("password", required("DB_PASSWORD"));
+        properties.setProperty("connectTimeout", "10");
+        properties.setProperty("socketTimeout", "120");
+        try (Connection connection = DriverManager.getConnection(required("DB_URL"), properties)) {
+            boolean mutating = "suspend-admin".equals(mode);
+            connection.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
+            connection.setReadOnly(!mutating);
+            connection.setAutoCommit(false);
+            switch (mode) {
+                case "inspect" -> inspect(connection);
+                case "backup" -> backup(connection, Path.of(required("RELEASE_DB_BACKUP_DIR")));
+                case "verify" -> verify(connection);
+                case "suspend-admin" -> suspendAdmin(connection);
+                default -> throw new IllegalArgumentException("Unsupported audit mode: " + mode);
+            }
+            if (mutating) {
+                connection.commit();
+            } else {
+                connection.rollback();
+            }
+        }
+    }
+
+    private static void inspect(Connection connection) throws Exception {
+        SchemaStatus status = schemaStatus(connection);
+        System.out.println(status.asLine("tradepool_schema_preflight"));
+    }
+
+    private static void verify(Connection connection) throws Exception {
+        SchemaStatus status = schemaStatus(connection);
+        System.out.println(status.asLine("tradepool_schema_postdeploy"));
+        if (status.markerVersion() < EXPECTED_VERSION || !"COMPLETED".equals(status.markerStatus())) {
+            throw new IllegalStateException("Catalog marker is not COMPLETED at version " + EXPECTED_VERSION);
+        }
+        if (status.columnCount() != REQUIRED_COLUMNS.size()) {
+            throw new IllegalStateException("Required trade-pool columns are missing");
+        }
+        if (status.indexCount() != REQUIRED_INDEXES.size()) {
+            throw new IllegalStateException("Required trade-pool indexes are missing");
+        }
+        System.out.println("tradepool_database_validation=PASS");
+    }
+
+    private static void backup(Connection connection, Path directory) throws Exception {
+        Files.createDirectories(directory);
+        SchemaStatus status = schemaStatus(connection);
+        Files.writeString(directory.resolve("schema-status.txt"),
+                status.asLine("tradepool_schema_backup") + System.lineSeparator(), StandardCharsets.UTF_8);
+        for (String table : BACKUP_TABLES) {
+            if (!tableExists(connection, table)) {
+                Files.writeString(directory.resolve(table + ".missing"), "missing\n", StandardCharsets.UTF_8);
+                continue;
+            }
+            writeQuery(connection, "select * from " + table, directory.resolve(table + ".tsv.gz"));
+        }
+        System.out.println("tradepool_database_backup=" + directory);
+    }
+
+    private static void suspendAdmin(Connection connection) throws Exception {
+        if (!columnExists(connection, "t_toilet_market_listing", "listing_source")) {
+            throw new IllegalStateException("listing_source column is missing; refusing old-code rollback");
+        }
+        try (PreparedStatement statement = connection.prepareStatement("""
+                update t_toilet_market_listing
+                set status = 'SUSPENDED', update_time = now()
+                where listing_source = 'ADMIN' and status = 'ACTIVE'
+                """)) {
+            int updated = statement.executeUpdate();
+            System.out.println("suspended_admin_listings=" + updated);
+        }
+    }
+
+    private static SchemaStatus schemaStatus(Connection connection) throws Exception {
+        int markerVersion = -1;
+        String markerStatus = "MISSING";
+        if (tableExists(connection, "t_backend_upgrade_markers")) {
+            try (PreparedStatement statement = connection.prepareStatement("""
+                    select marker_version, status
+                    from t_backend_upgrade_markers
+                    where marker_key = 'catalog_item_store_v1'
+                    """)) {
+                try (ResultSet result = statement.executeQuery()) {
+                    if (result.next()) {
+                        markerVersion = result.getInt(1);
+                        markerStatus = result.getString(2);
+                    }
+                }
+            }
+        }
+        int columnCount = 0;
+        for (String column : REQUIRED_COLUMNS) {
+            if (columnExists(connection, "t_toilet_market_listing", column)) {
+                columnCount++;
+            }
+        }
+        int indexCount = 0;
+        for (String index : REQUIRED_INDEXES) {
+            if (indexExists(connection, index)) {
+                indexCount++;
+            }
+        }
+        return new SchemaStatus(markerVersion, markerStatus, columnCount, indexCount);
+    }
+
+    private static boolean tableExists(Connection connection, String table) throws Exception {
+        try (PreparedStatement statement = connection.prepareStatement("select to_regclass(?) is not null")) {
+            statement.setString(1, "public." + table);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() && result.getBoolean(1);
+            }
+        }
+    }
+
+    private static boolean columnExists(Connection connection, String table, String column) throws Exception {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select count(*)
+                from information_schema.columns
+                where table_schema = 'public' and table_name = ? and column_name = ?
+                """)) {
+            statement.setString(1, table);
+            statement.setString(2, column);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() && result.getInt(1) == 1;
+            }
+        }
+    }
+
+    private static boolean indexExists(Connection connection, String index) throws Exception {
+        try (PreparedStatement statement = connection.prepareStatement("""
+                select count(*) from pg_indexes where schemaname = 'public' and indexname = ?
+                """)) {
+            statement.setString(1, index);
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() && result.getInt(1) == 1;
+            }
+        }
+    }
+
+    private static void writeQuery(Connection connection, String sql, Path target) throws Exception {
+        try (Statement statement = connection.createStatement()) {
+            statement.setQueryTimeout(120);
+            try (ResultSet result = statement.executeQuery(sql);
+                 GZIPOutputStream gzip = new GZIPOutputStream(Files.newOutputStream(target));
+                 BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(gzip, StandardCharsets.UTF_8))) {
+                ResultSetMetaData metadata = result.getMetaData();
+                for (int column = 1; column <= metadata.getColumnCount(); column++) {
+                    if (column > 1) writer.write('\t');
+                    writer.write(escape(metadata.getColumnLabel(column)));
+                }
+                writer.newLine();
+                while (result.next()) {
+                    for (int column = 1; column <= metadata.getColumnCount(); column++) {
+                        if (column > 1) writer.write('\t');
+                        writer.write(escape(result.getString(column)));
+                    }
+                    writer.newLine();
+                }
+            }
+        }
+    }
+
+    private static String escape(String value) {
+        if (value == null) return "\\N";
+        return value.replace("\\", "\\\\")
+                .replace("\t", "\\t")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n");
+    }
+
+    private static String required(String name) {
+        String value = System.getenv(name);
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException(name + " is required");
+        }
+        return value;
+    }
+
+    private record SchemaStatus(int markerVersion, String markerStatus, int columnCount, int indexCount) {
+        String asLine(String prefix) {
+            return prefix + " marker=" + markerVersion + "|" + markerStatus
+                    + " columns=" + columnCount + "/" + REQUIRED_COLUMNS.size()
+                    + " indexes=" + indexCount + "/" + REQUIRED_INDEXES.size();
+        }
+    }
+}
+`;
+}
+
+function gameDatabaseAuditContainerScript() {
+  const source = Buffer.from(gameDatabaseAuditJavaSource(), 'utf8').toString('base64');
+  return [
+    'set -eu',
+    'work_dir=$(mktemp -d)',
+    'trap \'rm -rf "$work_dir"\' EXIT',
+    'profile="${SPRING_PROFILE:-prod}"',
+    'case "$profile" in *[!0-9A-Za-z_.-]*) echo "ERROR: invalid SPRING_PROFILE"; exit 1;; esac',
+    'cd "$work_dir"',
+    'properties_entry=$(jar tf /app/app.jar | grep -E "^BOOT-INF/classes/application-${profile}\\.properties$" | head -n 1)',
+    '[ -n "$properties_entry" ] || { echo "ERROR: application profile properties are missing"; exit 1; }',
+    'jar xf /app/app.jar "$properties_entry"',
+    'properties_file="$work_dir/$properties_entry"',
+    'read_property() { grep -F "$1=" "$properties_file" | head -n 1 | cut -d= -f2- | tr -d "\\r"; }',
+    'db_url="${SPRING_DATASOURCE_URL:-$(read_property spring.datasource.url)}"',
+    'db_user="${SPRING_DATASOURCE_USERNAME:-$(read_property spring.datasource.username)}"',
+    'db_password="${SPRING_DATASOURCE_PASSWORD:-$(read_property spring.datasource.password)}"',
+    '[ -n "$db_url" ] && [ -n "$db_user" ] && [ -n "$db_password" ] || { echo "ERROR: database connection settings are incomplete"; exit 1; }',
+    'driver_entry=$(jar tf /app/app.jar | grep -E "^BOOT-INF/lib/postgresql-[^/]+\\.jar$" | head -n 1)',
+    '[ -n "$driver_entry" ] || { echo "ERROR: PostgreSQL JDBC driver is missing"; exit 1; }',
+    'jar xf /app/app.jar "$driver_entry"',
+    'driver_jar="$work_dir/$driver_entry"',
+    `printf %s ${shellToken(source)} | base64 -d > ReleaseTradePoolDatabaseAudit.java`,
+    'javac -encoding UTF-8 -cp "$driver_jar" ReleaseTradePoolDatabaseAudit.java',
+    'export DB_URL="$db_url" DB_USER="$db_user" DB_PASSWORD="$db_password"',
+    'java -cp "$driver_jar:$work_dir" ReleaseTradePoolDatabaseAudit'
+  ].join('\n');
+}
+
+function gameDatabaseAuditExecCommand(containerReference, mode, backupDirectoryReference = '') {
+  const encoded = Buffer.from(`${gameDatabaseAuditContainerScript()}\n`, 'utf8').toString('base64');
+  const backup = backupDirectoryReference
+    ? ` RELEASE_DB_BACKUP_DIR=${backupDirectoryReference}`
+    : '';
+  const runner = `printf %s "${encoded}" | base64 -d | sh`;
+  return `docker exec ${containerReference} env RELEASE_DB_AUDIT_MODE=${shellToken(mode)}${backup} sh -lc ${shellToken(runner)}`;
+}
+
+function gameServiceName(stackName, containerName) {
+  return `${stackName}_${containerName}`;
+}
+
+function gameDatabasePreflightCommand(stackName, containerName) {
+  const serviceName = gameServiceName(stackName, containerName);
+  return [
+    `service_name=${shellToken(serviceName)}`,
+    'docker service inspect "$service_name" >/dev/null',
+    'container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
+    '[ -n "$container_id" ] || { echo "ERROR: no healthy game container is available for database preflight"; exit 1; }',
+    gameDatabaseAuditExecCommand('"$container_id"', 'inspect'),
+    "echo 'game_database_preflight=PASS'"
+  ];
+}
+
+function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName) {
+  const serviceName = gameServiceName(stackName, containerName);
+  return [
+    `cd ${shellToken(remoteComposeDir)}`,
+    `service_name=${shellToken(serviceName)}`,
+    'release_started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)',
+    'backup_dir=/opt/1panel/backup/game-release-$(date -u +%Y%m%dT%H%M%SZ)',
+    'container_backup_dir=/tmp/tradepool-release-backup-$$',
+    'umask 077',
+    'mkdir -p "$backup_dir/database"',
+    'cp docker-compose.yml "$backup_dir/docker-compose.yml"',
+    '[ ! -f .env ] || cp .env "$backup_dir/.env"',
+    'docker service inspect "$service_name" > "$backup_dir/service.inspect.json"',
+    'current_image=$(docker service inspect "$service_name" --format \'{{.Spec.TaskTemplate.ContainerSpec.Image}}\')',
+    'docker image inspect "$current_image" > "$backup_dir/image.inspect.json"',
+    'container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
+    '[ -n "$container_id" ] || { echo "ERROR: no healthy game container is available for backup"; exit 1; }',
+    gameDatabaseAuditExecCommand('"$container_id"', 'backup', '"$container_backup_dir"'),
+    'docker cp "$container_id:$container_backup_dir/." "$backup_dir/database/"',
+    'docker exec "$container_id" rm -rf "$container_backup_dir"',
+    '(cd "$backup_dir" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)',
+    'test -s "$backup_dir/docker-compose.yml"',
+    'test -s "$backup_dir/database/schema-status.txt"',
+    'test -s "$backup_dir/SHA256SUMS"',
+    'chmod 700 "$backup_dir" "$backup_dir/database"',
+    'find "$backup_dir" -type f -exec chmod 600 {} +',
+    'printf "%s\\n" "$backup_dir" > .last-game-release-backup',
+    'printf "%s\\n" "$release_started_at" > .last-game-release-start',
+    'chmod 600 .last-game-release-backup .last-game-release-start',
+    'echo "game_backup_dir=$backup_dir"'
+  ];
+}
+
+function tradePoolPostDeployCheckCommand(remoteComposeDir, stackName, containerName) {
+  const serviceName = gameServiceName(stackName, containerName);
+  return [
+    `cd ${shellToken(remoteComposeDir)}`,
+    `service_name=${shellToken(serviceName)}`,
+    'container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
+    '[ -n "$container_id" ] || { echo "ERROR: no healthy target container is available for trade-pool verification"; exit 1; }',
+    gameDatabaseAuditExecCommand('"$container_id"', 'verify'),
+    'release_started_at=$(cat .last-game-release-start)',
+    'migration_logs=$(docker service logs --since "$release_started_at" "$service_name" 2>&1)',
+    'printf "%s\\n" "$migration_logs"',
+    'printf "%s\\n" "$migration_logs" | grep -q "catalog database upgrade finished outcome=" || { echo "ERROR: catalog upgrade completion log is missing"; exit 1; }',
+    'if printf "%s\\n" "$migration_logs" | grep -qi "catalog database upgrade failed"; then echo "ERROR: catalog database upgrade failure detected"; exit 1; fi',
+    'page_result=$(docker exec "$container_id" curl -sS -o /dev/null -w \'%{http_code}|%{redirect_url}\' http://127.0.0.1:8090/admin/tradepool)',
+    'page_status=${page_result%%|*}',
+    '[ "$page_status" = 302 ] || { echo "ERROR: anonymous trade-pool page did not redirect"; exit 1; }',
+    'printf "%s\\n" "$page_result" | grep -Eq \'/login\\?redirect=(%2F|/)admin(%2F|/)tradepool\' || { echo "ERROR: trade-pool login redirect target is wrong"; exit 1; }',
+    'admin_api_result=$(docker exec "$container_id" curl -sS -o /dev/null -w \'%{http_code}|%{redirect_url}\' http://127.0.0.1:8090/api/admin/toilet-market/pool)',
+    'admin_api_status=${admin_api_result%%|*}',
+    'case "$admin_api_status" in 302|401|403) ;; *) echo "ERROR: anonymous admin API request was not denied"; exit 1;; esac',
+    'if [ "$admin_api_status" = 302 ]; then printf "%s\\n" "$admin_api_result" | grep -q \'/login\' || { echo "ERROR: admin API redirect is not a login redirect"; exit 1; }; fi',
+    'echo "tradepool_page=$page_result admin_api=$admin_api_result"',
+    "echo 'tradepool_release_validation=PASS'"
+  ];
+}
+
+function gameRollbackCommand(remoteComposeDir, stackName, containerName) {
+  const serviceName = gameServiceName(stackName, containerName);
+  return [
+    `cd ${shellToken(remoteComposeDir)}`,
+    `service_name=${shellToken(serviceName)}`,
+    'backup_dir=$(cat .last-game-release-backup)',
+    'test -s "$backup_dir/docker-compose.yml"',
+    'container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
+    '[ -n "$container_id" ] || { echo "ERROR: no healthy current container is available to suspend ADMIN listings"; exit 1; }',
+    'echo "WARNING: suspending all ACTIVE ADMIN listings before old-code rollback"',
+    gameDatabaseAuditExecCommand('"$container_id"', 'suspend-admin'),
+    'cp "$backup_dir/docker-compose.yml" docker-compose.yml',
+    'docker stack config -c docker-compose.yml >/dev/null',
+    `docker stack deploy -c docker-compose.yml ${shellToken(stackName)}`,
+    'echo "game_rollback_started_from=$backup_dir"'
+  ];
+}
+
+function gameComposeSsoContractCommands() {
+  return [
+    `test "$(grep -Ec '^[[:space:]]*-[[:space:]]*FORUM_SSO_ENABLED=true[[:space:]]*$|^[[:space:]]*FORUM_SSO_ENABLED:[[:space:]]*"?true"?[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: FORUM_SSO_ENABLED=true is missing or duplicated'; exit 1; }`,
+    `test "$(grep -Ec '^[[:space:]]*-[[:space:]]*FORUM_SSO_SECRET_FILE=/run/secrets/forum_sso_secret[[:space:]]*$|^[[:space:]]*FORUM_SSO_SECRET_FILE:[[:space:]]*"?/run/secrets/forum_sso_secret"?[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: FORUM_SSO_SECRET_FILE is missing or duplicated'; exit 1; }`,
+    `test "$(grep -Ec '^[[:space:]]*forum_sso_secret:[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: forum_sso_secret declaration is missing or duplicated'; exit 1; }`
+  ];
+}
+
+function gameImageValidationCommand(dockerTarget, imageTag, appTag) {
+  const script = [
+    'set -eu',
+    `test "$IMAGE_TAG" = ${shellToken(appTag)}`,
+    "jar tf /app/app.jar | grep -q 'BOOT-INF/classes/com/zly/hospital/controller/api/ForumSsoController.class'",
+    "jar tf /app/app.jar | grep -q 'BOOT-INF/classes/com/zly/hospital/service/ForumSsoDatabaseUpgradeService.class'",
+    "jar tf /app/app.jar | grep -q 'BOOT-INF/classes/com/zly/hospital/service/ForumProvisioningService.class'",
+    ...GAME_TRADE_POOL_IMAGE_PATHS.map(imagePath => `jar tf /app/app.jar | grep -qx ${shellToken(imagePath)}`),
+    'work_dir=$(mktemp -d)',
+    'trap \'rm -rf "$work_dir"\' EXIT',
+    'cd "$work_dir"',
+    "jar xf /app/app.jar BOOT-INF/classes/com/zly/hospital/service/catalog/CatalogDatabaseUpgradeService.class",
+    'catalog_class=com.zly.hospital.service.catalog.CatalogDatabaseUpgradeService',
+    'catalog_bytecode="$work_dir/catalog-upgrade.javap"',
+    'javap -p -constants -c -classpath "$work_dir/BOOT-INF/classes" "$catalog_class" > "$catalog_bytecode"',
+    `grep -q 'MARKER_VERSION = ${TRADE_POOL_SCHEMA_VERSION}' "$catalog_bytecode"`,
+    ...TRADE_POOL_REQUIRED_COLUMNS.map(column => `grep -q ${shellToken(column)} "$catalog_bytecode"`),
+    ...TRADE_POOL_REQUIRED_INDEXES.map(index => `grep -q ${shellToken(index)} "$catalog_bytecode"`),
+    "echo 'game_image_tradepool_validation=PASS'"
+  ].join('\n');
+  const encoded = Buffer.from(`${script}\n`, 'utf8').toString('base64');
+  return dockerCommand(dockerTarget, [
+    'run', '--rm', '--entrypoint', 'sh', imageTag, '-lc',
+    `printf %s "${encoded}" | base64 -d | sh`
+  ]);
+}
+
 function finalRuntimeCheckCommand(stackName, containerName, imageTag, appTag) {
   const serviceName = `${stackName}_${containerName}`;
   return [
@@ -1477,7 +2134,11 @@ function finalRuntimeCheckCommand(stackName, containerName, imageTag, appTag) {
     `rollout_deadline=$(( $(date +%s) + rollout_timeout_seconds ))`,
     `while true; do`,
     `  service_image=$(docker service inspect "$service_name" --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}')`,
-    `  service_version=$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' | sed -n 's/^IMAGE_TAG=//p' | head -n 1)`,
+    `  service_env=$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}')`,
+    `  service_version=$(printf '%s\n' "$service_env" | sed -n 's/^IMAGE_TAG=//p' | head -n 1)`,
+    `  service_sso_enabled=$(printf '%s\n' "$service_env" | sed -n 's/^FORUM_SSO_ENABLED=//p' | head -n 1)`,
+    `  service_sso_secret_file=$(printf '%s\n' "$service_env" | sed -n 's/^FORUM_SSO_SECRET_FILE=//p' | head -n 1)`,
+    `  service_sso_secret=$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Secrets}}{{println .SecretName}}{{end}}' | grep -x 'forum_sso_secret' || true)`,
     `  update_state=$(docker service inspect "$service_name" --format '{{if .UpdateStatus}}{{.UpdateStatus.State}}{{else}}completed{{end}}')`,
     `  expected_replicas=$(docker service inspect "$service_name" --format '{{if .Spec.Mode.Replicated}}{{.Spec.Mode.Replicated.Replicas}}{{else}}1{{end}}')`,
     `  active_target_count=0`,
@@ -1495,14 +2156,20 @@ function finalRuntimeCheckCommand(stackName, containerName, imageTag, appTag) {
     `  for container_id in $(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name"); do`,
     `    container_image=$(docker inspect "$container_id" --format '{{.Config.Image}}')`,
     `    container_health=$(docker inspect "$container_id" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}')`,
+    `    container_env=$(docker inspect "$container_id" --format '{{range .Config.Env}}{{println .}}{{end}}')`,
+    `    container_version=$(printf '%s\n' "$container_env" | sed -n 's/^IMAGE_TAG=//p' | head -n 1)`,
+    `    container_sso_enabled=$(printf '%s\n' "$container_env" | sed -n 's/^FORUM_SSO_ENABLED=//p' | head -n 1)`,
+    `    container_sso_secret_file=$(printf '%s\n' "$container_env" | sed -n 's/^FORUM_SSO_SECRET_FILE=//p' | head -n 1)`,
+    `    container_secret_ready=false`,
+    `    if docker exec "$container_id" test -r /run/secrets/forum_sso_secret 2>/dev/null; then container_secret_ready=true; fi`,
     `    case "$container_image" in`,
-    `      "$expected_image"|"$expected_image"@*) [ "$container_health" = healthy ] && healthy_target_count=$((healthy_target_count + 1)) ;;`,
+    `      "$expected_image"|"$expected_image"@*) if [ "$container_health" = healthy ] && [ "$container_version" = "$expected_version" ] && [ "$container_sso_enabled" = true ] && [ "$container_sso_secret_file" = /run/secrets/forum_sso_secret ] && [ "$container_secret_ready" = true ]; then healthy_target_count=$((healthy_target_count + 1)); fi ;;`,
     `    esac`,
     `  done`,
     `  image_matches=false`,
     `  case "$service_image" in "$expected_image"|"$expected_image"@*) image_matches=true ;; esac`,
-    `  echo "rollout_state=$update_state image=$service_image version=$service_version expected_replicas=$expected_replicas active_target=$active_target_count active_other=$active_other_count healthy_target=$healthy_target_count"`,
-    `  if [ "$image_matches" = true ] && [ "$service_version" = "$expected_version" ] && [ "$update_state" = completed ] && [ "$active_target_count" -eq "$expected_replicas" ] && [ "$healthy_target_count" -eq "$expected_replicas" ] && [ "$active_other_count" -eq 0 ]; then`,
+    `  echo "rollout_state=$update_state image=$service_image version=$service_version sso=$service_sso_enabled sso_secret_file=$service_sso_secret_file sso_secret=$service_sso_secret expected_replicas=$expected_replicas active_target=$active_target_count active_other=$active_other_count healthy_target=$healthy_target_count"`,
+    `  if [ "$image_matches" = true ] && [ "$service_version" = "$expected_version" ] && [ "$service_sso_enabled" = true ] && [ "$service_sso_secret_file" = /run/secrets/forum_sso_secret ] && [ "$service_sso_secret" = forum_sso_secret ] && [ "$update_state" = completed ] && [ "$active_target_count" -eq "$expected_replicas" ] && [ "$healthy_target_count" -eq "$expected_replicas" ] && [ "$active_other_count" -eq 0 ]; then`,
     `    break`,
     `  fi`,
     `  case "$update_state" in paused|rollback_started|rollback_paused|rollback_completed) echo "ERROR: Swarm rollout ended in $update_state"; exit 1 ;; esac`,
@@ -1530,7 +2197,9 @@ function forumImageValidationCommand(dockerTarget, imageTag) {
     'sh /etc/cont-init.d/04-rhospital-secret.sh',
     "yasu flarum:flarum php -r '$v=file_get_contents(\"/run/rhospital-secrets/forum_sso_secret\"); exit(str_ends_with($v, \"-2\") ? 0 : 1);'",
     "find /opt/rhospital-sso -name '*.php' -type f -exec php -l {} \\; | grep -q 'No syntax errors detected'",
+    "test -f /opt/flarum/vendor/flarum-lang/chinese-simplified/extend.php",
     'cd /opt/flarum',
+    "composer show flarum-lang/chinese-simplified --locked --no-interaction | grep -q 'versions.*1.6.0'",
     "composer audit --abandoned=report --format=json | php -r '$d=json_decode(stream_get_contents(STDIN),true); exit(count($d[\"advisories\"] ?? [])===0 ? 0 : 1);'",
     "echo 'forum_image_validation=PASS'"
   ].join('\n');
@@ -2152,6 +2821,8 @@ module.exports = {
   resolveIdeaDockerServerDetails,
   resolveDockerCommandTarget,
   readRemoteComposeImageTag,
+  analyzeReleaseChanges,
+  assertReleaseTargetChanged,
   listGitBranches,
   listGitCommits,
   refreshGitRefs,
