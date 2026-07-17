@@ -31,6 +31,7 @@ const {
   validateTag,
   validateGitBranch,
   validateGitCommit,
+  resolveCatalogSchemaVersion,
   analyzeReleaseChanges,
   assertReleaseTargetChanged,
   readRemoteComposeImageTag
@@ -127,6 +128,16 @@ test('updates image tag and APP_TAG together', () => {
   assert.match(updated, /value="APP_TAG"[\s\S]*?name="value" value="2026070702"/);
 });
 
+test('reads Catalog schema version from the selected release source', () => {
+  const root = tempProject(sampleXml);
+
+  assert.equal(resolveCatalogSchemaVersion(root, 'latest'), 20);
+  const sourcePath = path.join(root, 'src', 'main', 'java', 'com', 'zly', 'hospital', 'service', 'catalog',
+    'CatalogDatabaseUpgradeService.java');
+  fs.writeFileSync(sourcePath, 'public final class CatalogDatabaseUpgradeService {}\n', 'utf8');
+  assert.throws(() => resolveCatalogSchemaVersion(root, 'latest'), /MARKER_VERSION/);
+});
+
 test('creates dry run command plan without production execution enabled', () => {
   const root = tempProject(sampleXml);
   const plan = createPlan(root, {
@@ -144,6 +155,7 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.equal(plan.dryRun, true);
   assert.equal(plan.gitBranch, 'origin/master');
   assert.equal(plan.gitCommit, 'latest');
+  assert.equal(plan.config.catalogSchemaVersion, 20);
   assert.equal(plan.config.executionEnabled, true);
   assert.equal(plan.config.dockerContextResolution.note, '已跳过 Docker context 解析');
   assert.ok(plan.steps.some(step => step.key === 'git-status-before-update'
@@ -178,7 +190,8 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('AdminToiletMarketController.class')
     && decodedRemoteScript(step.command).includes('AdminTradePoolService.class')
     && decodedRemoteScript(step.command).includes('admin_tradepool.html')
-    && decodedRemoteScript(step.command).includes('MARKER_VERSION = 15')
+    && decodedRemoteScript(step.command).includes('expected_catalog_version=20')
+    && decodedRemoteScript(step.command).includes('game_image_catalog_version=$actual_catalog_version')
     && decodedRemoteScript(step.command).includes('listing_source')
     && decodedRemoteScript(step.command).includes('idx_toilet_listing_admin_batch')
     && decodedRemoteScript(step.command).includes('idx_toilet_tx_type_id')
@@ -196,6 +209,9 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('FORUM_SSO_SECRET_FILE is missing or duplicated')));
   assert.ok(plan.steps.some(step => step.key === 'game-database-preflight'
     && decodedScriptTree(step.command).includes('RELEASE_DB_AUDIT_MODE=inspect')
+    && decodedScriptTree(step.command).includes('RELEASE_EXPECTED_CATALOG_VERSION=20')
+    && decodedScriptTree(step.command).includes('Catalog downgrade is blocked')
+    && decodedScriptTree(step.command).includes('tradepool_schema_transition=')
     && decodedScriptTree(step.command).includes('tradepool_schema_preflight')));
   assert.ok(plan.steps.some(step => step.key === 'backup-game-release'
     && decodedScriptTree(step.command).includes('/opt/1panel/backup/game-release-')
@@ -241,10 +257,11 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('rollout_validation=PASS')));
   assert.ok(plan.steps.some(step => step.key === 'verify-tradepool-release'
     && decodedScriptTree(step.command).includes('RELEASE_DB_AUDIT_MODE=verify')
-    && decodedScriptTree(step.command).includes('EXPECTED_VERSION = 15')
+    && decodedScriptTree(step.command).includes('RELEASE_EXPECTED_CATALOG_VERSION=20')
+    && decodedScriptTree(step.command).includes('status.markerVersion() != EXPECTED_VERSION')
     && decodedScriptTree(step.command).includes('idx_toilet_tx_actor_id')
     && decodedScriptTree(step.command).includes('idx_toilet_tx_target_id')
-    && decodedScriptTree(step.command).includes('Catalog marker is not COMPLETED at version')
+    && decodedScriptTree(step.command).includes('Catalog marker must equal target version')
     && decodedScriptTree(step.command).includes('catalog database upgrade failed')
     && decodedScriptTree(step.command).includes('/admin/tradepool')
     && decodedScriptTree(step.command).includes('/api/admin/toilet-market/pool')
@@ -419,7 +436,10 @@ test('creates specified branch latest update plan', () => {
 
 test('creates specified branch commit update plan', () => {
   const root = tempProject(sampleXml);
-  const commit = '0123456789abcdef0123456789abcdef01234567';
+  runGit(root, ['init']);
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'release source']);
+  const commit = runGit(root, ['rev-parse', 'HEAD']).trim();
   const plan = createPlan(root, {
     appTag: '2026070702',
     dryRun: true,
@@ -763,6 +783,7 @@ test('history entry records release commit evidence and step summary', () => {
   assert.equal(entry.releaseCommitShort, '0123456');
   assert.equal(entry.releaseCommitDate, '2026-07-07 20:30:40 +0900');
   assert.equal(entry.releaseCommitSubject, 'Release hospital backend');
+  assert.equal(entry.catalogSchemaVersion, 20);
   assert.ok(entry.stepSummary.some(step => step.key === 'capture-release-commit'
     && step.status === 'done'
     && step.durationMs === 123
@@ -1042,6 +1063,8 @@ test('plan loading and image labels distinguish target from production compose',
   assert.match(html, /pipeline-loading/);
   assert.match(html, /本地发布配置镜像/);
   assert.match(html, /本地发布配置 APP_TAG/);
+  assert.match(html, /Catalog 预期版本/);
+  assert.match(app, /catalogSchemaVersion\.textContent/);
   assert.match(app, /productionImageFlow/);
   assert.match(app, /remoteOnlineResolved: remote.resolved/);
   assert.match(app, /remoteOnlineResolved: false/);
@@ -1139,6 +1162,15 @@ function tempProject(xml) {
   fs.mkdirSync(runDir, {recursive: true});
   fs.writeFileSync(path.join(runDir, '148.135.9.123.run.xml'), xml, 'utf8');
   fs.writeFileSync(path.join(root, 'mvnw.cmd'), '@echo off\r\nexit /b 0\r\n', 'utf8');
+  const catalogSource = path.join(root, 'src', 'main', 'java', 'com', 'zly', 'hospital', 'service', 'catalog');
+  fs.mkdirSync(catalogSource, {recursive: true});
+  fs.writeFileSync(path.join(catalogSource, 'CatalogDatabaseUpgradeService.java'), [
+    'package com.zly.hospital.service.catalog;',
+    'public final class CatalogDatabaseUpgradeService {',
+    '    private static final int MARKER_VERSION = 20;',
+    '}',
+    ''
+  ].join('\n'), 'utf8');
   return root;
 }
 

@@ -38,6 +38,7 @@
     currentTag: document.getElementById('current-tag'),
     gitBranchCurrent: document.getElementById('git-branch-current'),
     gitCommitCurrent: document.getElementById('git-commit-current'),
+    catalogSchemaVersion: document.getElementById('catalog-schema-version'),
     serverName: document.getElementById('server-name'),
     dockerContextSource: document.getElementById('docker-context-source'),
     dockerEndpoint: document.getElementById('docker-endpoint'),
@@ -178,6 +179,9 @@
     renderProductionImage(config);
     fields.gitBranchCurrent.textContent = reuseForumImage ? '复用镜像，无需选择' : gitBranch.value || '未选择';
     fields.gitCommitCurrent.textContent = reuseForumImage ? '复用镜像，无需选择' : commitLabel(gitCommit.value);
+    fields.catalogSchemaVersion.textContent = isForum
+      ? '论坛发布不适用'
+      : config.catalogSchemaVersion ? `v${config.catalogSchemaVersion}，来自目标提交` : '等待计划解析';
     fields.serverName.textContent = config.serverName || '';
     fields.sshTarget.textContent = config.remoteSshTarget || config.serverName || '';
     renderDockerContextResolution(config.dockerContextResolution);
@@ -519,6 +523,7 @@
           <div><span>选择代码</span><b>${escapeHtml(codeSource)}</b></div>
           <div><span>实际提交</span><b>${escapeHtml(actualCommit)}</b></div>
           <div><span>提交时间</span><b>${escapeHtml(item.releaseCommitDate || '未记录')}</b></div>
+          <div><span>Catalog 版本</span><b>${escapeHtml(item.catalogSchemaVersion ? `v${item.catalogSchemaVersion}` : '未记录')}</b></div>
           <div><span>Docker 目标</span><b>${escapeHtml(item.dockerTarget || '未解析')}</b></div>
           <div><span>上传目标</span><b>${escapeHtml(item.imageUploadTarget || item.sshTarget || '未设置')}</b></div>
           <div><span>SSH 目标</span><b>${escapeHtml(item.sshTarget || '未设置')}</b></div>

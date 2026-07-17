@@ -23,7 +23,7 @@ const GAME_SSO_SOURCE_PATHS = [
 ];
 const GAME_RUNTIME_PATHS = ['Dockerfile', 'docker-compose.yml', 'entrypoint.sh', 'pom.xml'];
 const GAME_RUNTIME_PREFIXES = ['newrelic/', 'src/main/'];
-const TRADE_POOL_SCHEMA_VERSION = 15;
+const CATALOG_UPGRADE_SOURCE_PATH = 'src/main/java/com/zly/hospital/service/catalog/CatalogDatabaseUpgradeService.java';
 const TRADE_POOL_REQUIRED_COLUMNS = ['listing_source', 'admin_source_email', 'admin_batch_id'];
 const TRADE_POOL_REQUIRED_INDEXES = [
   'idx_toilet_listing_admin_batch',
@@ -150,6 +150,7 @@ function createPlan(projectRoot, request, env = process.env) {
   const includeStackDeploy = Boolean(request.includeStackDeploy);
   const gitBranch = validateGitBranch(request.gitBranch || env.RELEASE_PUBLISHER_GIT_BRANCH || 'origin/master');
   const gitCommit = validateGitCommit(request.gitCommit || 'latest');
+  const catalogSchemaVersion = resolveCatalogSchemaVersion(projectRoot, gitCommit);
   const gitUpdate = gitUpdateStep(gitBranch, gitCommit);
 
   const steps = [
@@ -205,9 +206,10 @@ function createPlan(projectRoot, request, env = process.env) {
           ...GAME_RUNTIME_PREFIXES.map(prefix => prefix.replace(/\/$/, ''))
         ]),
         `git merge-base --is-ancestor ${GAME_SSO_BASELINE_COMMIT} HEAD`,
-        ...GAME_SSO_SOURCE_PATHS.map(sourcePath => `git cat-file -e HEAD:${sourcePath}`)
+        ...GAME_SSO_SOURCE_PATHS.map(sourcePath => `git cat-file -e HEAD:${sourcePath}`),
+        `git grep -n -E ${shellToken(`MARKER_VERSION[[:space:]]*=[[:space:]]*${catalogSchemaVersion};`)} HEAD -- ${shellToken(CATALOG_UPGRADE_SOURCE_PATH)}`
       ]),
-      validation: `目标提交必须包含 ${GAME_SSO_BASELINE_COMMIT.slice(0, 8)} 及三个游戏 SSO 核心文件`,
+      validation: `目标提交必须包含 ${GAME_SSO_BASELINE_COMMIT.slice(0, 8)}、三个游戏 SSO 核心文件和 Catalog v${catalogSchemaVersion} 升级声明`,
       actionType: 'local-check',
       executable: true
     }),
@@ -284,9 +286,9 @@ function createPlan(projectRoot, request, env = process.env) {
     releaseStep({
       key: 'validate-game-image',
       title: '验证游戏镜像版本与交易池能力',
-      summary: '确认运行镜像内的 TAG、SSO、Catalog 第 15 版迁移和管理员交易池代码完整',
-      command: gameImageValidationCommand(dockerTarget, imageTag, appTag),
-      validation: `镜像内 IMAGE_TAG=${appTag}，并包含 SSO、Catalog v${TRADE_POOL_SCHEMA_VERSION} 和管理员交易池代码`,
+      summary: `确认运行镜像内的 TAG、SSO、Catalog v${catalogSchemaVersion} 迁移和管理员交易池代码完整`,
+      command: gameImageValidationCommand(dockerTarget, imageTag, appTag, catalogSchemaVersion),
+      validation: `镜像内 IMAGE_TAG=${appTag}，Catalog 版本必须等于目标提交的 v${catalogSchemaVersion}，并包含 SSO 和管理员交易池代码`,
       actionType: 'build',
       executable: true
     }),
@@ -336,9 +338,9 @@ function createPlan(projectRoot, request, env = process.env) {
       title: '盘点交易池数据库升级前状态',
       summary: '使用当前健康容器的 JDBC 驱动执行只读检查，记录 Catalog 标记、目标字段和索引现状',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-        gameDatabasePreflightCommand(config.stackName, config.containerName)
+        gameDatabasePreflightCommand(config.stackName, config.containerName, catalogSchemaVersion)
       )),
-      validation: '当前运行容器必须能够只读连接数据库并输出升级前结构状态',
+      validation: `当前运行容器必须只读输出数据库结构状态，数据库版本不得高于目标 v${catalogSchemaVersion}`,
       actionType: 'remote-check',
       executable: true
     }));
@@ -347,7 +349,7 @@ function createPlan(projectRoot, request, env = process.env) {
       title: '备份游戏编排与交易池数据',
       summary: '在替换编排前保存 Compose、服务和镜像证据，并只读导出升级涉及的交易池表',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-        gameReleaseBackupCommand(remoteComposeDir, config.stackName, config.containerName)
+        gameReleaseBackupCommand(remoteComposeDir, config.stackName, config.containerName, catalogSchemaVersion)
       )),
       validation: '备份目录、交易池数据导出和 SHA256SUMS 必须完整，并记录本次发布起始时间',
       actionType: 'production',
@@ -421,11 +423,11 @@ function createPlan(projectRoot, request, env = process.env) {
     steps.push(releaseStep({
       key: 'verify-tradepool-release',
       title: '验证管理员交易池发布结果',
-      summary: '核对 Catalog v15 标记、字段、索引、迁移日志、匿名页面跳转和管理员 API 拒绝未登录请求',
+      summary: `核对 Catalog v${catalogSchemaVersion} 标记、字段、索引、迁移日志、匿名页面跳转和管理员 API 拒绝未登录请求`,
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-        tradePoolPostDeployCheckCommand(remoteComposeDir, config.stackName, config.containerName)
+        tradePoolPostDeployCheckCommand(remoteComposeDir, config.stackName, config.containerName, catalogSchemaVersion)
       )),
-      validation: `Catalog 标记达到 ${TRADE_POOL_SCHEMA_VERSION} 且状态为 COMPLETED，交易池字段和索引完整，匿名访问保持受限`,
+      validation: `Catalog 标记必须等于 ${catalogSchemaVersion} 且状态为 COMPLETED，交易池字段和索引完整，匿名访问保持受限`,
       actionType: 'remote-check',
       executable: true,
       finalCheck: true
@@ -435,7 +437,7 @@ function createPlan(projectRoot, request, env = process.env) {
       title: '记录游戏回滚命令',
       summary: '回滚旧代码前先暂停所有在售 ADMIN 挂单，再恢复发布前 Compose；发布流程不会自动执行',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-        gameRollbackCommand(remoteComposeDir, config.stackName, config.containerName)
+        gameRollbackCommand(remoteComposeDir, config.stackName, config.containerName, catalogSchemaVersion)
       )),
       validation: '仅在人工确认后执行；必须先看到 suspended_admin_listings 结果，再允许部署旧镜像',
       actionType: 'local-check'
@@ -457,6 +459,7 @@ function createPlan(projectRoot, request, env = process.env) {
       ideaDockerServerResolution,
       dockerCommandTarget: dockerTarget,
       remoteImageTarget,
+      catalogSchemaVersion,
       executionEnabled: true
     },
     releaseTarget: 'game',
@@ -1066,6 +1069,7 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
       : plan.config.remoteSshTarget,
     sshTarget: plan.config.remoteSshTarget,
     remoteComposeDir: plan.config.remoteComposeDir,
+    catalogSchemaVersion: plan.config.catalogSchemaVersion || null,
     stepCount: plan.steps.length,
     completedStepCount: completedStepKeys.length,
     totalDurationMs,
@@ -1301,6 +1305,22 @@ function validateGitCommit(commit) {
     throw new Error('Git 提交只能是 latest 或 7 到 40 位十六进制提交号');
   }
   return value;
+}
+
+function resolveCatalogSchemaVersion(projectRoot, gitCommit = 'latest', gitRunner = spawnSync) {
+  const commit = validateGitCommit(gitCommit);
+  const source = commit === 'latest'
+    ? fs.readFileSync(resolveInside(projectRoot, CATALOG_UPGRADE_SOURCE_PATH), 'utf8')
+    : runGit(projectRoot, ['show', `${commit}:${CATALOG_UPGRADE_SOURCE_PATH}`], gitRunner);
+  const matches = [...source.matchAll(/\bMARKER_VERSION\s*=\s*(\d+)\s*;/g)];
+  if (matches.length !== 1) {
+    throw new Error(`目标提交的 ${CATALOG_UPGRADE_SOURCE_PATH} 必须且只能声明一个 MARKER_VERSION`);
+  }
+  const version = Number(matches[0][1]);
+  if (!Number.isSafeInteger(version) || version <= 0) {
+    throw new Error('Catalog MARKER_VERSION 必须是正整数');
+  }
+  return version;
 }
 
 function analyzeReleaseChanges(projectRoot, request = {}, env = process.env, gitRunner = spawnSync) {
@@ -1752,7 +1772,7 @@ import java.util.Properties;
 import java.util.zip.GZIPOutputStream;
 
 public final class ReleaseTradePoolDatabaseAudit {
-    private static final int EXPECTED_VERSION = 15;
+    private static final int EXPECTED_VERSION = requiredPositiveInt("RELEASE_EXPECTED_CATALOG_VERSION");
     private static final List<String> REQUIRED_COLUMNS = List.of(
             "listing_source", "admin_source_email", "admin_batch_id");
     private static final List<String> REQUIRED_INDEXES = List.of(
@@ -1795,13 +1815,24 @@ public final class ReleaseTradePoolDatabaseAudit {
     private static void inspect(Connection connection) throws Exception {
         SchemaStatus status = schemaStatus(connection);
         System.out.println(status.asLine("tradepool_schema_preflight"));
+        System.out.println("tradepool_schema_expected=" + EXPECTED_VERSION);
+        if (status.markerVersion() > EXPECTED_VERSION) {
+            throw new IllegalStateException("Catalog downgrade is blocked: database version "
+                    + status.markerVersion() + " is newer than target version " + EXPECTED_VERSION);
+        }
+        if (status.markerVersion() == EXPECTED_VERSION && !"COMPLETED".equals(status.markerStatus())) {
+            throw new IllegalStateException("Catalog marker at target version is not COMPLETED: "
+                    + status.markerStatus());
+        }
+        System.out.println("tradepool_schema_transition=" + status.markerVersion() + "->" + EXPECTED_VERSION);
     }
 
     private static void verify(Connection connection) throws Exception {
         SchemaStatus status = schemaStatus(connection);
         System.out.println(status.asLine("tradepool_schema_postdeploy"));
-        if (status.markerVersion() < EXPECTED_VERSION || !"COMPLETED".equals(status.markerStatus())) {
-            throw new IllegalStateException("Catalog marker is not COMPLETED at version " + EXPECTED_VERSION);
+        if (status.markerVersion() != EXPECTED_VERSION || !"COMPLETED".equals(status.markerStatus())) {
+            throw new IllegalStateException("Catalog marker must equal target version " + EXPECTED_VERSION
+                    + " with COMPLETED status");
         }
         if (status.columnCount() != REQUIRED_COLUMNS.size()) {
             throw new IllegalStateException("Required trade-pool columns are missing");
@@ -1946,6 +1977,17 @@ public final class ReleaseTradePoolDatabaseAudit {
         return value;
     }
 
+    private static int requiredPositiveInt(String name) {
+        String value = required(name);
+        try {
+            int parsed = Integer.parseInt(value);
+            if (parsed <= 0) throw new NumberFormatException("not positive");
+            return parsed;
+        } catch (NumberFormatException error) {
+            throw new IllegalStateException(name + " must be a positive integer", error);
+        }
+    }
+
     private record SchemaStatus(int markerVersion, String markerStatus, int columnCount, int indexCount) {
         String asLine(String prefix) {
             return prefix + " marker=" + markerVersion + "|" + markerStatus
@@ -1986,32 +2028,32 @@ function gameDatabaseAuditContainerScript() {
   ].join('\n');
 }
 
-function gameDatabaseAuditExecCommand(containerReference, mode, backupDirectoryReference = '') {
+function gameDatabaseAuditExecCommand(containerReference, mode, expectedVersion, backupDirectoryReference = '') {
   const encoded = Buffer.from(`${gameDatabaseAuditContainerScript()}\n`, 'utf8').toString('base64');
   const backup = backupDirectoryReference
     ? ` RELEASE_DB_BACKUP_DIR=${backupDirectoryReference}`
     : '';
   const runner = `printf %s "${encoded}" | base64 -d | sh`;
-  return `docker exec ${containerReference} env RELEASE_DB_AUDIT_MODE=${shellToken(mode)}${backup} sh -lc ${shellToken(runner)}`;
+  return `docker exec ${containerReference} env RELEASE_DB_AUDIT_MODE=${shellToken(mode)} RELEASE_EXPECTED_CATALOG_VERSION=${shellToken(expectedVersion)}${backup} sh -lc ${shellToken(runner)}`;
 }
 
 function gameServiceName(stackName, containerName) {
   return `${stackName}_${containerName}`;
 }
 
-function gameDatabasePreflightCommand(stackName, containerName) {
+function gameDatabasePreflightCommand(stackName, containerName, expectedVersion) {
   const serviceName = gameServiceName(stackName, containerName);
   return [
     `service_name=${shellToken(serviceName)}`,
     'docker service inspect "$service_name" >/dev/null',
     'container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
     '[ -n "$container_id" ] || { echo "ERROR: no healthy game container is available for database preflight"; exit 1; }',
-    gameDatabaseAuditExecCommand('"$container_id"', 'inspect'),
+    gameDatabaseAuditExecCommand('"$container_id"', 'inspect', expectedVersion),
     "echo 'game_database_preflight=PASS'"
   ];
 }
 
-function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName) {
+function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName, expectedVersion) {
   const serviceName = gameServiceName(stackName, containerName);
   return [
     `cd ${shellToken(remoteComposeDir)}`,
@@ -2028,7 +2070,7 @@ function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName) {
     'docker image inspect "$current_image" > "$backup_dir/image.inspect.json"',
     'container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
     '[ -n "$container_id" ] || { echo "ERROR: no healthy game container is available for backup"; exit 1; }',
-    gameDatabaseAuditExecCommand('"$container_id"', 'backup', '"$container_backup_dir"'),
+    gameDatabaseAuditExecCommand('"$container_id"', 'backup', expectedVersion, '"$container_backup_dir"'),
     'docker cp "$container_id:$container_backup_dir/." "$backup_dir/database/"',
     'docker exec "$container_id" rm -rf "$container_backup_dir"',
     '(cd "$backup_dir" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)',
@@ -2044,14 +2086,14 @@ function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName) {
   ];
 }
 
-function tradePoolPostDeployCheckCommand(remoteComposeDir, stackName, containerName) {
+function tradePoolPostDeployCheckCommand(remoteComposeDir, stackName, containerName, expectedVersion) {
   const serviceName = gameServiceName(stackName, containerName);
   return [
     `cd ${shellToken(remoteComposeDir)}`,
     `service_name=${shellToken(serviceName)}`,
     'container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
     '[ -n "$container_id" ] || { echo "ERROR: no healthy target container is available for trade-pool verification"; exit 1; }',
-    gameDatabaseAuditExecCommand('"$container_id"', 'verify'),
+    gameDatabaseAuditExecCommand('"$container_id"', 'verify', expectedVersion),
     'release_started_at=$(cat .last-game-release-start)',
     'migration_logs=$(docker service logs --since "$release_started_at" "$service_name" 2>&1)',
     'printf "%s\\n" "$migration_logs"',
@@ -2070,7 +2112,7 @@ function tradePoolPostDeployCheckCommand(remoteComposeDir, stackName, containerN
   ];
 }
 
-function gameRollbackCommand(remoteComposeDir, stackName, containerName) {
+function gameRollbackCommand(remoteComposeDir, stackName, containerName, expectedVersion) {
   const serviceName = gameServiceName(stackName, containerName);
   return [
     `cd ${shellToken(remoteComposeDir)}`,
@@ -2080,7 +2122,7 @@ function gameRollbackCommand(remoteComposeDir, stackName, containerName) {
     'container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
     '[ -n "$container_id" ] || { echo "ERROR: no healthy current container is available to suspend ADMIN listings"; exit 1; }',
     'echo "WARNING: suspending all ACTIVE ADMIN listings before old-code rollback"',
-    gameDatabaseAuditExecCommand('"$container_id"', 'suspend-admin'),
+    gameDatabaseAuditExecCommand('"$container_id"', 'suspend-admin', expectedVersion),
     'cp "$backup_dir/docker-compose.yml" docker-compose.yml',
     'docker stack config -c docker-compose.yml >/dev/null',
     `docker stack deploy -c docker-compose.yml ${shellToken(stackName)}`,
@@ -2096,10 +2138,11 @@ function gameComposeSsoContractCommands() {
   ];
 }
 
-function gameImageValidationCommand(dockerTarget, imageTag, appTag) {
+function gameImageValidationCommand(dockerTarget, imageTag, appTag, expectedCatalogVersion) {
   const script = [
     'set -eu',
-    `test "$IMAGE_TAG" = ${shellToken(appTag)}`,
+    `expected_catalog_version=${shellToken(expectedCatalogVersion)}`,
+    `test "$IMAGE_TAG" = ${shellToken(appTag)} || { echo "ERROR: IMAGE_TAG expected ${appTag}, actual $IMAGE_TAG"; exit 1; }`,
     "jar tf /app/app.jar | grep -q 'BOOT-INF/classes/com/zly/hospital/controller/api/ForumSsoController.class'",
     "jar tf /app/app.jar | grep -q 'BOOT-INF/classes/com/zly/hospital/service/ForumSsoDatabaseUpgradeService.class'",
     "jar tf /app/app.jar | grep -q 'BOOT-INF/classes/com/zly/hospital/service/ForumProvisioningService.class'",
@@ -2111,9 +2154,12 @@ function gameImageValidationCommand(dockerTarget, imageTag, appTag) {
     'catalog_class=com.zly.hospital.service.catalog.CatalogDatabaseUpgradeService',
     'catalog_bytecode="$work_dir/catalog-upgrade.javap"',
     'javap -p -constants -c -classpath "$work_dir/BOOT-INF/classes" "$catalog_class" > "$catalog_bytecode"',
-    `grep -q 'MARKER_VERSION = ${TRADE_POOL_SCHEMA_VERSION}' "$catalog_bytecode"`,
+    `actual_catalog_version=$(sed -n 's/.*MARKER_VERSION = \\([0-9][0-9]*\\).*/\\1/p' "$catalog_bytecode" | head -n 1)`,
+    '[ -n "$actual_catalog_version" ] || { echo "ERROR: image Catalog MARKER_VERSION is missing"; exit 1; }',
+    '[ "$actual_catalog_version" = "$expected_catalog_version" ] || { echo "ERROR: image Catalog version expected $expected_catalog_version, actual $actual_catalog_version"; exit 1; }',
     ...TRADE_POOL_REQUIRED_COLUMNS.map(column => `grep -q ${shellToken(column)} "$catalog_bytecode"`),
     ...TRADE_POOL_REQUIRED_INDEXES.map(index => `grep -q ${shellToken(index)} "$catalog_bytecode"`),
+    'echo "game_image_catalog_version=$actual_catalog_version"',
     "echo 'game_image_tradepool_validation=PASS'"
   ].join('\n');
   const encoded = Buffer.from(`${script}\n`, 'utf8').toString('base64');
@@ -2831,5 +2877,6 @@ module.exports = {
   validateForumImageMode,
   validateTag,
   validateGitBranch,
-  validateGitCommit
+  validateGitCommit,
+  resolveCatalogSchemaVersion
 };

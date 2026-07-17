@@ -150,13 +150,14 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 镜像已经存在于生产 Docker 镜像池时选择“复用生产已有镜像”。该模式只读执行 `docker image inspect` 确认指定 TAG 存在，跳过 Git 更新、Maven、Docker build、镜像运行验证、docker save、SCP 和 docker load，随后继续执行生产预检、备份、Compose 容器替换和最终运行验收。
 
-每一步都有动作命令和校验命令。正式执行时，带有校验命令的步骤会在动作命令成功后立即执行校验命令；校验命令失败会中断本次发布并写入构造历史。游戏发布先运行完整 Maven 测试，再确认目标提交包含已上线的 SSO 基线，并检查构建镜像内的 SSO、Catalog 第 15 版迁移和管理员交易池代码。生产编排更新会同时替换 `hospital-backend:<TAG>` 和 `IMAGE_TAG=<TAG>`，并要求 `FORUM_SSO_ENABLED=true`、Secret 路径和 Secret 声明保持完整。最终运行校验会等待 Swarm 更新状态完成，逐个确认运行容器的镜像、`IMAGE_TAG`、SSO 开关、Secret 和健康状态，并要求旧版本运行任务归零。
+每一步都有动作命令和校验命令。正式执行时，带有校验命令的步骤会在动作命令成功后立即执行校验命令；校验命令失败会中断本次发布并写入构造历史。游戏发布先运行完整 Maven 测试，再确认目标提交包含已上线的 SSO 基线。发布器从已经锁定的目标提交读取 Catalog `MARKER_VERSION`，把它作为本次发布的预期版本，并检查构建镜像内的 SSO、同版本 Catalog 迁移和管理员交易池代码。生产编排更新会同时替换 `hospital-backend:<TAG>` 和 `IMAGE_TAG=<TAG>`，并要求 `FORUM_SSO_ENABLED=true`、Secret 路径和 Secret 声明保持完整。最终运行校验会等待 Swarm 更新状态完成，逐个确认运行容器的镜像、`IMAGE_TAG`、SSO 开关、Secret 和健康状态，并要求旧版本运行任务归零。
 
 包含管理员交易池的游戏发布还会执行以下门禁：
 
 - 部署前通过当前健康容器做只读数据库盘点，并在同一个 PostgreSQL `REPEATABLE READ` 快照中将 Compose、服务、镜像证据以及 `t_backend_upgrade_markers`、`t_toilet_market_listing`、`t_toilet_market_transaction` 导出到 `/opt/1panel/backup/game-release-<UTC>`。
-- 镜像上传前反编译 Catalog 升级类，确认第 15 版标记、三个目标字段和四个目标索引的迁移内容已经进入镜像。
-- 部署后要求 `catalog_item_store_v1` 标记达到版本 15 且状态为 `COMPLETED`，三个新增字段和四个新增索引全部存在。
+- 镜像上传前反编译 Catalog 升级类，要求镜像中的 `MARKER_VERSION` 与锁定提交中的预期版本完全一致，并确认三个目标字段和四个目标索引的迁移内容已经进入镜像。
+- 数据库预检会输出当前版本到预期版本的升级范围；当前版本高于预期版本时阻止降级，当前版本等于预期版本时要求状态已经是 `COMPLETED`。
+- 部署后要求 `catalog_item_store_v1` 标记严格等于预期版本且状态为 `COMPLETED`，三个新增字段和四个新增索引全部存在。
 - 部署后检查 Catalog 升级日志不存在失败记录，匿名访问 `/admin/tradepool` 必须跳转登录，匿名访问管理员 API 必须被拒绝。
 - 生成的旧版回滚命令会先把所有 `ACTIVE` 的 `ADMIN` 挂单改为 `SUSPENDED`，随后恢复发布前 Compose。该回滚命令只记录在流程中，不会自动执行。
 
@@ -423,7 +424,7 @@ npm test
 - 镜像 TAG 与 `APP_TAG` 联动更新
 - Git 变更自动识别、未变化目标拦截和历史提交降级拦截
 - 游戏 SSO 最低提交、镜像类、生产开关和 Secret 契约
-- 游戏 Maven 测试门禁、交易池镜像内容、数据库备份、Catalog v15 结构和匿名鉴权契约
+- 游戏 Maven 测试门禁、交易池镜像内容、数据库备份、Catalog 动态版本双向校验和匿名鉴权契约
 - dry run 命令计划
 - dry run 不改写真实文件
 - dry run 不写入本地构造历史或持久任务文件
