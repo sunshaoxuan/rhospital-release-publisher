@@ -263,19 +263,22 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedScriptTree(step.command).includes('idx_toilet_tx_target_id')
     && decodedScriptTree(step.command).includes('Catalog marker must equal target version')
     && decodedScriptTree(step.command).includes('catalog database upgrade failed')
+    && decodedScriptTree(step.command).includes('timeout 20 docker service logs')
+    && decodedScriptTree(step.command).includes('--tail 2000')
     && decodedScriptTree(step.command).includes('/admin/tradepool')
     && decodedScriptTree(step.command).includes('/api/admin/toilet-market/pool')
     && decodedScriptTree(step.command).includes('tradepool_release_validation=PASS')));
   const gameRollback = plan.steps.find(step => step.key === 'game-rollback-command');
   assert.ok(gameRollback);
   assert.equal(gameRollback.executable, false);
-  assert.ok(decodedScriptTree(gameRollback.command).includes('RELEASE_DB_AUDIT_MODE=suspend-admin'));
-  assert.ok(decodedScriptTree(gameRollback.command).includes('suspended_admin_listings='));
+  assert.ok(decodedScriptTree(gameRollback.command).includes('update t_toilet_market_listing set status='));
+  assert.ok(decodedScriptTree(gameRollback.command).includes('automatic_rollback_validation=PASS'));
   assert.ok(decodedScriptTree(gameRollback.command).includes('.last-game-release-backup'));
   assertStepType(plan, 'git-status-before-update', 'local-check', false);
   assertStepType(plan, 'git-fetch', 'local-code', false);
   assertStepType(plan, 'git-update', 'local-code', false);
   assertStepType(plan, 'validate-game-sso-source', 'local-check', false);
+  assertStepType(plan, 'pre-deploy-checklist', 'remote-check', false);
   assertStepType(plan, 'test-game-backend', 'local-check', false);
   assertStepType(plan, 'validate-release-input', 'local-check', false);
   assertStepType(plan, 'save-run-config', 'local-config', false);
@@ -291,6 +294,133 @@ test('creates dry run command plan without production execution enabled', () => 
   assertStepType(plan, 'deploy-stack', 'production', true);
   assertStepType(plan, 'final-runtime-check', 'remote-check', false);
   assertStepType(plan, 'verify-tradepool-release', 'remote-check', false);
+});
+
+test('backs up and applies changed database migrations before switching the production image', () => {
+  const root = tempProject(sampleXml);
+  const migrationPath = 'scripts/migration/20260716_add_google_uid.sql';
+  const absoluteMigration = path.join(root, ...migrationPath.split('/'));
+  fs.mkdirSync(path.dirname(absoluteMigration), {recursive: true});
+  fs.writeFileSync(absoluteMigration, [
+    '\\set ON_ERROR_STOP on',
+    'begin;',
+    "set local lock_timeout = '10s';",
+    "set local statement_timeout = '120s';",
+    'alter table t_directors add column if not exists google_uid varchar(128);',
+    'commit;',
+    "select count(*) from information_schema.columns where column_name = 'google_uid';",
+    ''
+  ].join('\n'), 'utf8');
+
+  const plan = createPlan(root, {
+    appTag: '2026071701',
+    dryRun: true,
+    includeStackDeploy: true,
+    gitCommit: 'latest',
+    changeAnalysis: {
+      targets: {
+        game: {changedPaths: [migrationPath]}
+      }
+    }
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+  });
+
+  assert.equal(plan.config.databaseMigrations.length, 1);
+  assert.equal(plan.config.databaseMigrations[0].filePath, migrationPath);
+  assert.match(plan.config.databaseMigrations[0].sha256, /^[0-9a-f]{64}$/);
+  const backupStep = plan.steps.find(step => step.key === 'backup-game-release');
+  const migrationStep = plan.steps.find(step => step.key === 'apply-database-migrations');
+  const composeStep = plan.steps.find(step => step.key === 'update-remote-compose');
+  const checklistStep = plan.steps.find(step => step.key === 'pre-deploy-checklist');
+  assert.ok(backupStep);
+  assert.ok(migrationStep);
+  assert.ok(composeStep);
+  assert.ok(checklistStep);
+  assert.ok(plan.steps.indexOf(backupStep) < plan.steps.indexOf(migrationStep));
+  assert.ok(plan.steps.indexOf(migrationStep) < plan.steps.indexOf(composeStep));
+  assert.ok(plan.steps.indexOf(migrationStep) < plan.steps.indexOf(checklistStep));
+  assert.ok(plan.steps.indexOf(checklistStep) < plan.steps.indexOf(composeStep));
+  assert.match(decodedScriptTree(backupStep.command), /pg_dump -Fc/);
+  assert.match(decodedScriptTree(backupStep.command), /hospital\.pre-migration\.dump/);
+  assert.match(decodedScriptTree(migrationStep.command), /psql -X -v ON_ERROR_STOP=1/);
+  assert.match(decodedScriptTree(migrationStep.command), /20260716_add_google_uid\.sql/);
+  assert.match(decodedScriptTree(migrationStep.command), /database_migrations_applied=1/);
+  assert.match(decodedScriptTree(checklistStep.command), /pre_deploy_checklist=PASS/);
+  assertStepType(plan, 'apply-database-migrations', 'production', true);
+});
+
+test('blocks a JPA schema change when no release migration is present', () => {
+  const root = tempProject(sampleXml);
+  runGit(root, ['init']);
+  const entityPath = path.join(root, 'src', 'main', 'java', 'com', 'zly', 'hospital', 'model', 'DemoEntity.java');
+  fs.mkdirSync(path.dirname(entityPath), {recursive: true});
+  fs.writeFileSync(entityPath, 'import jakarta.persistence.Entity;\n@Entity\nclass DemoEntity { private Long id; }\n', 'utf8');
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'baseline']);
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  fs.writeFileSync(entityPath, 'import jakarta.persistence.Entity;\n@Entity\nclass DemoEntity {\n private Long id;\n private String googleUid;\n}\n', 'utf8');
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'schema change']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+
+  assert.throws(() => createPlan(root, {
+    appTag: '2026071703',
+    dryRun: true,
+    includeStackDeploy: true,
+    gitCommit: target,
+    changeAnalysis: {
+      targets: {
+        game: {
+          baselineCommit: baseline,
+          changedPaths: ['src/main/java/com/zly/hospital/model/DemoEntity.java']
+        }
+      }
+    }
+  }), /JPA 持久化结构发生变化但没有发布迁移脚本/);
+});
+
+test('rejects changed database migrations without transaction and timeout guards', () => {
+  const root = tempProject(sampleXml);
+  const migrationPath = 'scripts/migration/unsafe.sql';
+  const absoluteMigration = path.join(root, ...migrationPath.split('/'));
+  fs.mkdirSync(path.dirname(absoluteMigration), {recursive: true});
+  fs.writeFileSync(absoluteMigration, 'alter table t_directors add column unsafe text;\n', 'utf8');
+
+  assert.throws(() => createPlan(root, {
+    appTag: '2026071702',
+    dryRun: true,
+    includeStackDeploy: true,
+    gitCommit: 'latest',
+    changeAnalysis: {targets: {game: {changedPaths: [migrationPath]}}}
+  }), /缺少发布安全约束/);
+});
+
+test('rejects destructive database migrations that make automatic application rollback unsafe', () => {
+  const root = tempProject(sampleXml);
+  const migrationPath = 'scripts/migration/destructive.sql';
+  const absoluteMigration = path.join(root, ...migrationPath.split('/'));
+  fs.mkdirSync(path.dirname(absoluteMigration), {recursive: true});
+  fs.writeFileSync(absoluteMigration, [
+    '\\set ON_ERROR_STOP on',
+    'begin;',
+    "set local lock_timeout = '10s';",
+    "set local statement_timeout = '120s';",
+    'alter table t_directors drop column firebase_uid;',
+    'commit;',
+    'select 1;',
+    ''
+  ].join('\n'), 'utf8');
+
+  assert.throws(() => createPlan(root, {
+    appTag: '2026071704',
+    dryRun: true,
+    includeStackDeploy: true,
+    gitCommit: 'latest',
+    changeAnalysis: {targets: {game: {changedPaths: [migrationPath]}}}
+  }), /包含不兼容旧版本自动恢复的操作/);
 });
 
 test('creates reusable forum compose release plan with backup validation and rollback evidence', () => {
@@ -879,6 +1009,20 @@ test('execute can be cancelled before running commands', async () => {
   assert.ok(result.logs.some(line => line.includes('CANCELLED')));
   const history = readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
   assert.equal(history[0].status, 'CANCELLED');
+});
+
+test('runtime source exposes automatic recovery and visible active job heartbeat states', () => {
+  const core = fs.readFileSync(path.join(__dirname, '..', 'src', 'releasePublisherCore.js'), 'utf8');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+
+  assert.match(core, /status: 'ROLLED_BACK'/);
+  assert.match(core, /status: 'RECOVERY_REQUIRED'/);
+  assert.match(core, /automatic_rollback_validation=PASS/);
+  assert.match(core, /stepRemainingSeconds/);
+  assert.match(app, /value === 'RECOVERING'/);
+  assert.match(app, /距超时约/);
+  assert.match(server, /'ROLLED_BACK', 'RECOVERY_REQUIRED'/);
 });
 
 test('release history supports pagination and deletion', () => {

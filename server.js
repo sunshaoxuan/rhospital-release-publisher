@@ -48,6 +48,7 @@ const bindAddress = process.env.RELEASE_PUBLISHER_HOST || '127.0.0.1';
 const jobs = new Map();
 const jobControllers = new Map();
 const jobStorePath = path.resolve(process.env.RELEASE_PUBLISHER_JOBS_FILE || path.join(__dirname, '.release-jobs.json'));
+let persistJobsTimer = null;
 
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -294,7 +295,7 @@ function createExecutionJob(body) {
         createdAt,
         updatedAt: new Date().toISOString()
       });
-      persistJobs();
+      schedulePersistJobs();
     }
   }).then(result => {
     Object.assign(job, {
@@ -348,12 +349,26 @@ function pruneJobs() {
 }
 
 function isTerminalJobStatus(status) {
-  return ['DRY_RUN', 'EXECUTED', 'ERROR', 'CANCELLED', 'INTERRUPTED'].includes(status);
+  return ['DRY_RUN', 'EXECUTED', 'ERROR', 'CANCELLED', 'INTERRUPTED', 'ROLLED_BACK', 'RECOVERY_REQUIRED'].includes(status);
 }
 
 function persistJobs() {
+  if (persistJobsTimer) {
+    clearTimeout(persistJobsTimer);
+    persistJobsTimer = null;
+  }
   const entries = selectPersistedJobs(jobs.values(), 50);
   fs.writeFileSync(jobStorePath, `${JSON.stringify(entries, null, 2)}\n`, 'utf8');
+}
+
+function schedulePersistJobs() {
+  if (persistJobsTimer) {
+    return;
+  }
+  persistJobsTimer = setTimeout(() => {
+    persistJobsTimer = null;
+    persistJobs();
+  }, 250);
 }
 
 function loadStoredJobs() {

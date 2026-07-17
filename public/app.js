@@ -797,7 +797,7 @@
   async function pollJob(jobId) {
     const job = await requestJson(`/api/jobs/${encodeURIComponent(jobId)}`);
     renderJob(job);
-    if (job.status === 'RUNNING') {
+    if (isActiveJobStatus(job.status)) {
       activeJobTimer = setTimeout(() => {
         pollJob(jobId).catch(error => setStatus(error.message, 'error'));
       }, 1000);
@@ -817,8 +817,23 @@
     }
     renderLogs(job.logs || []);
     cancelBtn.disabled = !(job.status === 'RUNNING' || job.status === 'CANCELLING');
-    setStatus(`执行状态: ${job.status}`, terminalStatusKind(job.status));
+    if (isActiveJobStatus(job.status)) {
+      const elapsed = Number(job.stepElapsedSeconds || 0);
+      const timeout = Number(job.stepTimeoutSeconds || 0);
+      const remaining = Number(job.stepRemainingSeconds);
+      const timeoutText = timeout > 0 && Number.isFinite(remaining)
+        ? `，距超时约 ${formatDuration(remaining * 1000)}`
+        : '，本步未设置固定超时';
+      const heartbeatText = job.heartbeatAt ? `，心跳 ${formatDateTime(job.heartbeatAt)}` : '';
+      setStatus(`${job.status}: ${job.currentStepTitle || job.currentStepKey || '等待执行'}，已运行 ${formatDuration(elapsed * 1000)}${timeoutText}${heartbeatText}`, '');
+    } else {
+      setStatus(`执行状态: ${job.status}`, terminalStatusKind(job.status));
+    }
     restorePageScroll(pageScroll);
+  }
+
+  function isActiveJobStatus(value) {
+    return value === 'RUNNING' || value === 'CANCELLING' || value === 'RECOVERING';
   }
 
   function capturePageScroll() {
@@ -843,7 +858,7 @@
     if (status === 'DRY_RUN' || status === 'EXECUTED') {
       return 'success';
     }
-    if (status === 'RUNNING' || status === 'CANCELLING') {
+    if (isActiveJobStatus(status)) {
       return '';
     }
     if (status === 'CANCELLED' || status === 'INTERRUPTED') {

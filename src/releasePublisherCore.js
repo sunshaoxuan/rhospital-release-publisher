@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const crypto = require('crypto');
 const {spawn, spawnSync} = require('child_process');
 
 const DEFAULT_RUN_CONFIG = '.run/148.135.9.123.run.xml';
@@ -22,7 +23,11 @@ const GAME_SSO_SOURCE_PATHS = [
   'src/main/java/com/zly/hospital/service/ForumProvisioningService.java'
 ];
 const GAME_RUNTIME_PATHS = ['Dockerfile', 'docker-compose.yml', 'entrypoint.sh', 'pom.xml'];
-const GAME_RUNTIME_PREFIXES = ['newrelic/', 'src/main/'];
+const GAME_MIGRATION_PREFIX = 'scripts/migration/';
+const GAME_RUNTIME_PREFIXES = ['newrelic/', 'src/main/', GAME_MIGRATION_PREFIX];
+const GAME_DATABASE_CONTAINER_NAME = 'postgresql';
+const GAME_DATABASE_NAME = 'hospital';
+const RELEASE_MIGRATION_PATTERN = /^scripts\/migration\/[0-9A-Za-z][0-9A-Za-z._/-]*\.sql$/;
 const CATALOG_UPGRADE_SOURCE_PATH = 'src/main/java/com/zly/hospital/service/catalog/CatalogDatabaseUpgradeService.java';
 const TRADE_POOL_REQUIRED_COLUMNS = ['listing_source', 'admin_source_email', 'admin_batch_id'];
 const TRADE_POOL_REQUIRED_INDEXES = [
@@ -151,6 +156,8 @@ function createPlan(projectRoot, request, env = process.env) {
   const gitBranch = validateGitBranch(request.gitBranch || env.RELEASE_PUBLISHER_GIT_BRANCH || 'origin/master');
   const gitCommit = validateGitCommit(request.gitCommit || 'latest');
   const catalogSchemaVersion = resolveCatalogSchemaVersion(projectRoot, gitCommit);
+  const releaseMigrations = resolveReleaseMigrations(projectRoot, gitCommit, request.changeAnalysis);
+  assertJpaSchemaMigrationCoverage(projectRoot, gitCommit, request.changeAnalysis, releaseMigrations);
   const gitUpdate = gitUpdateStep(gitBranch, gitCommit);
 
   const steps = [
@@ -349,12 +356,46 @@ function createPlan(projectRoot, request, env = process.env) {
       title: '备份游戏编排与交易池数据',
       summary: '在替换编排前保存 Compose、服务和镜像证据，并只读导出升级涉及的交易池表',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-        gameReleaseBackupCommand(remoteComposeDir, config.stackName, config.containerName, catalogSchemaVersion)
+        gameReleaseBackupCommand(
+          remoteComposeDir,
+          config.stackName,
+          config.containerName,
+          catalogSchemaVersion,
+          releaseMigrations
+        )
       )),
-      validation: '备份目录、交易池数据导出和 SHA256SUMS 必须完整，并记录本次发布起始时间',
+      validation: releaseMigrations.length > 0
+        ? '备份目录、交易池数据、完整 hospital 数据库快照和 SHA256SUMS 必须完整'
+        : '备份目录、交易池数据导出和 SHA256SUMS 必须完整，并记录本次发布起始时间',
       actionType: 'production',
       productionAction: true,
       executable: true
+    }));
+    if (releaseMigrations.length > 0) {
+      steps.push(releaseStep({
+        key: 'apply-database-migrations',
+        title: '执行目标提交数据库迁移',
+        summary: `在切换镜像前按路径顺序执行 ${releaseMigrations.length} 个迁移脚本，并保存脚本与执行回执`,
+        command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+          applyGameDatabaseMigrationsCommand(remoteComposeDir, releaseMigrations)
+        )),
+        validation: `迁移脚本必须在事务和 ON_ERROR_STOP 保护下完成：${releaseMigrations.map(item => item.filePath).join(', ')}`,
+        actionType: 'production',
+        productionAction: true,
+        executable: true
+      }));
+    }
+    steps.push(releaseStep({
+      key: 'pre-deploy-checklist',
+      title: '发布前 CheckList 总验收',
+      summary: '在切换生产编排前统一验证目标镜像、当前服务、备份校验和、数据库迁移回执和回滚入口',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        gamePreDeployChecklistCommand(remoteComposeDir, config.stackName, config.containerName, imageTag, releaseMigrations)
+      )),
+      validation: 'CheckList 所有项目必须输出 PASS，任一项目失败时禁止更新 Compose 和执行热滚',
+      actionType: 'remote-check',
+      executable: true,
+      timeoutSeconds: 120
     }));
     steps.push(releaseStep({
       key: 'update-remote-compose',
@@ -418,7 +459,8 @@ function createPlan(projectRoot, request, env = process.env) {
       validation: `服务镜像和 IMAGE_TAG 必须为 ${imageTag}，Swarm 更新完成且只有目标版本健康副本运行`,
       actionType: 'remote-check',
       executable: true,
-      finalCheck: true
+      finalCheck: true,
+      timeoutSeconds: 960
     }));
     steps.push(releaseStep({
       key: 'verify-tradepool-release',
@@ -430,16 +472,17 @@ function createPlan(projectRoot, request, env = process.env) {
       validation: `Catalog 标记必须等于 ${catalogSchemaVersion} 且状态为 COMPLETED，交易池字段和索引完整，匿名访问保持受限`,
       actionType: 'remote-check',
       executable: true,
-      finalCheck: true
+      finalCheck: true,
+      timeoutSeconds: 120
     }));
     steps.push(releaseStep({
       key: 'game-rollback-command',
       title: '记录游戏回滚命令',
-      summary: '回滚旧代码前先暂停所有在售 ADMIN 挂单，再恢复发布前 Compose；发布流程不会自动执行',
+      summary: '业务验收失败或切换后取消时自动暂停在售 ADMIN 挂单、恢复发布前 Compose，并等待旧版本重新健康',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-        gameRollbackCommand(remoteComposeDir, config.stackName, config.containerName, catalogSchemaVersion)
+        gameAutomaticRollbackCommand(remoteComposeDir, config.stackName, config.containerName)
       )),
-      validation: '仅在人工确认后执行；必须先看到 suspended_admin_listings 结果，再允许部署旧镜像',
+      validation: '自动恢复必须输出 automatic_rollback_validation=PASS；失败时任务进入 RECOVERY_REQUIRED 并保留现场',
       actionType: 'local-check'
     }));
   }
@@ -460,6 +503,10 @@ function createPlan(projectRoot, request, env = process.env) {
       dockerCommandTarget: dockerTarget,
       remoteImageTarget,
       catalogSchemaVersion,
+      databaseMigrations: releaseMigrations.map(item => ({
+        filePath: item.filePath,
+        sha256: item.sha256
+      })),
       executionEnabled: true
     },
     releaseTarget: 'game',
@@ -475,6 +522,7 @@ function createPlan(projectRoot, request, env = process.env) {
     guardrails: [
       '勾选 dry run 时只生成命令和写入预览',
       '取消 dry run 后会执行本地测试、镜像上传和勾选范围内的远端发布步骤',
+      '目标提交新增或修改的 scripts/migration/*.sql 会在镜像切换前备份数据库并执行',
       '旧代码回滚前必须暂停所有 ACTIVE 的 ADMIN 挂单，避免旧版交易逻辑继续处理系统库存'
     ]
   };
@@ -770,7 +818,8 @@ function releaseStep({
   productionAction = false,
   actionType = 'local-check',
   executable = false,
-  finalCheck = false
+  finalCheck = false,
+  timeoutSeconds = 0
 }) {
   return {
     key,
@@ -783,6 +832,7 @@ function releaseStep({
     actionType,
     executable,
     finalCheck,
+    timeoutSeconds,
     status: 'pending'
   };
 }
@@ -835,18 +885,29 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
   const signal = options.signal;
   const plan = createPlan(projectRoot, request, env);
+  let runtimePlan = plan;
   const logs = [];
   const completedStepKeys = [];
   let currentStepKey = '';
   const stepLogs = {};
   const stepTiming = {};
+  let executionStatus = 'RUNNING';
+  let cutoverStarted = false;
   const updateStep = (stepKey, status, output) => {
+    const activeStep = runtimePlan.steps.find(step => step.key === stepKey);
+    const elapsedMs = stepTiming[stepKey] ? stepTiming[stepKey].elapsedMs : 0;
+    const timeoutSeconds = activeStep ? Number(activeStep.timeoutSeconds || 0) : 0;
     onProgress({
-      plan: markStepStatus(plan, completedStepKeys, stepKey, status, stepLogs, stepTiming),
+      plan: markStepStatus(runtimePlan, completedStepKeys, stepKey, status, stepLogs, stepTiming),
       logs: output === undefined ? logs.slice() : logs.concat(output),
       completedStepKeys: completedStepKeys.slice(),
       currentStepKey: stepKey,
-      status: 'RUNNING'
+      currentStepTitle: activeStep ? activeStep.title : stepKey,
+      stepElapsedSeconds: Math.floor((Number(elapsedMs) || 0) / 1000),
+      stepTimeoutSeconds: timeoutSeconds,
+      stepRemainingSeconds: timeoutSeconds > 0 ? Math.max(0, timeoutSeconds - Math.floor((Number(elapsedMs) || 0) / 1000)) : null,
+      heartbeatAt: new Date().toISOString(),
+      status: executionStatus
     });
   };
   if (plan.dryRun) {
@@ -899,6 +960,9 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
         continue;
       }
       if (step.executable) {
+        if (step.key === 'deploy-stack') {
+          cutoverStarted = true;
+        }
         pushStepLog(step.key, `[RUN] ${step.command}`);
         updateStep(step.key, 'running');
         await runPowerShell(projectRoot, step.command, env, chunk => {
@@ -913,7 +977,7 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
             pushStepLog(step.key, `[RUNNING] ${step.title} 已运行 ${elapsedSeconds} 秒，等待命令输出`);
           }
           updateStep(step.key, 'running');
-        }, signal);
+        }, signal, step.timeoutSeconds);
         if (step.validationCommand) {
           pushStepLog(step.key, `[VALIDATE] ${step.validationCommand}`);
           updateStep(step.key, 'running');
@@ -929,7 +993,7 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
               pushStepLog(step.key, `[RUNNING] ${step.title} 校验已运行 ${elapsedSeconds} 秒，等待命令输出`);
             }
             updateStep(step.key, 'running');
-          }, signal);
+          }, signal, step.timeoutSeconds);
         }
         assertNotCancelled();
         completedStepKeys.push(step.key);
@@ -945,18 +1009,61 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
       updateStep(step.key, 'done');
     }
   } catch (error) {
+    const failedStepKey = currentStepKey;
+    finishStepTimer(failedStepKey, stepTiming);
+    pushStepLog(failedStepKey, `${error.name === 'CancellationError' ? 'CANCELLED' : 'ERROR'}: ${error.message}`);
+    runtimePlan = markStepStatus(runtimePlan, completedStepKeys, failedStepKey,
+      error.name === 'CancellationError' ? 'cancelled' : 'failed', stepLogs, stepTiming);
+    const shouldRecover = plan.releaseTarget === 'game'
+      && cutoverStarted
+      && !completedStepKeys.includes('verify-tradepool-release');
+    if (shouldRecover) {
+      const rollbackStep = plan.steps.find(step => step.key === 'game-rollback-command');
+      currentStepKey = rollbackStep.key;
+      executionStatus = 'RECOVERING';
+      startStepTimer(rollbackStep.key, stepTiming);
+      pushStepLog(rollbackStep.key, `[RECOVER] ${rollbackStep.title}`);
+      pushStepLog(rollbackStep.key, `[RUN] ${rollbackStep.command}`);
+      updateStep(rollbackStep.key, 'running');
+      try {
+        await runPowerShell(projectRoot, rollbackStep.command, env, chunk => {
+          const line = chunk.trim();
+          if (line) {
+            pushStepLog(rollbackStep.key, line);
+          }
+          refreshStepElapsed(rollbackStep.key, stepTiming);
+          updateStep(rollbackStep.key, 'running');
+        }, elapsedSeconds => {
+          refreshStepElapsed(rollbackStep.key, stepTiming);
+          if (elapsedSeconds % 10 === 0) {
+            pushStepLog(rollbackStep.key, `[RECOVERING] 自动恢复已运行 ${elapsedSeconds} 秒`);
+          }
+          updateStep(rollbackStep.key, 'running');
+        }, null, 960);
+        completedStepKeys.push(rollbackStep.key);
+        const durationMs = finishStepTimer(rollbackStep.key, stepTiming);
+        pushStepLog(rollbackStep.key, `[DONE] 自动恢复完成，用时 ${formatDurationMs(durationMs)}`);
+        runtimePlan = markStepStatus(runtimePlan, completedStepKeys, rollbackStep.key, 'done', stepLogs, stepTiming);
+        const recoveredLogs = logs.slice();
+        appendReleaseHistory(projectRoot, buildHistoryEntry('ROLLED_BACK', runtimePlan, recoveredLogs, completedStepKeys), env);
+        return {status: 'ROLLED_BACK', plan: runtimePlan, logs: recoveredLogs, completedStepKeys};
+      } catch (recoveryError) {
+        finishStepTimer(rollbackStep.key, stepTiming);
+        pushStepLog(rollbackStep.key, `RECOVERY_REQUIRED: ${recoveryError.message}`);
+        runtimePlan = markStepStatus(runtimePlan, completedStepKeys, rollbackStep.key, 'failed', stepLogs, stepTiming);
+        const recoveryLogs = logs.slice();
+        appendReleaseHistory(projectRoot, buildHistoryEntry('RECOVERY_REQUIRED', runtimePlan, recoveryLogs, completedStepKeys), env);
+        return {status: 'RECOVERY_REQUIRED', plan: runtimePlan, logs: recoveryLogs, completedStepKeys};
+      }
+    }
     if (error.name === 'CancellationError') {
-      finishStepTimer(currentStepKey, stepTiming);
-      pushStepLog(currentStepKey, `CANCELLED: ${error.message}`);
       const cancelledLogs = logs.slice();
-      const cancelledPlan = markStepStatus(plan, completedStepKeys, currentStepKey, 'cancelled', stepLogs, stepTiming);
+      const cancelledPlan = runtimePlan;
       appendReleaseHistory(projectRoot, buildHistoryEntry('CANCELLED', cancelledPlan, cancelledLogs, completedStepKeys), env);
       return {status: 'CANCELLED', plan: cancelledPlan, logs: cancelledLogs, completedStepKeys};
     }
-    finishStepTimer(currentStepKey, stepTiming);
-    pushStepLog(currentStepKey, `ERROR: ${error.message}`);
     const errorLogs = logs.slice();
-    const failedPlan = markStepStatus(plan, completedStepKeys, currentStepKey, 'failed', stepLogs, stepTiming);
+    const failedPlan = runtimePlan;
     appendReleaseHistory(projectRoot, buildHistoryEntry('ERROR', failedPlan, errorLogs, completedStepKeys), env);
     return {status: 'ERROR', plan: failedPlan, logs: errorLogs, completedStepKeys};
   }
@@ -1408,6 +1515,86 @@ function analyzeReleaseChanges(projectRoot, request = {}, env = process.env, git
 
 function clearReleaseChangeAnalysisCache() {
   releaseChangeAnalysisCache.clear();
+}
+
+function resolveReleaseMigrations(projectRoot, gitCommit, changeAnalysis) {
+  const changedPaths = changeAnalysis
+    && changeAnalysis.targets
+    && changeAnalysis.targets.game
+    && Array.isArray(changeAnalysis.targets.game.changedPaths)
+    ? changeAnalysis.targets.game.changedPaths
+    : [];
+  const migrationPaths = [...new Set(changedPaths
+    .map(value => String(value || '').replace(/\\/g, '/'))
+    .filter(filePath => RELEASE_MIGRATION_PATTERN.test(filePath)))]
+    .sort();
+
+  return migrationPaths.map(filePath => {
+    if (filePath.split('/').includes('..')) {
+      throw new Error(`数据库迁移路径越界: ${filePath}`);
+    }
+    const sql = gitCommit === 'latest'
+      ? fs.readFileSync(resolveInside(projectRoot, filePath), 'utf8')
+      : runGit(projectRoot, ['show', `${gitCommit}:${filePath}`]);
+    validateReleaseMigration(filePath, sql);
+    return {
+      filePath,
+      sql,
+      sha256: crypto.createHash('sha256').update(sql, 'utf8').digest('hex')
+    };
+  });
+}
+
+function validateReleaseMigration(filePath, sql) {
+  const source = String(sql || '');
+  const requirements = [
+    [/^\\set\s+ON_ERROR_STOP\s+on\s*$/mi, '\\set ON_ERROR_STOP on'],
+    [/\bbegin\s*;/i, 'begin;'],
+    [/set\s+local\s+lock_timeout\s*=/i, 'set local lock_timeout'],
+    [/set\s+local\s+statement_timeout\s*=/i, 'set local statement_timeout'],
+    [/\bcommit\s*;/i, 'commit;'],
+    [/\bcommit\s*;[\s\S]*\bselect\b/i, 'commit 后的只读验收 SELECT']
+  ];
+  const missing = requirements.filter(([pattern]) => !pattern.test(source)).map(([, label]) => label);
+  if (missing.length > 0) {
+    throw new Error(`数据库迁移 ${filePath} 缺少发布安全约束: ${missing.join(', ')}`);
+  }
+  const incompatible = source.match(/\b(drop\s+(?:table|column|index|constraint)|truncate\b|rename\s+(?:column|to)\b|alter\s+column\b|delete\s+from\b)/i);
+  if (incompatible) {
+    throw new Error(`数据库迁移 ${filePath} 包含不兼容旧版本自动恢复的操作: ${incompatible[0]}`);
+  }
+}
+
+function assertJpaSchemaMigrationCoverage(projectRoot, targetCommit, changeAnalysis, releaseMigrations) {
+  const gameChanges = changeAnalysis && changeAnalysis.targets && changeAnalysis.targets.game;
+  const baselineCommit = gameChanges && gameChanges.baselineCommit;
+  const changedPaths = gameChanges && Array.isArray(gameChanges.changedPaths) ? gameChanges.changedPaths : [];
+  if (!baselineCommit || !targetCommit || targetCommit === 'latest' || releaseMigrations.length > 0) {
+    return;
+  }
+  const modelPaths = changedPaths.filter(filePath => /^src\/main\/java\/.*\/model\/.*\.java$/.test(filePath));
+  for (const filePath of modelPaths) {
+    const targetSource = gitFileOrEmpty(projectRoot, targetCommit, filePath);
+    const baselineSource = gitFileOrEmpty(projectRoot, baselineCommit, filePath);
+    if (!/@Entity\b/.test(targetSource) && !/@Entity\b/.test(baselineSource)) {
+      continue;
+    }
+    const diff = runGit(projectRoot, ['diff', '--unified=0', baselineCommit, targetCommit, '--', filePath]);
+    const schemaLines = diff.split(/\r?\n/).filter(line => /^[+-](?![+-])/.test(line));
+    const schemaAnnotationChanged = schemaLines.some(line => /@(Column|JoinColumn|JoinTable|Table|Index|CollectionTable|ElementCollection|OneToOne|OneToMany|ManyToOne|ManyToMany|Enumerated|Lob|Version)\b/.test(line));
+    const persistentFieldChanged = schemaLines.some(line => /^[+-]\s*(?:private|protected|public)\s+(?!static\b|transient\b)[\w<>?,.\[\]]+\s+\w+\s*(?:=[^;]*)?;\s*$/.test(line));
+    if (schemaAnnotationChanged || persistentFieldChanged) {
+      throw new Error(`JPA 持久化结构发生变化但没有发布迁移脚本: ${filePath}`);
+    }
+  }
+}
+
+function gitFileOrEmpty(projectRoot, commit, filePath) {
+  try {
+    return runGit(projectRoot, ['show', `${commit}:${filePath}`]);
+  } catch (error) {
+    return '';
+  }
 }
 
 function assertReleaseTargetChanged(analysis, releaseTarget, forumImageMode = 'build') {
@@ -2053,9 +2240,9 @@ function gameDatabasePreflightCommand(stackName, containerName, expectedVersion)
   ];
 }
 
-function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName, expectedVersion) {
+function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName, expectedVersion, releaseMigrations = []) {
   const serviceName = gameServiceName(stackName, containerName);
-  return [
+  const commands = [
     `cd ${shellToken(remoteComposeDir)}`,
     `service_name=${shellToken(serviceName)}`,
     'release_started_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)',
@@ -2072,7 +2259,18 @@ function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName, ex
     '[ -n "$container_id" ] || { echo "ERROR: no healthy game container is available for backup"; exit 1; }',
     gameDatabaseAuditExecCommand('"$container_id"', 'backup', expectedVersion, '"$container_backup_dir"'),
     'docker cp "$container_id:$container_backup_dir/." "$backup_dir/database/"',
-    'docker exec "$container_id" rm -rf "$container_backup_dir"',
+    'docker exec "$container_id" rm -rf "$container_backup_dir"'
+  ];
+  if (releaseMigrations.length > 0) {
+    commands.push(
+      ...gameDatabaseContainerResolutionCommands(),
+      `database_name=${shellToken(GAME_DATABASE_NAME)}`,
+      'docker exec "$database_container_id" sh -lc \'pg_dump -Fc -U "$POSTGRES_USER" -d "$1"\' sh "$database_name" > "$backup_dir/database/hospital.pre-migration.dump"',
+      'test -s "$backup_dir/database/hospital.pre-migration.dump"',
+      'echo "database_migration_backup=$backup_dir/database/hospital.pre-migration.dump"'
+    );
+  }
+  commands.push(
     '(cd "$backup_dir" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)',
     'test -s "$backup_dir/docker-compose.yml"',
     'test -s "$backup_dir/database/schema-status.txt"',
@@ -2083,7 +2281,79 @@ function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName, ex
     'printf "%s\\n" "$release_started_at" > .last-game-release-start',
     'chmod 600 .last-game-release-backup .last-game-release-start',
     'echo "game_backup_dir=$backup_dir"'
+  );
+  return commands;
+}
+
+function gameDatabaseContainerResolutionCommands() {
+  return [
+    `database_container_name=${shellToken(GAME_DATABASE_CONTAINER_NAME)}`,
+    'database_container_ids=$(docker ps -q --filter "name=^/${database_container_name}$")',
+    'database_container_count=$(printf "%s\n" "$database_container_ids" | sed \'/^$/d\' | wc -l)',
+    '[ "$database_container_count" -eq 1 ] || { echo "ERROR: expected one running database container named $database_container_name, found $database_container_count"; exit 1; }',
+    'database_container_id=$(printf "%s\n" "$database_container_ids" | head -n 1)'
   ];
+}
+
+function gamePreDeployChecklistCommand(remoteComposeDir, stackName, containerName, imageTag, releaseMigrations) {
+  const serviceName = gameServiceName(stackName, containerName);
+  return [
+    `cd ${shellToken(remoteComposeDir)}`,
+    `service_name=${shellToken(serviceName)}`,
+    `target_image=${shellToken(imageTag)}`,
+    'backup_dir=$(cat .last-game-release-backup)',
+    'test -d "$backup_dir"',
+    '(cd "$backup_dir" && sha256sum -c SHA256SUMS)',
+    'test -s "$backup_dir/docker-compose.yml"',
+    'test -s "$backup_dir/database/schema-status.txt"',
+    'docker image inspect "$target_image" >/dev/null',
+    'current_healthy=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | wc -l)',
+    '[ "$current_healthy" -ge 1 ] || { echo "ERROR: current production service has no healthy container"; exit 1; }',
+    `expected_migrations=${releaseMigrations.length}`,
+    'actual_migrations=0',
+    'if [ -d "$backup_dir/database/migrations" ]; then actual_migrations=$(find "$backup_dir/database/migrations" -type f -name "*.applied" | wc -l); fi',
+    '[ "$actual_migrations" -eq "$expected_migrations" ] || { echo "ERROR: database migration receipts expected $expected_migrations, actual $actual_migrations"; exit 1; }',
+    'echo "checklist_target_image=PASS image=$target_image"',
+    'echo "checklist_current_service=PASS healthy=$current_healthy"',
+    'echo "checklist_backup=PASS path=$backup_dir"',
+    'echo "checklist_database_migrations=PASS count=$actual_migrations"',
+    'echo "checklist_rollback_source=PASS compose=$backup_dir/docker-compose.yml"',
+    'echo "pre_deploy_checklist=PASS"'
+  ];
+}
+
+function applyGameDatabaseMigrationsCommand(remoteComposeDir, releaseMigrations) {
+  const commands = [
+    `cd ${shellToken(remoteComposeDir)}`,
+    'backup_dir=$(cat .last-game-release-backup)',
+    'test -s "$backup_dir/database/hospital.pre-migration.dump"',
+    'mkdir -p "$backup_dir/database/migrations"',
+    ...gameDatabaseContainerResolutionCommands(),
+    `database_name=${shellToken(GAME_DATABASE_NAME)}`
+  ];
+
+  for (const migration of releaseMigrations) {
+    const safeName = path.basename(migration.filePath).replace(/[^0-9A-Za-z._-]/g, '_');
+    const encodedSql = Buffer.from(migration.sql, 'utf8').toString('base64');
+    commands.push(
+      `migration_path=${shellToken(migration.filePath)}`,
+      `migration_sha256=${shellToken(migration.sha256)}`,
+      `migration_file="$backup_dir/database/migrations/${safeName}"`,
+      `printf %s ${shellToken(encodedSql)} | base64 -d > "$migration_file"`,
+      'actual_sha256=$(sha256sum "$migration_file" | cut -d" " -f1)',
+      '[ "$actual_sha256" = "$migration_sha256" ] || { echo "ERROR: migration checksum mismatch for $migration_path"; exit 1; }',
+      'docker exec -i "$database_container_id" sh -lc \'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$1" -f -\' sh "$database_name" < "$migration_file"',
+      'printf "%s|%s|%s\n" "$migration_path" "$migration_sha256" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$migration_file.applied"',
+      'echo "database_migration_applied=$migration_path sha256=$migration_sha256"'
+    );
+  }
+  commands.push(
+    '(cd "$backup_dir" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)',
+    'find "$backup_dir/database/migrations" -type f -exec chmod 600 {} +',
+    `test "$(find "$backup_dir/database/migrations" -type f -name '*.applied' | wc -l)" -eq ${releaseMigrations.length}`,
+    `echo "database_migrations_applied=${releaseMigrations.length}"`
+  );
+  return commands;
 }
 
 function tradePoolPostDeployCheckCommand(remoteComposeDir, stackName, containerName, expectedVersion) {
@@ -2095,8 +2365,8 @@ function tradePoolPostDeployCheckCommand(remoteComposeDir, stackName, containerN
     '[ -n "$container_id" ] || { echo "ERROR: no healthy target container is available for trade-pool verification"; exit 1; }',
     gameDatabaseAuditExecCommand('"$container_id"', 'verify', expectedVersion),
     'release_started_at=$(cat .last-game-release-start)',
-    'migration_logs=$(docker service logs --since "$release_started_at" "$service_name" 2>&1)',
-    'printf "%s\\n" "$migration_logs"',
+    'migration_logs=$(timeout 20 docker service logs --since "$release_started_at" --tail 2000 "$service_name" 2>&1)',
+    'printf "%s\\n" "$migration_logs" | grep -Ei "catalog database upgrade (finished|failed)" | tail -n 20',
     'printf "%s\\n" "$migration_logs" | grep -q "catalog database upgrade finished outcome=" || { echo "ERROR: catalog upgrade completion log is missing"; exit 1; }',
     'if printf "%s\\n" "$migration_logs" | grep -qi "catalog database upgrade failed"; then echo "ERROR: catalog database upgrade failure detected"; exit 1; fi',
     'page_result=$(docker exec "$container_id" curl -sS -o /dev/null -w \'%{http_code}|%{redirect_url}\' http://127.0.0.1:8090/admin/tradepool)',
@@ -2112,21 +2382,47 @@ function tradePoolPostDeployCheckCommand(remoteComposeDir, stackName, containerN
   ];
 }
 
-function gameRollbackCommand(remoteComposeDir, stackName, containerName, expectedVersion) {
+function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName) {
   const serviceName = gameServiceName(stackName, containerName);
+  const suspendSql = "do $$ begin if to_regclass('public.t_toilet_market_listing') is not null and exists (select 1 from information_schema.columns where table_schema='public' and table_name='t_toilet_market_listing' and column_name='listing_source') then update t_toilet_market_listing set status='SUSPENDED', update_time=now() where listing_source='ADMIN' and status='ACTIVE'; end if; end $$;";
   return [
     `cd ${shellToken(remoteComposeDir)}`,
     `service_name=${shellToken(serviceName)}`,
     'backup_dir=$(cat .last-game-release-backup)',
     'test -s "$backup_dir/docker-compose.yml"',
-    'container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
-    '[ -n "$container_id" ] || { echo "ERROR: no healthy current container is available to suspend ADMIN listings"; exit 1; }',
     'echo "WARNING: suspending all ACTIVE ADMIN listings before old-code rollback"',
-    gameDatabaseAuditExecCommand('"$container_id"', 'suspend-admin', expectedVersion),
+    ...gameDatabaseContainerResolutionCommands(),
+    `database_name=${shellToken(GAME_DATABASE_NAME)}`,
+    `docker exec "$database_container_id" sh -lc 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$1" -c "$2"' sh "$database_name" ${shellToken(suspendSql)}`,
+    `rollback_image=$(grep -E '^[[:space:]]*image:[[:space:]]*' "$backup_dir/docker-compose.yml" | grep 'hospital-backend:' | head -n 1 | awk '{print $2}' | tr -d '"')`,
+    `rollback_version=$(grep -E 'IMAGE_TAG(=|:)' "$backup_dir/docker-compose.yml" | head -n 1 | sed -E 's/.*IMAGE_TAG(=|:)[[:space:]]*//' | tr -d ' "')`,
+    '[ -n "$rollback_image" ] && [ -n "$rollback_version" ] || { echo "ERROR: rollback image or IMAGE_TAG is missing from backup Compose"; exit 1; }',
     'cp "$backup_dir/docker-compose.yml" docker-compose.yml',
     'docker stack config -c docker-compose.yml >/dev/null',
     `docker stack deploy -c docker-compose.yml ${shellToken(stackName)}`,
-    'echo "game_rollback_started_from=$backup_dir"'
+    'rollback_deadline=$(( $(date +%s) + 900 ))',
+    'while true; do',
+    '  service_image=$(docker service inspect "$service_name" --format \'{{.Spec.TaskTemplate.ContainerSpec.Image}}\')',
+    '  service_env=$(docker service inspect "$service_name" --format \'{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}\')',
+    '  service_version=$(printf "%s\\n" "$service_env" | sed -n \'s/^IMAGE_TAG=//p\' | head -n 1)',
+    '  update_state=$(docker service inspect "$service_name" --format \'{{if .UpdateStatus}}{{.UpdateStatus.State}}{{else}}completed{{end}}\')',
+    '  expected_replicas=$(docker service inspect "$service_name" --format \'{{if .Spec.Mode.Replicated}}{{.Spec.Mode.Replicated.Replicas}}{{else}}1{{end}}\')',
+    '  healthy_count=0',
+    '  for container_id in $(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name"); do',
+    '    container_image=$(docker inspect "$container_id" --format \'{{.Config.Image}}\')',
+    '    container_health=$(docker inspect "$container_id" --format \'{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}\')',
+    '    case "$container_image" in "$rollback_image"|"$rollback_image"@*) [ "$container_health" = healthy ] && healthy_count=$((healthy_count + 1)) ;; esac',
+    '  done',
+    '  image_matches=false',
+    '  case "$service_image" in "$rollback_image"|"$rollback_image"@*) image_matches=true ;; esac',
+    '  echo "automatic_rollback_state=$update_state image=$service_image version=$service_version healthy=$healthy_count/$expected_replicas"',
+    '  if [ "$image_matches" = true ] && [ "$service_version" = "$rollback_version" ] && [ "$update_state" = completed ] && [ "$healthy_count" -eq "$expected_replicas" ]; then break; fi',
+    '  case "$update_state" in paused|rollback_paused) echo "ERROR: automatic rollback ended in $update_state"; exit 1 ;; esac',
+    '  [ "$(date +%s)" -lt "$rollback_deadline" ] || { echo "ERROR: automatic rollback did not converge within 900 seconds"; exit 1; }',
+    '  sleep 5',
+    'done',
+    'echo "game_rollback_completed_from=$backup_dir"',
+    'echo "automatic_rollback_validation=PASS"'
   ];
 }
 
@@ -2647,10 +2943,11 @@ function findSshConfig(xml, id) {
   return null;
 }
 
-function runPowerShell(cwd, command, env, onChunk, onHeartbeat, signal) {
+function runPowerShell(cwd, command, env, onChunk, onHeartbeat, signal, timeoutSeconds = 0) {
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     let heartbeat = null;
+    let timeoutHandle = null;
     let settled = false;
     const child = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], {
       cwd,
@@ -2661,6 +2958,10 @@ function runPowerShell(cwd, command, env, onChunk, onHeartbeat, signal) {
       if (heartbeat) {
         clearInterval(heartbeat);
         heartbeat = null;
+      }
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = null;
       }
       if (signal) {
         signal.removeEventListener('abort', cancel);
@@ -2727,6 +3028,17 @@ function runPowerShell(cwd, command, env, onChunk, onHeartbeat, signal) {
       heartbeat = setInterval(() => {
         onHeartbeat(Math.max(1, Math.round((Date.now() - startedAt) / 1000)));
       }, 1000);
+    }
+    if (Number(timeoutSeconds) > 0) {
+      timeoutHandle = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        cleanup();
+        killProcessTree(child);
+        reject(new Error(`命令超过 ${timeoutSeconds} 秒未完成`));
+      }, Number(timeoutSeconds) * 1000);
     }
   });
 }
