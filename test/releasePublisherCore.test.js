@@ -423,6 +423,258 @@ test('rejects destructive database migrations that make automatic application ro
   }), /包含不兼容旧版本自动恢复的操作/);
 });
 
+test('blocks runtime changes when the release impact assessment was not updated', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'changed\n', 'utf8');
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'runtime change']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+
+  assert.throws(() => createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], [])),
+    /没有更新 release\/release-impact\.json/);
+});
+
+test('accepts an updated release impact assessment with exact runtime path and required check coverage', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'changed\n', 'utf8');
+  writeReleaseImpact(root, {
+    assessmentId: '20260717-runtime-impact',
+    coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'existing-checks-sufficient'
+  });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'assess runtime change']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+
+  const plan = createPlan(root, releaseImpactPlanRequest(
+    target,
+    baseline,
+    [runtimePath],
+    ['release/release-impact.json']
+  ));
+
+  assert.equal(plan.config.releaseImpactAssessment.assessmentId, '20260717-runtime-impact');
+  assert.deepEqual(plan.config.releaseImpactAssessment.coveredRuntimePaths, [runtimePath]);
+  assert.ok(plan.steps.some(step => step.key === 'validate-release-impact-checklist'));
+  const historyEntry = buildHistoryEntry('DRY_RUN', plan, [], []);
+  assert.equal(historyEntry.releaseImpactAssessmentId, '20260717-runtime-impact');
+  assert.deepEqual(historyEntry.releaseImpactRuntimePaths, [runtimePath]);
+  assert.deepEqual(historyEntry.releaseImpactRequiredChecks, [
+    'test-game-backend',
+    'pre-deploy-checklist',
+    'final-runtime-check'
+  ]);
+});
+
+test('uses the successful release baseline to enforce the committed impact assessment', () => {
+  const root = releaseImpactGitProject();
+  const branch = runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const historyPath = path.join(root, 'impact-history.json');
+  fs.writeFileSync(historyPath, `${JSON.stringify([{
+    status: 'EXECUTED',
+    releaseTarget: 'game',
+    releaseCommit: baseline,
+    appTag: '20260717',
+    imageTag: 'hospital-backend:20260717',
+    includeStackDeploy: true
+  }], null, 2)}\n`, 'utf8');
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'changed from production baseline\n', 'utf8');
+  writeReleaseImpact(root, {
+    assessmentId: '20260717-analyzed-impact',
+    coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'existing-checks-sufficient'
+  });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'runtime assessment']);
+
+  const analysis = analyzeReleaseChanges(root, {
+    gitBranch: branch,
+    gitCommit: 'latest'
+  }, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
+  const plan = createPlan(root, {
+    appTag: '2026071706',
+    dryRun: true,
+    includeStackDeploy: true,
+    gitCommit: analysis.targetCommit,
+    changeAnalysis: analysis
+  });
+
+  assert.deepEqual(analysis.targets.game.changedPaths, [runtimePath]);
+  assert.ok(analysis.targets.game.ignoredPaths.includes('release/release-impact.json'));
+  assert.equal(plan.config.releaseImpactAssessment.assessmentId, '20260717-analyzed-impact');
+});
+
+test('rejects release impact assessments that do not exactly cover the runtime diff', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'changed\n', 'utf8');
+  writeReleaseImpact(root, {
+    assessmentId: '20260717-wrong-impact',
+    coveredRuntimePaths: ['src/main/resources/other.txt'],
+    checklistDecision: 'existing-checks-sufficient'
+  });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'wrong assessment']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+
+  assert.throws(() => createPlan(root, releaseImpactPlanRequest(
+    target,
+    baseline,
+    [runtimePath],
+    ['release/release-impact.json']
+  )), /必须精确覆盖生产基线到目标提交的运行变更/);
+});
+
+test('rejects a stale release impact assessment identifier', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'changed\n', 'utf8');
+  writeReleaseImpact(root, {
+    assessmentId: '20260717-impact-baseline',
+    coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'existing-checks-sufficient'
+  });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'stale assessment id']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+
+  assert.throws(() => createPlan(root, releaseImpactPlanRequest(
+    target,
+    baseline,
+    [runtimePath],
+    ['release/release-impact.json']
+  )), /assessmentId 仍为 20260717-impact-baseline/);
+});
+
+test('rejects a checklist-updated decision when the selected checks did not change', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'changed\n', 'utf8');
+  writeReleaseImpact(root, {
+    assessmentId: '20260717-unchanged-checks',
+    coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated'
+  });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'unchanged checklist']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+
+  assert.throws(() => createPlan(root, releaseImpactPlanRequest(
+    target,
+    baseline,
+    [runtimePath],
+    ['release/release-impact.json']
+  )), /声明 checklist-updated，但 requiredChecks 的步骤或覆盖理由没有变化/);
+});
+
+test('rejects a release impact assessment that omits a mandatory base check', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'changed\n', 'utf8');
+  writeReleaseImpact(root, {
+    assessmentId: '20260717-missing-base-check',
+    coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'existing-checks-sufficient',
+    requiredChecks: ['test-game-backend', 'pre-deploy-checklist']
+  });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'missing base check']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+
+  assert.throws(() => createPlan(root, releaseImpactPlanRequest(
+    target,
+    baseline,
+    [runtimePath],
+    ['release/release-impact.json']
+  )), /缺少基础检查: final-runtime-check/);
+});
+
+test('requires database impact and migration checklist coverage for changed migration scripts', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const migrationPath = 'scripts/migration/20260717_release_impact.sql';
+  const migrationFile = path.join(root, ...migrationPath.split('/'));
+  fs.mkdirSync(path.dirname(migrationFile), {recursive: true});
+  fs.writeFileSync(migrationFile, [
+    '\\set ON_ERROR_STOP on',
+    'begin;',
+    "set local lock_timeout = '10s';",
+    "set local statement_timeout = '120s';",
+    'create table if not exists release_impact_demo(id bigint);',
+    'commit;',
+    'select count(*) from release_impact_demo;',
+    ''
+  ].join('\n'), 'utf8');
+  writeReleaseImpact(root, {
+    assessmentId: '20260717-migration-impact',
+    coveredRuntimePaths: [migrationPath],
+    checklistDecision: 'existing-checks-sufficient',
+    databaseImpact: 'schema-change'
+  });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'migration assessment']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+
+  assert.throws(() => createPlan(root, releaseImpactPlanRequest(
+    target,
+    baseline,
+    [migrationPath],
+    ['release/release-impact.json']
+  )), /必须包含 apply-database-migrations/);
+});
+
+test('enforces the same release impact assessment gate for forum runtime changes', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const forumPath = 'integrations/flarum/Dockerfile';
+  const forumFile = path.join(root, ...forumPath.split('/'));
+  fs.mkdirSync(path.dirname(forumFile), {recursive: true});
+  fs.writeFileSync(forumFile, 'FROM demo\n', 'utf8');
+  writeReleaseImpact(root, {
+    assessmentId: '20260717-forum-impact',
+    coveredRuntimePaths: [],
+    checklistDecision: 'existing-checks-sufficient',
+    forumCoveredRuntimePaths: [forumPath],
+    forumChecklistDecision: 'existing-checks-sufficient'
+  });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'forum assessment']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+
+  const plan = createPlan(root, {
+    releaseTarget: 'forum',
+    forumImageMode: 'build',
+    appTag: '2026071707',
+    dryRun: true,
+    includeStackDeploy: true,
+    gitCommit: target,
+    changeAnalysis: {
+      targets: {
+        forum: {
+          changed: true,
+          baselineCommit: baseline,
+          changedPaths: [forumPath],
+          ignoredPaths: ['release/release-impact.json']
+        }
+      }
+    }
+  });
+
+  assert.equal(plan.config.releaseImpactAssessment.assessmentId, '20260717-forum-impact');
+  assert.equal(plan.config.releaseImpactAssessment.target, 'forum');
+  assert.ok(plan.steps.some(step => step.key === 'validate-release-impact-checklist'));
+});
+
 test('creates reusable forum compose release plan with backup validation and rollback evidence', () => {
   const root = tempProject(sampleXml);
   const config = readReleaseConfig(root, 'forum');
@@ -1364,6 +1616,82 @@ function tempCommandBin() {
     ''
   ].join('\r\n'), 'utf8');
   return root;
+}
+
+function releaseImpactGitProject() {
+  const root = tempProject(sampleXml);
+  runGit(root, ['init']);
+  const runtimePath = path.join(root, 'src', 'main', 'resources', 'release-impact-demo.txt');
+  fs.mkdirSync(path.dirname(runtimePath), {recursive: true});
+  fs.writeFileSync(runtimePath, 'baseline\n', 'utf8');
+  writeReleaseImpact(root, {
+    assessmentId: '20260717-impact-baseline',
+    coveredRuntimePaths: [],
+    checklistDecision: 'checklist-updated'
+  });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'baseline']);
+  return root;
+}
+
+function releaseImpactPlanRequest(target, baseline, changedPaths, ignoredPaths) {
+  return {
+    appTag: '2026071705',
+    dryRun: true,
+    includeStackDeploy: true,
+    gitCommit: target,
+    changeAnalysis: {
+      targets: {
+        game: {
+          changed: true,
+          baselineCommit: baseline,
+          changedPaths,
+          ignoredPaths
+        }
+      }
+    }
+  };
+}
+
+function writeReleaseImpact(root, options) {
+  const requiredChecks = (options.requiredChecks || [
+    'test-game-backend',
+    'pre-deploy-checklist',
+    'final-runtime-check'
+  ]).map(stepKey => ({
+    stepKey,
+    reason: `检查 ${stepKey} 能够覆盖本次发布影响并提供失败证据`
+  }));
+  const document = {
+    schemaVersion: 1,
+    assessmentId: options.assessmentId,
+    summary: '记录本次运行代码和数据库变化的发布影响与自动检查范围',
+    targets: {
+      game: {
+        checklistDecision: options.checklistDecision,
+        riskLevel: options.riskLevel || 'medium',
+        codeImpact: '评估目标提交中的游戏运行代码变化及其生产发布风险',
+        databaseImpact: options.databaseImpact || 'none',
+        coveredRuntimePaths: options.coveredRuntimePaths,
+        requiredChecks
+      },
+      forum: {
+        checklistDecision: options.forumChecklistDecision || 'existing-checks-sufficient',
+        riskLevel: options.forumRiskLevel || 'low',
+        codeImpact: options.forumCodeImpact || '本次评估没有论坛运行代码变化，保留论坛发布基础检查',
+        databaseImpact: 'none',
+        coveredRuntimePaths: options.forumCoveredRuntimePaths || [],
+        requiredChecks: [
+          {stepKey: 'validate-forum-source', reason: '论坛源码发布前必须执行契约测试和脚本语法检查'},
+          {stepKey: 'forum-preflight', reason: '论坛切换前必须检查当前容器、数据库和备份条件'},
+          {stepKey: 'final-runtime-check', reason: '论坛切换后必须验证运行镜像、扩展、Secret 和公网状态'}
+        ]
+      }
+    }
+  };
+  const releaseDir = path.join(root, 'release');
+  fs.mkdirSync(releaseDir, {recursive: true});
+  fs.writeFileSync(path.join(releaseDir, 'release-impact.json'), `${JSON.stringify(document, null, 2)}\n`, 'utf8');
 }
 
 function runGit(cwd, args) {

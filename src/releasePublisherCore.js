@@ -25,6 +25,33 @@ const GAME_SSO_SOURCE_PATHS = [
 const GAME_RUNTIME_PATHS = ['Dockerfile', 'docker-compose.yml', 'entrypoint.sh', 'pom.xml'];
 const GAME_MIGRATION_PREFIX = 'scripts/migration/';
 const GAME_RUNTIME_PREFIXES = ['newrelic/', 'src/main/', GAME_MIGRATION_PREFIX];
+const RELEASE_IMPACT_ASSESSMENT_PATH = 'release/release-impact.json';
+const RELEASE_IMPACT_SCHEMA_VERSION = 1;
+const RELEASE_CHECKLIST_DECISIONS = new Set(['existing-checks-sufficient', 'checklist-updated']);
+const RELEASE_DATABASE_IMPACTS = new Set(['none', 'query-change', 'schema-change', 'data-change', 'configuration-change']);
+const REQUIRED_RELEASE_CHECKS = {
+  game: ['test-game-backend', 'pre-deploy-checklist', 'final-runtime-check'],
+  forum: ['validate-forum-source', 'forum-preflight', 'final-runtime-check']
+};
+const KNOWN_RELEASE_CHECKS = {
+  game: new Set([
+    'validate-game-sso-source',
+    'test-game-backend',
+    'compile-artifact',
+    'validate-game-image',
+    'game-database-preflight',
+    'apply-database-migrations',
+    'pre-deploy-checklist',
+    'final-runtime-check',
+    'verify-tradepool-release'
+  ]),
+  forum: new Set([
+    'validate-forum-source',
+    'validate-forum-image',
+    'forum-preflight',
+    'final-runtime-check'
+  ])
+};
 const GAME_DATABASE_CONTAINER_NAME = 'postgresql';
 const GAME_DATABASE_NAME = 'hospital';
 const RELEASE_MIGRATION_PATTERN = /^scripts\/migration\/[0-9A-Za-z][0-9A-Za-z._/-]*\.sql$/;
@@ -158,6 +185,13 @@ function createPlan(projectRoot, request, env = process.env) {
   const catalogSchemaVersion = resolveCatalogSchemaVersion(projectRoot, gitCommit);
   const releaseMigrations = resolveReleaseMigrations(projectRoot, gitCommit, request.changeAnalysis);
   assertJpaSchemaMigrationCoverage(projectRoot, gitCommit, request.changeAnalysis, releaseMigrations);
+  const releaseImpactAssessment = resolveReleaseImpactAssessment(
+    projectRoot,
+    gitCommit,
+    request.changeAnalysis,
+    'game',
+    releaseMigrations
+  );
   const gitUpdate = gitUpdateStep(gitBranch, gitCommit);
 
   const steps = [
@@ -203,6 +237,7 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'local-check',
       executable: true
     }),
+    ...(releaseImpactAssessment ? [releaseImpactValidationStep(releaseImpactAssessment)] : []),
     releaseStep({
       key: 'validate-game-sso-source',
       title: '校验游戏 SSO 发布基线',
@@ -487,6 +522,8 @@ function createPlan(projectRoot, request, env = process.env) {
     }));
   }
 
+  assertReleaseImpactPlanCoverage(releaseImpactAssessment, steps, includeStackDeploy);
+
   return {
     config: {
       ...config,
@@ -503,6 +540,7 @@ function createPlan(projectRoot, request, env = process.env) {
       dockerCommandTarget: dockerTarget,
       remoteImageTarget,
       catalogSchemaVersion,
+      releaseImpactAssessment,
       databaseMigrations: releaseMigrations.map(item => ({
         filePath: item.filePath,
         sha256: item.sha256
@@ -551,6 +589,9 @@ function createForumPlan(projectRoot, request, env = process.env) {
   const gitCommit = forumImageMode === 'build'
     ? validateGitCommit(request.gitCommit || 'latest')
     : 'not-used';
+  const releaseImpactAssessment = forumImageMode === 'build'
+    ? resolveReleaseImpactAssessment(projectRoot, gitCommit, request.changeAnalysis, 'forum', [])
+    : null;
   const steps = [];
 
   if (forumImageMode === 'build') {
@@ -591,6 +632,10 @@ function createForumPlan(projectRoot, request, env = process.env) {
       actionType: 'local-check',
       executable: true
     }));
+  }
+
+  if (releaseImpactAssessment) {
+    steps.push(releaseImpactValidationStep(releaseImpactAssessment));
   }
 
   steps.push(releaseStep({
@@ -770,6 +815,8 @@ function createForumPlan(projectRoot, request, env = process.env) {
     }));
   }
 
+  assertReleaseImpactPlanCoverage(releaseImpactAssessment, steps, includeStackDeploy);
+
   return {
     config: {
       ...config,
@@ -783,6 +830,7 @@ function createForumPlan(projectRoot, request, env = process.env) {
       ideaDockerServerResolution,
       dockerCommandTarget: dockerTarget,
       remoteImageTarget,
+      releaseImpactAssessment,
       executionEnabled: true
     },
     releaseTarget: 'forum',
@@ -1149,6 +1197,7 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
     .slice()
     .sort((left, right) => right.durationMs - left.durationMs)[0] || null;
   const commitEvidence = extractCommitEvidence(plan);
+  const releaseImpactAssessment = plan.config && plan.config.releaseImpactAssessment;
   return {
     id: `${new Date().toISOString()}-${plan.appTag}`,
     createdAt: new Date().toISOString(),
@@ -1166,6 +1215,14 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
     releaseCommitShort: commitEvidence.shortCommit,
     releaseCommitDate: commitEvidence.date,
     releaseCommitSubject: commitEvidence.subject,
+    releaseImpactAssessmentId: releaseImpactAssessment ? releaseImpactAssessment.assessmentId : '',
+    releaseImpactRiskLevel: releaseImpactAssessment ? releaseImpactAssessment.riskLevel : '',
+    releaseImpactDatabaseImpact: releaseImpactAssessment ? releaseImpactAssessment.databaseImpact : '',
+    releaseImpactChecklistDecision: releaseImpactAssessment ? releaseImpactAssessment.checklistDecision : '',
+    releaseImpactRuntimePaths: releaseImpactAssessment ? releaseImpactAssessment.coveredRuntimePaths.slice() : [],
+    releaseImpactRequiredChecks: releaseImpactAssessment
+      ? releaseImpactAssessment.requiredChecks.map(item => item.stepKey)
+      : [],
     includeStackDeploy: plan.includeStackDeploy,
     projectRoot: plan.config.projectRoot,
     dockerTarget: plan.config.dockerCommandTarget
@@ -1585,6 +1642,235 @@ function assertJpaSchemaMigrationCoverage(projectRoot, targetCommit, changeAnaly
     const persistentFieldChanged = schemaLines.some(line => /^[+-]\s*(?:private|protected|public)\s+(?!static\b|transient\b)[\w<>?,.\[\]]+\s+\w+\s*(?:=[^;]*)?;\s*$/.test(line));
     if (schemaAnnotationChanged || persistentFieldChanged) {
       throw new Error(`JPA 持久化结构发生变化但没有发布迁移脚本: ${filePath}`);
+    }
+  }
+}
+
+function resolveReleaseImpactAssessment(projectRoot, targetCommit, changeAnalysis, releaseTarget, releaseMigrations = []) {
+  const target = validateReleaseTarget(releaseTarget);
+  const targetChanges = changeAnalysis && changeAnalysis.targets && changeAnalysis.targets[target];
+  if (!targetChanges || targetChanges.changed !== true) {
+    return null;
+  }
+  const changedPaths = uniqueSortedReleasePaths(targetChanges.changedPaths || []);
+  if (changedPaths.length === 0) {
+    throw new Error(`发布影响评估异常：${target} 标记为有运行变更但没有变更路径`);
+  }
+  const allChangedPaths = uniqueSortedReleasePaths([
+    ...(targetChanges.changedPaths || []),
+    ...(targetChanges.ignoredPaths || [])
+  ]);
+  if (!allChangedPaths.includes(RELEASE_IMPACT_ASSESSMENT_PATH)) {
+    throw new Error(`检测到 ${target} 运行代码或数据库变更，但本次提交范围没有更新 ${RELEASE_IMPACT_ASSESSMENT_PATH}`);
+  }
+
+  const document = readReleaseImpactDocument(projectRoot, targetCommit, true);
+  validateReleaseImpactDocument(document);
+  const assessment = document.targets && document.targets[target];
+  if (!assessment || typeof assessment !== 'object' || Array.isArray(assessment)) {
+    throw new Error(`${RELEASE_IMPACT_ASSESSMENT_PATH} 缺少 targets.${target} 发版影响评估`);
+  }
+
+  const normalized = normalizeReleaseImpactTarget(document.assessmentId, target, assessment);
+  assertExactRuntimePathCoverage(target, changedPaths, normalized.coveredRuntimePaths);
+  assertReleaseImpactRequiredChecks(normalized, target, releaseMigrations);
+
+  const baselineCommit = String(targetChanges.baselineCommit || '').trim();
+  if (baselineCommit) {
+    const baselineDocument = readReleaseImpactDocument(projectRoot, baselineCommit, false);
+    if (baselineDocument && String(baselineDocument.assessmentId || '') === normalized.assessmentId) {
+      throw new Error(`发版影响评估 assessmentId 仍为 ${normalized.assessmentId}，必须针对本次变更更新`);
+    }
+    if (normalized.checklistDecision === 'checklist-updated' && baselineDocument) {
+      const baselineTarget = baselineDocument.targets && baselineDocument.targets[target];
+      const baselineChecks = normalizedRequiredChecksSignature(baselineTarget && baselineTarget.requiredChecks);
+      const targetChecks = normalizedRequiredChecksSignature(normalized.requiredChecks);
+      if (JSON.stringify(baselineChecks) === JSON.stringify(targetChecks)) {
+        throw new Error('发版影响评估声明 checklist-updated，但 requiredChecks 的步骤或覆盖理由没有变化');
+      }
+    }
+  }
+
+  return normalized;
+}
+
+function readReleaseImpactDocument(projectRoot, commit, required) {
+  try {
+    const source = commit === 'latest'
+      ? fs.readFileSync(resolveInside(projectRoot, RELEASE_IMPACT_ASSESSMENT_PATH), 'utf8')
+      : runGit(projectRoot, ['show', `${commit}:${RELEASE_IMPACT_ASSESSMENT_PATH}`]);
+    return JSON.parse(source);
+  } catch (error) {
+    if (!required) {
+      return null;
+    }
+    throw new Error(`无法从目标提交读取 ${RELEASE_IMPACT_ASSESSMENT_PATH}: ${error.message}`);
+  }
+}
+
+function validateReleaseImpactDocument(document) {
+  if (!document || typeof document !== 'object' || Array.isArray(document)) {
+    throw new Error(`${RELEASE_IMPACT_ASSESSMENT_PATH} 必须是 JSON 对象`);
+  }
+  if (document.schemaVersion !== RELEASE_IMPACT_SCHEMA_VERSION) {
+    throw new Error(`${RELEASE_IMPACT_ASSESSMENT_PATH} schemaVersion 必须为 ${RELEASE_IMPACT_SCHEMA_VERSION}`);
+  }
+  if (!/^[0-9A-Za-z][0-9A-Za-z._-]{7,127}$/.test(String(document.assessmentId || ''))) {
+    throw new Error('发版影响评估 assessmentId 必须是 8 到 128 位可审计标识');
+  }
+  if (String(document.summary || '').trim().length < 10) {
+    throw new Error('发版影响评估 summary 必须说明本次发布范围');
+  }
+}
+
+function normalizeReleaseImpactTarget(assessmentId, target, assessment) {
+  const checklistDecision = String(assessment.checklistDecision || '').trim();
+  if (!RELEASE_CHECKLIST_DECISIONS.has(checklistDecision)) {
+    throw new Error(`targets.${target}.checklistDecision 必须为 existing-checks-sufficient 或 checklist-updated`);
+  }
+  const riskLevel = String(assessment.riskLevel || '').trim();
+  if (!['low', 'medium', 'high'].includes(riskLevel)) {
+    throw new Error(`targets.${target}.riskLevel 必须为 low、medium 或 high`);
+  }
+  const codeImpact = String(assessment.codeImpact || '').trim();
+  if (codeImpact.length < 10) {
+    throw new Error(`targets.${target}.codeImpact 必须说明代码变化的发版影响`);
+  }
+  const databaseImpact = String(assessment.databaseImpact || '').trim();
+  if (!RELEASE_DATABASE_IMPACTS.has(databaseImpact)) {
+    throw new Error(`targets.${target}.databaseImpact 必须为 ${[...RELEASE_DATABASE_IMPACTS].join('、')}`);
+  }
+  const coveredRuntimePaths = uniqueSortedReleasePaths(assessment.coveredRuntimePaths || []);
+  const requiredChecks = normalizeRequiredChecks(target, assessment.requiredChecks);
+  return {
+    assessmentId: String(assessmentId),
+    target,
+    checklistDecision,
+    riskLevel,
+    codeImpact,
+    databaseImpact,
+    coveredRuntimePaths,
+    requiredChecks
+  };
+}
+
+function normalizeRequiredChecks(target, requiredChecks) {
+  if (!Array.isArray(requiredChecks) || requiredChecks.length === 0) {
+    throw new Error(`targets.${target}.requiredChecks 必须至少声明一项自动检查`);
+  }
+  const result = requiredChecks.map((item, index) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      throw new Error(`targets.${target}.requiredChecks[${index}] 必须是对象`);
+    }
+    const stepKey = String(item.stepKey || '').trim();
+    const reason = String(item.reason || '').trim();
+    if (!KNOWN_RELEASE_CHECKS[target].has(stepKey)) {
+      throw new Error(`targets.${target}.requiredChecks 引用了发布器未注册的检查步骤: ${stepKey || '(empty)'}`);
+    }
+    if (reason.length < 10) {
+      throw new Error(`检查步骤 ${stepKey} 必须说明为何覆盖本次变更`);
+    }
+    return {stepKey, reason};
+  });
+  const stepKeys = result.map(item => item.stepKey);
+  if (new Set(stepKeys).size !== stepKeys.length) {
+    throw new Error(`targets.${target}.requiredChecks 不允许重复 stepKey`);
+  }
+  return result;
+}
+
+function normalizedRequiredChecksSignature(requiredChecks) {
+  if (!Array.isArray(requiredChecks)) {
+    return [];
+  }
+  return requiredChecks
+    .map(item => ({
+      stepKey: String(item && item.stepKey || '').trim(),
+      reason: String(item && item.reason || '').trim()
+    }))
+    .filter(item => item.stepKey)
+    .sort((left, right) => left.stepKey.localeCompare(right.stepKey));
+}
+
+function uniqueSortedReleasePaths(paths) {
+  if (!Array.isArray(paths)) {
+    throw new Error('发版影响评估路径必须是数组');
+  }
+  const normalized = paths.map(value => {
+    const filePath = String(value || '').replace(/\\/g, '/').replace(/^\.\//, '').trim();
+    if (!filePath || filePath.startsWith('/') || /^[A-Za-z]:\//.test(filePath) || filePath.split('/').includes('..')) {
+      throw new Error(`发版影响评估包含非法路径: ${value}`);
+    }
+    return filePath;
+  });
+  if (new Set(normalized).size !== normalized.length) {
+    throw new Error('发版影响评估 coveredRuntimePaths 不允许重复路径');
+  }
+  return normalized.sort();
+}
+
+function assertExactRuntimePathCoverage(target, changedPaths, coveredRuntimePaths) {
+  const missing = changedPaths.filter(filePath => !coveredRuntimePaths.includes(filePath));
+  const extra = coveredRuntimePaths.filter(filePath => !changedPaths.includes(filePath));
+  if (missing.length > 0 || extra.length > 0) {
+    const details = [];
+    if (missing.length > 0) details.push(`未评估: ${missing.join(', ')}`);
+    if (extra.length > 0) details.push(`非本次运行变更: ${extra.join(', ')}`);
+    throw new Error(`${target} 发版影响评估必须精确覆盖生产基线到目标提交的运行变更；${details.join('；')}`);
+  }
+}
+
+function assertReleaseImpactRequiredChecks(assessment, target, releaseMigrations) {
+  const selected = new Set(assessment.requiredChecks.map(item => item.stepKey));
+  const missingBaseChecks = REQUIRED_RELEASE_CHECKS[target].filter(stepKey => !selected.has(stepKey));
+  if (missingBaseChecks.length > 0) {
+    throw new Error(`${target} 发版影响评估缺少基础检查: ${missingBaseChecks.join(', ')}`);
+  }
+  const databaseRelated = target === 'game'
+    && assessment.coveredRuntimePaths.some(isDatabaseRelatedRuntimePath);
+  if (databaseRelated && assessment.databaseImpact === 'none') {
+    throw new Error('检测到数据库相关代码或迁移变化，databaseImpact 不得为 none');
+  }
+  if (target === 'game' && releaseMigrations.length > 0 && !selected.has('apply-database-migrations')) {
+    throw new Error('检测到数据库迁移脚本，发版影响评估必须包含 apply-database-migrations');
+  }
+}
+
+function isDatabaseRelatedRuntimePath(filePath) {
+  const normalized = String(filePath || '').replace(/\\/g, '/');
+  return normalized.startsWith(GAME_MIGRATION_PREFIX)
+    || /\/model\//.test(normalized)
+    || /\/repository\//.test(normalized)
+    || /(?:Dao|DAO|Repository)\.java$/.test(normalized);
+}
+
+function releaseImpactValidationStep(assessment) {
+  const checks = assessment.requiredChecks.map(item => item.stepKey).join(', ');
+  return releaseStep({
+    key: 'validate-release-impact-checklist',
+    title: '校验本次发版影响与 CheckList',
+    summary: `评估 ${assessment.assessmentId} 已精确覆盖 ${assessment.coveredRuntimePaths.length} 个运行变更路径`,
+    command: `读取目标提交 ${RELEASE_IMPACT_ASSESSMENT_PATH}`,
+    validation: `risk=${assessment.riskLevel}, database=${assessment.databaseImpact}, decision=${assessment.checklistDecision}, checks=${checks}`,
+    actionType: 'local-check'
+  });
+}
+
+function assertReleaseImpactPlanCoverage(assessment, steps, includeStackDeploy) {
+  if (!assessment) {
+    return;
+  }
+  const stepMap = new Map(steps.map(step => [step.key, step]));
+  for (const check of assessment.requiredChecks) {
+    const step = stepMap.get(check.stepKey);
+    if (!step) {
+      if (!includeStackDeploy) {
+        continue;
+      }
+      throw new Error(`发版影响评估要求的检查步骤未进入本次发布计划: ${check.stepKey}`);
+    }
+    if (!step.executable) {
+      throw new Error(`发版影响评估引用的检查步骤不可执行: ${check.stepKey}`);
     }
   }
 }

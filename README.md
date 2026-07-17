@@ -178,6 +178,10 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 热滚前设置独立的 `发布前 CheckList 总验收`。该步骤统一确认目标镜像、当前健康服务、备份文件及 SHA256、迁移执行回执和回滚 Compose，所有检查输出 PASS 后才允许修改生产 Compose。热滚开始后，最终运行校验、关键业务验收或用户取消触发失败时，任务进入 `RECOVERING`，自动暂停在售 ADMIN 挂单、恢复发布前 Compose，并等待旧版本重新健康。恢复成功记为 `ROLLED_BACK`，恢复本身失败记为 `RECOVERY_REQUIRED`，此时保留现场并要求人工处置。
 
+固定 CheckList 之外，业务仓库通过 `release/release-impact.json` 保存逐次发版影响评估。发布器比较最近一次成功生产发布提交和目标提交，检测游戏或论坛运行路径变化。存在运行变化时，评估文件必须同时更新并使用新的 `assessmentId`，`coveredRuntimePaths` 必须与 Git 差异完全一致。评估还必须说明代码影响、数据库影响、风险等级、现有检查是否足够，并引用发布器已注册的可执行步骤。遗漏评估、沿用旧标识、路径覆盖不完整、数据库影响未声明或检查步骤不存在时，发布计划生成直接失败。
+
+游戏发布至少保留 `test-game-backend`、`pre-deploy-checklist` 和 `final-runtime-check`。论坛构建发布至少保留 `validate-forum-source`、`forum-preflight` 和 `final-runtime-check`。实体、Repository、DAO 或迁移脚本变化时必须声明数据库影响；存在迁移脚本时还必须选择 `apply-database-migrations`。现有步骤无法覆盖新增风险时，应先在本仓库增加可执行检查和测试，再由业务仓库的影响评估引用该步骤。
+
 包含管理员交易池的游戏发布还会执行以下门禁：
 
 - 部署前通过当前健康容器做只读数据库盘点，并在同一个 PostgreSQL `REPEATABLE READ` 快照中将 Compose、服务、镜像证据以及 `t_backend_upgrade_markers`、`t_toilet_market_listing`、`t_toilet_market_transaction` 导出到 `/opt/1panel/backup/game-release-<UTC>`。
@@ -204,6 +208,7 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 - 命令失败也会写入构造历史，记录已完成节点数和错误摘要
 - 构造历史会记录总耗时和最慢步骤，便于对比 Docker build、SSH 和本地 Git 的耗时差异
 - 构造历史会记录实际发布提交、提交时间、提交说明、镜像上传目标和每步命令摘要，用于事后审计
+- 构造历史会同时保存发版影响评估标识、风险等级、数据库影响、CheckList 决策、运行路径和实际选择的检查步骤
 - 发布后服务日志读取限制为最近 2000 行并设置 20 秒上限，任务持久化日志保留最近 200 行，单步骤保留最近 80 行，避免大日志阻塞取消和状态查询
 - 运行状态栏每秒显示当前步骤、步骤用时、心跳时间和已设置步骤的剩余超时，`CANCELLING` 与 `RECOVERING` 状态继续轮询到最终结果
 
