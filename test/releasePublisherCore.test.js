@@ -1064,7 +1064,13 @@ test('plan loading and image labels distinguish target from production compose',
   assert.match(html, /本地发布配置镜像/);
   assert.match(html, /本地发布配置 APP_TAG/);
   assert.match(html, /Catalog 预期版本/);
+  assert.match(html, /id="publisher-version-panel"/);
+  assert.match(html, /id="publisher-runtime-version"/);
+  assert.match(html, /id="publisher-repository-version"/);
   assert.match(app, /catalogSchemaVersion\.textContent/);
+  assert.match(app, /requestJson\('\/api\/version'\)/);
+  assert.match(app, /version\.status/);
+  assert.match(css, /\.publisher-version\.version-up_to_date/);
   assert.match(app, /productionImageFlow/);
   assert.match(app, /remoteOnlineResolved: remote.resolved/);
   assert.match(app, /remoteOnlineResolved: false/);
@@ -1152,6 +1158,8 @@ test('release console exposes game and forum targets with target-aware API paylo
   assert.match(app, /option\.title = branch\.name/);
   assert.match(app, /previousTarget !== config\.releaseTarget/);
   assert.match(server, /RELEASE_PUBLISHER_FORUM_REMOTE_COMPOSE_DIR/);
+  assert.match(server, /pathname === '\/api\/version'/);
+  assert.match(server, /capturePublisherRuntimeVersion/);
   assert.match(server, /assertReleaseTargetChanged/);
   assert.match(server, /gitCommit:\s*body\.gitCommit === 'latest'[\s\S]*?analysis\.targetCommit/);
 });

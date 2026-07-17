@@ -34,8 +34,14 @@ const {
   isActiveJobStatus,
   selectPersistedJobs
 } = require('./src/releaseJobStore');
+const {
+  capturePublisherRuntimeVersion,
+  getPublisherVersionStatus
+} = require('./src/publisherVersion');
 
 const projectRoot = defaultProjectRoot();
+const publisherRepositoryRoot = __dirname;
+const publisherRuntimeVersion = capturePublisherRuntimeVersion(publisherRepositoryRoot);
 const publicRoot = path.join(__dirname, 'public');
 const port = Number(process.env.RELEASE_PUBLISHER_PORT || 8787);
 const bindAddress = process.env.RELEASE_PUBLISHER_HOST || '127.0.0.1';
@@ -63,6 +69,12 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 403, {message: '路径越界'});
       }
       return sendFile(res, filePath);
+    }
+    if (pathname === '/api/version' && req.method === 'GET') {
+      return sendJson(res, 200, getPublisherVersionStatus(
+        publisherRepositoryRoot,
+        publisherRuntimeVersion
+      ));
     }
     if (pathname === '/api/config' && req.method === 'GET') {
       const releaseTarget = validateReleaseTarget(requestUrl.searchParams.get('releaseTarget') || 'game');
@@ -197,6 +209,7 @@ server.on('error', error => {
 
 server.listen(port, bindAddress, () => {
   console.log(`RHospital Release Console is running at http://${bindAddress}:${port}`);
+  console.log(`Publisher version: ${publisherRuntimeVersion.version}`);
   console.log(`Hospital project root: ${projectRoot}`);
   console.log('Dry run default: true');
 });

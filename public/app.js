@@ -26,6 +26,10 @@
   const historyNext = document.getElementById('history-next');
   const historyClear = document.getElementById('history-clear');
   const executionState = document.getElementById('execution-state');
+  const publisherVersionPanel = document.getElementById('publisher-version-panel');
+  const publisherRuntimeVersion = document.getElementById('publisher-runtime-version');
+  const publisherRepositoryVersion = document.getElementById('publisher-repository-version');
+  const publisherVersionStatus = document.getElementById('publisher-version-status');
 
   const fields = {
     releaseTargetCurrent: document.getElementById('release-target-current'),
@@ -87,6 +91,24 @@
   function setStatus(message, kind) {
     status.textContent = message || '';
     status.className = `status ${kind || ''}`.trim();
+  }
+
+  async function loadPublisherVersion() {
+    const version = await requestJson('/api/version');
+    publisherVersionPanel.className = `publisher-version version-${String(version.status || 'UNKNOWN').toLowerCase()}`;
+    publisherRuntimeVersion.textContent = version.runtimeVersion || version.packageVersion || '未知';
+    const repository = version.repository || {};
+    publisherRepositoryVersion.textContent = `仓库 ${repository.shortCommit || 'unknown'}${repository.dirty ? ' dirty' : ''}`;
+    publisherVersionStatus.textContent = version.statusLabel || '版本状态无法确认';
+    const runtime = version.runtime || {};
+    publisherVersionPanel.title = `运行提交 ${runtime.commit || 'unknown'}\n仓库提交 ${repository.commit || 'unknown'}\n启动时间 ${formatDateTime(runtime.capturedAt)}`;
+  }
+
+  function renderPublisherVersionError(error) {
+    publisherVersionPanel.className = 'publisher-version version-unknown';
+    publisherRuntimeVersion.textContent = '读取失败';
+    publisherRepositoryVersion.textContent = '仓库版本未知';
+    publisherVersionStatus.textContent = error.message;
   }
 
   function setLoadingValue(field, message) {
@@ -926,6 +948,8 @@
     plan().catch(error => setStatus(error.message, 'error'));
   });
 
+  loadPublisherVersion().catch(renderPublisherVersionError);
+  window.setInterval(() => loadPublisherVersion().catch(renderPublisherVersionError), 10000);
   loadConfig().catch(error => setStatus(error.message, 'error'));
 
   function formatDateTime(value) {

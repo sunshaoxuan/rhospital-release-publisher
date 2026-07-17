@@ -14,7 +14,15 @@
       <h1><span>RHospital</span><span>发布控制台</span></h1>
       <p>代码来源、TAG 编排、镜像构建、SSH 热发布和最终校验。</p>
     </div>
-    <div class="state" id="execution-state">dry run 模式</div>
+    <div class="topbar-status">
+      <div class="publisher-version version-unknown" id="publisher-version-panel">
+        <span>publisher version</span>
+        <strong id="publisher-runtime-version">读取中</strong>
+        <small id="publisher-repository-version">仓库版本读取中</small>
+        <small id="publisher-version-status">正在比较执行环境与仓库</small>
+      </div>
+      <div class="state" id="execution-state">dry run 模式</div>
+    </div>
   </header>
 
   <section class="flow-panel">
