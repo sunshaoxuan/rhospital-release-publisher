@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -306,7 +307,7 @@ test('backs up and applies changed database migrations before switching the prod
   const migrationPath = 'scripts/migration/20260716_add_google_uid.sql';
   const absoluteMigration = path.join(root, ...migrationPath.split('/'));
   fs.mkdirSync(path.dirname(absoluteMigration), {recursive: true});
-  fs.writeFileSync(absoluteMigration, [
+  const migrationLines = [
     '\\set ON_ERROR_STOP on',
     'begin;',
     "set local lock_timeout = '10s';",
@@ -315,7 +316,8 @@ test('backs up and applies changed database migrations before switching the prod
     'commit;',
     "select count(*) from information_schema.columns where column_name = 'google_uid';",
     ''
-  ].join('\n'), 'utf8');
+  ];
+  fs.writeFileSync(absoluteMigration, migrationLines.join('\r\n'), 'utf8');
 
   const plan = createPlan(root, {
     appTag: '2026071701',
@@ -335,7 +337,10 @@ test('backs up and applies changed database migrations before switching the prod
 
   assert.equal(plan.config.databaseMigrations.length, 1);
   assert.equal(plan.config.databaseMigrations[0].filePath, migrationPath);
-  assert.match(plan.config.databaseMigrations[0].sha256, /^[0-9a-f]{64}$/);
+  assert.equal(
+    plan.config.databaseMigrations[0].sha256,
+    crypto.createHash('sha256').update(migrationLines.join('\n'), 'utf8').digest('hex')
+  );
   const backupStep = plan.steps.find(step => step.key === 'backup-game-release');
   const migrationStep = plan.steps.find(step => step.key === 'apply-database-migrations');
   const composeStep = plan.steps.find(step => step.key === 'update-remote-compose');

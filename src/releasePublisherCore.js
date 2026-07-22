@@ -1595,12 +1595,16 @@ function resolveReleaseMigrations(projectRoot, gitCommit, changeAnalysis) {
       ? fs.readFileSync(resolveInside(projectRoot, filePath), 'utf8')
       : runGit(projectRoot, ['show', `${gitCommit}:${filePath}`]);
     validateReleaseMigration(filePath, sql);
+    const canonicalSql = normalizeReleaseMigrationSql(sql);
     return {
       filePath,
-      sql,
-      sha256: crypto.createHash('sha256').update(sql, 'utf8').digest('hex')
+      sha256: crypto.createHash('sha256').update(canonicalSql, 'utf8').digest('hex')
     };
   });
+}
+
+function normalizeReleaseMigrationSql(sql) {
+  return String(sql || '').replace(/\r(?=\n|$)/g, '');
 }
 
 function validateReleaseMigration(filePath, sql) {
