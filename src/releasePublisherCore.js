@@ -932,6 +932,7 @@ function updateIdeaRunConfigTag(xml, imageTag, appTag) {
 async function executePlan(projectRoot, request, env = process.env, options = {}) {
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
   const signal = options.signal;
+  const runCommand = typeof options.runCommand === 'function' ? options.runCommand : runPowerShell;
   const plan = createPlan(projectRoot, request, env);
   let runtimePlan = plan;
   const logs = [];
@@ -1013,7 +1014,7 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
         }
         pushStepLog(step.key, `[RUN] ${step.command}`);
         updateStep(step.key, 'running');
-        await runPowerShell(projectRoot, step.command, env, chunk => {
+        await runCommand(projectRoot, step.command, env, chunk => {
           const line = chunk.trim();
           if (line) {
             pushStepLog(step.key, line);
@@ -1029,7 +1030,7 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
         if (step.validationCommand) {
           pushStepLog(step.key, `[VALIDATE] ${step.validationCommand}`);
           updateStep(step.key, 'running');
-          await runPowerShell(projectRoot, step.validationCommand, env, chunk => {
+          await runCommand(projectRoot, step.validationCommand, env, chunk => {
             const line = chunk.trim();
             if (line) {
               pushStepLog(step.key, line);
@@ -1074,7 +1075,7 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
       pushStepLog(rollbackStep.key, `[RUN] ${rollbackStep.command}`);
       updateStep(rollbackStep.key, 'running');
       try {
-        await runPowerShell(projectRoot, rollbackStep.command, env, chunk => {
+        await runCommand(projectRoot, rollbackStep.command, env, chunk => {
           const line = chunk.trim();
           if (line) {
             pushStepLog(rollbackStep.key, line);
@@ -3230,6 +3231,12 @@ function findSshConfig(xml, id) {
 }
 
 function runPowerShell(cwd, command, env, onChunk, onHeartbeat, signal, timeoutSeconds = 0) {
+  const testMode = String((env && env.RELEASE_PUBLISHER_TEST_MODE)
+    || process.env.RELEASE_PUBLISHER_TEST_MODE
+    || '').toLowerCase();
+  if (testMode === 'true' || testMode === '1') {
+    return Promise.reject(new Error('测试模式禁止启动系统发布命令；执行测试必须注入 runCommand'));
+  }
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
     let heartbeat = null;

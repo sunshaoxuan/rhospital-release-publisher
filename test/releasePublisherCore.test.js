@@ -4,6 +4,8 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 
+process.env.RELEASE_PUBLISHER_TEST_MODE = 'true';
+
 const {
   createPlan,
   DEFAULT_REMOTE_COMPOSE_DIR,
@@ -1112,7 +1114,7 @@ test('forum dry run returns its target without changing config or history', asyn
 test('execute runs validation commands after executable steps', async () => {
   const root = tempProject(sampleXml);
   const historyPath = path.join(root, 'history.json');
-  const commandBin = tempCommandBin();
+  const runCommand = testCommandRunner();
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
@@ -1120,11 +1122,12 @@ test('execute runs validation commands after executable steps', async () => {
     dockerContext: 'SSH178',
     includeStackDeploy: false
   }, {
-    PATH: `${commandBin}${path.delimiter}${process.env.PATH || ''}`,
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
     RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  }, {
+    runCommand
   });
 
   assert.equal(result.status, 'EXECUTED');
@@ -1134,6 +1137,7 @@ test('execute runs validation commands after executable steps', async () => {
   assert.equal(history[0].status, 'EXECUTED');
   assert.ok(history[0].stepSummary.some(step => step.key === 'build-image'
     && step.validationCommand.includes('docker image inspect hospital-backend:2026070702')));
+  assert.ok(runCommand.commands.some(command => command.includes('docker save')));
 });
 
 test('history entry records release commit evidence and step summary', () => {
@@ -1177,18 +1181,19 @@ test('execute without dry run runs without a separate environment authorization 
   const root = tempProject(sampleXml);
   const configPath = path.join(root, '.run', '148.135.9.123.run.xml');
   const historyPath = path.join(root, 'history.json');
-  const commandBin = tempCommandBin();
+  const runCommand = testCommandRunner();
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
     dockerContext: 'SSH178',
     includeStackDeploy: false
   }, {
-    PATH: `${commandBin}${path.delimiter}${process.env.PATH || ''}`,
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
     RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  }, {
+    runCommand
   });
 
   assert.equal(result.status, 'EXECUTED');
@@ -1203,6 +1208,7 @@ test('execute errors are written to history with partial progress', async () => 
   const root = tempProject(sampleXml);
   const historyPath = path.join(root, 'history.json');
   const progress = [];
+  const runCommand = testCommandRunner({failOnCommand: true});
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
@@ -1214,6 +1220,7 @@ test('execute errors are written to history with partial progress', async () => 
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
     RELEASE_PUBLISHER_HISTORY_FILE: historyPath
   }, {
+    runCommand,
     onProgress(update) {
       progress.push(update);
     }
@@ -1236,12 +1243,35 @@ test('execute errors are written to history with partial progress', async () => 
   assert.equal(history[0].completedStepCount, 0);
   assert.ok(Number.isFinite(history[0].totalDurationMs));
   assert.equal(history[0].slowestStep.key, 'git-status-before-update');
+  assert.equal(runCommand.commands.length, 1);
+});
+
+test('test mode blocks operating-system publication commands when no runner is injected', async () => {
+  const root = tempProject(sampleXml);
+  const historyPath = path.join(root, 'history.json');
+  const result = await executePlan(root, {
+    appTag: '2026070702',
+    dryRun: false,
+    dockerContext: 'SSH178',
+    includeStackDeploy: false
+  }, {
+    RELEASE_PUBLISHER_TEST_MODE: 'true',
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  });
+
+  assert.equal(result.status, 'ERROR');
+  assert.match(result.logs.join('\n'), /测试模式禁止启动系统发布命令/);
+  assert.equal(result.completedStepKeys.length, 0);
 });
 
 test('execute can be cancelled before running commands', async () => {
   const root = tempProject(sampleXml);
   const historyPath = path.join(root, 'history.json');
   const controller = new AbortController();
+  const runCommand = testCommandRunner();
   controller.abort();
   const result = await executePlan(root, {
     appTag: '2026070702',
@@ -1254,11 +1284,13 @@ test('execute can be cancelled before running commands', async () => {
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
     RELEASE_PUBLISHER_HISTORY_FILE: historyPath
   }, {
+    runCommand,
     signal: controller.signal
   });
 
   assert.equal(result.status, 'CANCELLED');
   assert.ok(result.logs.some(line => line.includes('CANCELLED')));
+  assert.equal(runCommand.commands.length, 0);
   const history = readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
   assert.equal(history[0].status, 'CANCELLED');
 });
@@ -1587,35 +1619,24 @@ function tempGitProject() {
   return root;
 }
 
-function tempCommandBin() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-bin-'));
-  fs.writeFileSync(path.join(root, 'git.cmd'), [
-    '@echo off',
-    'if "%1"=="status" if "%2"=="--short" echo ## master...origin/master',
-    'if "%1"=="rev-parse" echo 0123456789abcdef0123456789abcdef01234567',
-    'if "%1"=="log" echo 0123456\t2026-07-07 20:30:40 +0900\tRelease hospital backend',
-    'exit /b 0',
-    ''
-  ].join('\r\n'), 'utf8');
-  fs.writeFileSync(path.join(root, 'docker.cmd'), [
-    '@echo off',
-    'echo docker %*',
-    'exit /b 0',
-    ''
-  ].join('\r\n'), 'utf8');
-  fs.writeFileSync(path.join(root, 'scp.cmd'), [
-    '@echo off',
-    'echo scp %*',
-    'exit /b 0',
-    ''
-  ].join('\r\n'), 'utf8');
-  fs.writeFileSync(path.join(root, 'ssh.cmd'), [
-    '@echo off',
-    'echo ssh %*',
-    'exit /b 0',
-    ''
-  ].join('\r\n'), 'utf8');
-  return root;
+function testCommandRunner(options = {}) {
+  const commands = [];
+  const runner = async (cwd, command, env, onChunk) => {
+    commands.push(command);
+    if (options.failOnCommand === true) {
+      throw new Error('simulated command failure');
+    }
+    if (onChunk) {
+      if (command.includes('git rev-parse HEAD')) {
+        onChunk('0123456789abcdef0123456789abcdef01234567\n0123456\t2026-07-07 20:30:40 +0900\tRelease hospital backend\n');
+      } else {
+        onChunk('test_command=PASS\n');
+      }
+    }
+    return 'test_command=PASS\n';
+  };
+  runner.commands = commands;
+  return runner;
 }
 
 function releaseImpactGitProject() {

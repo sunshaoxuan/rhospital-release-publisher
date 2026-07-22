@@ -51,6 +51,16 @@ cd C:\workspace\rhospital-release-publisher
 npm start
 ```
 
+## 本地测试
+
+发布器本地验证使用普通 Node 单元测试：
+
+```powershell
+npm test
+```
+
+该命令只验证计划生成、状态流转、历史记录和命令文本。执行类测试必须注入内存命令运行器，测试模式会阻止启动真实 PowerShell 发布命令。`npm test` 不执行 Docker build、Docker run、docker save、SCP、SSH、数据库迁移、生产部署或自动回退。镜像制作与上传只属于页面明确启动的正式发布流程。
+
 打开：
 
 ```text
