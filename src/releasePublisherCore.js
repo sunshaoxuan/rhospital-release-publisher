@@ -327,10 +327,10 @@ function createPlan(projectRoot, request, env = process.env) {
     }),
     releaseStep({
       key: 'validate-game-image',
-      title: '验证游戏镜像版本与交易池能力',
-      summary: `确认运行镜像内的 TAG、SSO、Catalog v${catalogSchemaVersion} 迁移和管理员交易池代码完整`,
+      title: '验证游戏镜像版本、迁移包与交易池能力',
+      summary: `确认运行镜像内的 TAG、迁移清单、SSO、Catalog v${catalogSchemaVersion} 和管理员交易池代码完整`,
       command: gameImageValidationCommand(dockerTarget, imageTag, appTag, catalogSchemaVersion),
-      validation: `镜像内 IMAGE_TAG=${appTag}，Catalog 版本必须等于目标提交的 v${catalogSchemaVersion}，并包含 SSO 和管理员交易池代码`,
+      validation: `镜像内 IMAGE_TAG=${appTag}，/app/migrations 清单必须完整，Catalog 版本必须等于目标提交的 v${catalogSchemaVersion}，并包含 SSO 和管理员交易池代码`,
       actionType: 'build',
       executable: true
     }),
@@ -410,11 +410,11 @@ function createPlan(projectRoot, request, env = process.env) {
       steps.push(releaseStep({
         key: 'apply-database-migrations',
         title: '执行目标提交数据库迁移',
-        summary: `在切换镜像前按路径顺序执行 ${releaseMigrations.length} 个迁移脚本，并保存脚本与执行回执`,
+        summary: `从目标镜像提取并核验迁移包，在切换镜像前按路径顺序执行 ${releaseMigrations.length} 个脚本`,
         command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-          applyGameDatabaseMigrationsCommand(remoteComposeDir, releaseMigrations)
+          applyGameDatabaseMigrationsCommand(remoteComposeDir, imageTag, releaseMigrations)
         )),
-        validation: `迁移脚本必须在事务和 ON_ERROR_STOP 保护下完成：${releaseMigrations.map(item => item.filePath).join(', ')}`,
+        validation: `迁移必须来自目标镜像 /app/migrations，镜像清单、目标提交 SHA256 和脚本实际 SHA256 必须一致：${releaseMigrations.map(item => item.filePath).join(', ')}`,
         actionType: 'production',
         productionAction: true,
         executable: true
@@ -560,7 +560,7 @@ function createPlan(projectRoot, request, env = process.env) {
     guardrails: [
       '勾选 dry run 时只生成命令和写入预览',
       '取消 dry run 后会执行本地测试、镜像上传和勾选范围内的远端发布步骤',
-      '目标提交新增或修改的 scripts/migration/*.sql 会在镜像切换前备份数据库并执行',
+      '目标提交新增或修改的 scripts/migration/*.sql 必须存在于目标镜像，并在镜像切换前完成备份、提取、校验和执行',
       '旧代码回滚前必须暂停所有 ACTIVE 的 ADMIN 挂单，避免旧版交易逻辑继续处理系统库存'
     ]
   };
@@ -2600,37 +2600,70 @@ function gamePreDeployChecklistCommand(remoteComposeDir, stackName, containerNam
     'actual_migrations=0',
     'if [ -d "$backup_dir/database/migrations" ]; then actual_migrations=$(find "$backup_dir/database/migrations" -type f -name "*.applied" | wc -l); fi',
     '[ "$actual_migrations" -eq "$expected_migrations" ] || { echo "ERROR: database migration receipts expected $expected_migrations, actual $actual_migrations"; exit 1; }',
+    'if [ "$expected_migrations" -gt 0 ]; then',
+    '  test -s "$backup_dir/database/migrations/migration-image-source.txt"',
+    '  recorded_migration_image=$(cut -d"|" -f1 "$backup_dir/database/migrations/migration-image-source.txt")',
+    '  recorded_migration_image_id=$(cut -d"|" -f2 "$backup_dir/database/migrations/migration-image-source.txt")',
+    '  actual_migration_image_id=$(docker image inspect "$target_image" --format \'{{.Id}}\')',
+    '  [ "$recorded_migration_image" = "$target_image" ] || { echo "ERROR: migration source image tag mismatch"; exit 1; }',
+    '  [ "$recorded_migration_image_id" = "$actual_migration_image_id" ] || { echo "ERROR: migration source image ID mismatch"; exit 1; }',
+    'fi',
     'echo "checklist_target_image=PASS image=$target_image"',
     'echo "checklist_current_service=PASS healthy=$current_healthy"',
     'echo "checklist_backup=PASS path=$backup_dir"',
     'echo "checklist_database_migrations=PASS count=$actual_migrations"',
+    'echo "checklist_migration_image_source=PASS image=$target_image"',
     'echo "checklist_rollback_source=PASS compose=$backup_dir/docker-compose.yml"',
     'echo "pre_deploy_checklist=PASS"'
   ];
 }
 
-function applyGameDatabaseMigrationsCommand(remoteComposeDir, releaseMigrations) {
+function applyGameDatabaseMigrationsCommand(remoteComposeDir, imageTag, releaseMigrations) {
   const commands = [
     `cd ${shellToken(remoteComposeDir)}`,
+    `target_image=${shellToken(imageTag)}`,
     'backup_dir=$(cat .last-game-release-backup)',
     'test -s "$backup_dir/database/hospital.pre-migration.dump"',
     'mkdir -p "$backup_dir/database/migrations"',
+    'image_migration_dir="$backup_dir/database/migrations/image-bundle"',
+    'test ! -e "$image_migration_dir" || { echo "ERROR: migration image bundle already exists in release backup"; exit 1; }',
+    'mkdir -p "$image_migration_dir"',
+    'migration_source_container="rhospital-migration-source-$$"',
+    'cleanup_migration_source() { if [ -n "${migration_source_container:-}" ]; then docker rm -f "$migration_source_container" >/dev/null 2>&1 || true; fi; }',
+    'trap cleanup_migration_source EXIT',
+    'docker create --name "$migration_source_container" "$target_image" >/dev/null',
+    'docker cp "$migration_source_container:/app/migrations/." "$image_migration_dir/"',
+    'docker rm "$migration_source_container" >/dev/null',
+    'migration_source_container=',
+    'trap - EXIT',
+    'test -s "$image_migration_dir/SHA256SUMS"',
+    '(cd "$image_migration_dir" && sha256sum -c SHA256SUMS)',
+    'actual_image_manifest="$backup_dir/database/migrations/image-bundle.actual.SHA256SUMS"',
+    '(cd "$image_migration_dir" && find . -type f -name "*.sql" -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum > "$actual_image_manifest")',
+    'cmp -s "$image_migration_dir/SHA256SUMS" "$actual_image_manifest" || { echo "ERROR: target image migration manifest does not exactly cover all SQL files"; exit 1; }',
+    'rm -f "$actual_image_manifest"',
+    'target_image_id=$(docker image inspect "$target_image" --format \'{{.Id}}\')',
+    'printf "%s|%s\n" "$target_image" "$target_image_id" > "$backup_dir/database/migrations/migration-image-source.txt"',
     ...gameDatabaseContainerResolutionCommands(),
     `database_name=${shellToken(GAME_DATABASE_NAME)}`
   ];
 
   for (const migration of releaseMigrations) {
-    const safeName = path.basename(migration.filePath).replace(/[^0-9A-Za-z._-]/g, '_');
-    const encodedSql = Buffer.from(migration.sql, 'utf8').toString('base64');
+    const safeName = migration.filePath
+      .slice(GAME_MIGRATION_PREFIX.length)
+      .replace(/[^0-9A-Za-z._-]/g, '_');
+    const imageRelativePath = migration.filePath.slice(GAME_MIGRATION_PREFIX.length);
     commands.push(
       `migration_path=${shellToken(migration.filePath)}`,
       `migration_sha256=${shellToken(migration.sha256)}`,
-      `migration_file="$backup_dir/database/migrations/${safeName}"`,
-      `printf %s ${shellToken(encodedSql)} | base64 -d > "$migration_file"`,
+      `migration_relative_path=${shellToken(imageRelativePath)}`,
+      'migration_file="$image_migration_dir/$migration_relative_path"',
+      'test -f "$migration_file" || { echo "ERROR: target image migration is missing: $migration_path"; exit 1; }',
       'actual_sha256=$(sha256sum "$migration_file" | cut -d" " -f1)',
       '[ "$actual_sha256" = "$migration_sha256" ] || { echo "ERROR: migration checksum mismatch for $migration_path"; exit 1; }',
       'docker exec -i "$database_container_id" sh -lc \'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$1" -f -\' sh "$database_name" < "$migration_file"',
-      'printf "%s|%s|%s\n" "$migration_path" "$migration_sha256" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$migration_file.applied"',
+      `migration_receipt="$backup_dir/database/migrations/${safeName}.applied"`,
+      'printf "%s|%s|%s|%s\n" "$migration_path" "$migration_sha256" "$target_image_id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$migration_receipt"',
       'echo "database_migration_applied=$migration_path sha256=$migration_sha256"'
     );
   }
@@ -2726,6 +2759,17 @@ function gameImageValidationCommand(dockerTarget, imageTag, appTag, expectedCata
     'set -eu',
     `expected_catalog_version=${shellToken(expectedCatalogVersion)}`,
     `test "$IMAGE_TAG" = ${shellToken(appTag)} || { echo "ERROR: IMAGE_TAG expected ${appTag}, actual $IMAGE_TAG"; exit 1; }`,
+    'test -d /app/migrations',
+    'test -s /app/migrations/SHA256SUMS',
+    '(cd /app/migrations && sha256sum -c SHA256SUMS)',
+    'migration_sql_count=$(find /app/migrations -type f -name "*.sql" | wc -l)',
+    '[ "$migration_sql_count" -gt 0 ] || { echo "ERROR: image migration bundle is empty"; exit 1; }',
+    'actual_migration_manifest=$(mktemp)',
+    'trap \'rm -f "$actual_migration_manifest"\' EXIT',
+    '(cd /app/migrations && find . -type f -name "*.sql" -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum > "$actual_migration_manifest")',
+    'cmp -s /app/migrations/SHA256SUMS "$actual_migration_manifest" || { echo "ERROR: image migration manifest does not exactly cover all SQL files"; exit 1; }',
+    'rm -f "$actual_migration_manifest"',
+    'trap - EXIT',
     "jar tf /app/app.jar | grep -q 'BOOT-INF/classes/com/zly/hospital/controller/api/ForumSsoController.class'",
     "jar tf /app/app.jar | grep -q 'BOOT-INF/classes/com/zly/hospital/service/ForumSsoDatabaseUpgradeService.class'",
     "jar tf /app/app.jar | grep -q 'BOOT-INF/classes/com/zly/hospital/service/ForumProvisioningService.class'",
@@ -2743,6 +2787,7 @@ function gameImageValidationCommand(dockerTarget, imageTag, appTag, expectedCata
     ...TRADE_POOL_REQUIRED_COLUMNS.map(column => `grep -q ${shellToken(column)} "$catalog_bytecode"`),
     ...TRADE_POOL_REQUIRED_INDEXES.map(index => `grep -q ${shellToken(index)} "$catalog_bytecode"`),
     'echo "game_image_catalog_version=$actual_catalog_version"',
+    'echo "game_image_migration_bundle=PASS count=$migration_sql_count"',
     "echo 'game_image_tradepool_validation=PASS'"
   ].join('\n');
   const encoded = Buffer.from(`${script}\n`, 'utf8').toString('base64');
@@ -2789,9 +2834,11 @@ function finalRuntimeCheckCommand(stackName, containerName, imageTag, appTag) {
     `    container_sso_enabled=$(printf '%s\n' "$container_env" | sed -n 's/^FORUM_SSO_ENABLED=//p' | head -n 1)`,
     `    container_sso_secret_file=$(printf '%s\n' "$container_env" | sed -n 's/^FORUM_SSO_SECRET_FILE=//p' | head -n 1)`,
     `    container_secret_ready=false`,
+    `    container_migrations_ready=false`,
     `    if docker exec "$container_id" test -r /run/secrets/forum_sso_secret 2>/dev/null; then container_secret_ready=true; fi`,
+    `    if docker exec "$container_id" sh -lc 'test -s /app/migrations/SHA256SUMS && cd /app/migrations && sha256sum -c SHA256SUMS >/dev/null' 2>/dev/null; then container_migrations_ready=true; fi`,
     `    case "$container_image" in`,
-    `      "$expected_image"|"$expected_image"@*) if [ "$container_health" = healthy ] && [ "$container_version" = "$expected_version" ] && [ "$container_sso_enabled" = true ] && [ "$container_sso_secret_file" = /run/secrets/forum_sso_secret ] && [ "$container_secret_ready" = true ]; then healthy_target_count=$((healthy_target_count + 1)); fi ;;`,
+    `      "$expected_image"|"$expected_image"@*) if [ "$container_health" = healthy ] && [ "$container_version" = "$expected_version" ] && [ "$container_sso_enabled" = true ] && [ "$container_sso_secret_file" = /run/secrets/forum_sso_secret ] && [ "$container_secret_ready" = true ] && [ "$container_migrations_ready" = true ]; then healthy_target_count=$((healthy_target_count + 1)); fi ;;`,
     `    esac`,
     `  done`,
     `  image_matches=false`,

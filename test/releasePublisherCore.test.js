@@ -186,6 +186,9 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.command.includes('-t hospital-backend:2026070702')));
   assert.ok(plan.steps.some(step => step.key === 'validate-game-image'
     && decodedRemoteScript(step.command).includes('game_image_tradepool_validation=PASS')
+    && decodedRemoteScript(step.command).includes('game_image_migration_bundle=PASS')
+    && decodedRemoteScript(step.command).includes('/app/migrations/SHA256SUMS')
+    && decodedRemoteScript(step.command).includes('sha256sum -c SHA256SUMS')
     && decodedRemoteScript(step.command).includes('ForumSsoController.class')
     && decodedRemoteScript(step.command).includes('ForumSsoDatabaseUpgradeService.class')
     && decodedRemoteScript(step.command).includes('AdminTradePoolPageController.class')
@@ -349,8 +352,19 @@ test('backs up and applies changed database migrations before switching the prod
   assert.match(decodedScriptTree(backupStep.command), /hospital\.pre-migration\.dump/);
   assert.match(decodedScriptTree(migrationStep.command), /psql -X -v ON_ERROR_STOP=1/);
   assert.match(decodedScriptTree(migrationStep.command), /20260716_add_google_uid\.sql/);
+  assert.match(decodedScriptTree(migrationStep.command), /docker create --name/);
+  assert.match(decodedScriptTree(migrationStep.command), /docker cp .*\/app\/migrations/);
+  assert.match(decodedScriptTree(migrationStep.command), /image_migration_dir=.*image-bundle/);
+  assert.match(decodedScriptTree(migrationStep.command), /migration_relative_path=20260716_add_google_uid\.sql/);
+  assert.match(decodedScriptTree(migrationStep.command), /migration_file="\$image_migration_dir\/\$migration_relative_path"/);
+  assert.match(decodedScriptTree(migrationStep.command), /sha256sum -c SHA256SUMS/);
+  assert.match(decodedScriptTree(migrationStep.command), /image migration manifest does not exactly cover all SQL files/);
+  assert.match(decodedScriptTree(migrationStep.command), /cmp -s/);
+  assert.match(decodedScriptTree(migrationStep.command), /migration-image-source\.txt/);
+  assert.doesNotMatch(decodedScriptTree(migrationStep.command), /alter table t_directors add column/);
   assert.match(decodedScriptTree(migrationStep.command), /database_migrations_applied=1/);
   assert.match(decodedScriptTree(checklistStep.command), /pre_deploy_checklist=PASS/);
+  assert.match(decodedScriptTree(checklistStep.command), /migration source image ID mismatch/);
   assertStepType(plan, 'apply-database-migrations', 'production', true);
 });
 
