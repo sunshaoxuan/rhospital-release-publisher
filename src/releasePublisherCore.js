@@ -495,7 +495,7 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'remote-check',
       executable: true,
       finalCheck: true,
-      timeoutSeconds: 960
+      timeoutSeconds: 1860
     }));
     steps.push(releaseStep({
       key: 'verify-tradepool-release',
@@ -2725,7 +2725,8 @@ function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName
     'cp "$backup_dir/docker-compose.yml" docker-compose.yml',
     'docker stack config -c docker-compose.yml >/dev/null',
     `docker stack deploy -c docker-compose.yml ${shellToken(stackName)}`,
-    'rollback_deadline=$(( $(date +%s) + 900 ))',
+    `rollback_timeout_seconds="${'${RELEASE_PUBLISHER_ROLLBACK_TIMEOUT_SECONDS:-1800}'}"`,
+    'rollback_deadline=$(( $(date +%s) + rollback_timeout_seconds ))',
     'while true; do',
     '  service_image=$(docker service inspect "$service_name" --format \'{{.Spec.TaskTemplate.ContainerSpec.Image}}\')',
     '  service_env=$(docker service inspect "$service_name" --format \'{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}\')',
@@ -2743,7 +2744,7 @@ function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName
     '  echo "automatic_rollback_state=$update_state image=$service_image version=$service_version healthy=$healthy_count/$expected_replicas"',
     '  if [ "$image_matches" = true ] && [ "$service_version" = "$rollback_version" ] && [ "$update_state" = completed ] && [ "$healthy_count" -eq "$expected_replicas" ]; then break; fi',
     '  case "$update_state" in paused|rollback_paused) echo "ERROR: automatic rollback ended in $update_state"; exit 1 ;; esac',
-    '  [ "$(date +%s)" -lt "$rollback_deadline" ] || { echo "ERROR: automatic rollback did not converge within 900 seconds"; exit 1; }',
+    '  [ "$(date +%s)" -lt "$rollback_deadline" ] || { echo "ERROR: automatic rollback did not converge within ${rollback_timeout_seconds} seconds"; exit 1; }',
     '  sleep 5',
     'done',
     'echo "game_rollback_completed_from=$backup_dir"',
@@ -2808,7 +2809,7 @@ function finalRuntimeCheckCommand(stackName, containerName, imageTag, appTag) {
     `service_name=${shellToken(serviceName)}`,
     `expected_image=${shellToken(imageTag)}`,
     `expected_version=${shellToken(appTag)}`,
-    `rollout_timeout_seconds="${'${RELEASE_PUBLISHER_ROLLOUT_TIMEOUT_SECONDS:-900}'}"`,
+    `rollout_timeout_seconds="${'${RELEASE_PUBLISHER_ROLLOUT_TIMEOUT_SECONDS:-1800}'}"`,
     `rollout_deadline=$(( $(date +%s) + rollout_timeout_seconds ))`,
     `while true; do`,
     `  service_image=$(docker service inspect "$service_name" --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}')`,

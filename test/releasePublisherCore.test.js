@@ -248,9 +248,11 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.validationCommand).includes('docker stack services hospital_stack')));
   assert.ok(plan.steps.some(step => step.key === 'final-runtime-check'
     && step.finalCheck
+    && step.timeoutSeconds === 1860
     && step.validation.includes('hospital-backend:2026070702')
     && decodedRemoteScript(step.command).includes('expected_image=hospital-backend:2026070702')
     && decodedRemoteScript(step.command).includes('expected_version=2026070702')
+    && decodedRemoteScript(step.command).includes('RELEASE_PUBLISHER_ROLLOUT_TIMEOUT_SECONDS:-1800')
     && decodedRemoteScript(step.command).includes("update_state=$(docker service inspect \"$service_name\" --format '{{if .UpdateStatus}}{{.UpdateStatus.State}}{{else}}completed{{end}}')")
     && decodedRemoteScript(step.command).includes('--filter desired-state=running')
     && decodedRemoteScript(step.command).includes('container_health=$(docker inspect')
@@ -287,6 +289,7 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(rollbackScriptTree.includes("listing_source='ADMIN'"));
   assert.ok(rollbackScriptTree.includes('update t_toilet_market_listing set status='));
   assert.ok(rollbackScriptTree.includes('automatic_rollback_validation=PASS'));
+  assert.ok(rollbackScript.includes('RELEASE_PUBLISHER_ROLLBACK_TIMEOUT_SECONDS:-1800'));
   assert.ok(rollbackScriptTree.includes('.last-game-release-backup'));
   assertStepType(plan, 'git-status-before-update', 'local-check', false);
   assertStepType(plan, 'git-fetch', 'local-code', false);

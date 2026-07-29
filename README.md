@@ -418,7 +418,7 @@ cd /opt/1panel/docker/compose/hospital-stack
 docker stack deploy -c docker-compose.yml hospital_stack
 ```
 
-热发布使用 `start-first` 时，新旧任务会在健康观察期内短暂并存。发布器会持续轮询 `UpdateStatus`、目标镜像、服务与容器 `IMAGE_TAG`、SSO 开关、Secret、健康副本数和仍处于运行目标态的旧镜像任务。只有更新状态为 `completed`、目标副本全部通过版本与 SSO 契约且旧版本运行任务为零时，最终节点才会完成。默认等待上限为 900 秒，可在远端通过 `RELEASE_PUBLISHER_ROLLOUT_TIMEOUT_SECONDS` 调整。
+热发布使用 `start-first` 时，新旧任务会在健康观察期内短暂并存。发布器会持续轮询 `UpdateStatus`、目标镜像、服务与容器 `IMAGE_TAG`、SSO 开关、Secret、健康副本数和仍处于运行目标态的旧镜像任务。只有更新状态为 `completed`、目标副本全部通过版本与 SSO 契约且旧版本运行任务为零时，最终节点才会完成。默认等待上限为 1800 秒，可在远端通过 `RELEASE_PUBLISHER_ROLLOUT_TIMEOUT_SECONDS` 调整。自动恢复也使用 1800 秒默认上限，可通过 `RELEASE_PUBLISHER_ROLLBACK_TIMEOUT_SECONDS` 调整。该预算覆盖 8 分钟健康启动期、12 分钟 Swarm 监控窗口及任务收敛余量。
 
 ## 论坛发布
 
