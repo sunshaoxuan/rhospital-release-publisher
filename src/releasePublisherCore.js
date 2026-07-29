@@ -2709,6 +2709,7 @@ function tradePoolPostDeployCheckCommand(remoteComposeDir, stackName, containerN
 function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName) {
   const serviceName = gameServiceName(stackName, containerName);
   const suspendSql = "do $$ begin if to_regclass('public.t_toilet_market_listing') is not null and exists (select 1 from information_schema.columns where table_schema='public' and table_name='t_toilet_market_listing' and column_name='listing_source') then update t_toilet_market_listing set status='SUSPENDED', update_time=now() where listing_source='ADMIN' and status='ACTIVE'; end if; end $$;";
+  const suspendSqlEncoded = Buffer.from(`${suspendSql}\n`, 'utf8').toString('base64');
   return [
     `cd ${shellToken(remoteComposeDir)}`,
     `service_name=${shellToken(serviceName)}`,
@@ -2717,7 +2718,7 @@ function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName
     'echo "WARNING: suspending all ACTIVE ADMIN listings before old-code rollback"',
     ...gameDatabaseContainerResolutionCommands(),
     `database_name=${shellToken(GAME_DATABASE_NAME)}`,
-    `docker exec "$database_container_id" sh -lc 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$1" -c "$2"' sh "$database_name" ${shellToken(suspendSql)}`,
+    `printf %s "${suspendSqlEncoded}" | base64 -d | docker exec -i "$database_container_id" sh -lc 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$1" -f -' sh "$database_name"`,
     `rollback_image=$(grep -E '^[[:space:]]*image:[[:space:]]*' "$backup_dir/docker-compose.yml" | grep 'hospital-backend:' | head -n 1 | awk '{print $2}' | tr -d '"')`,
     `rollback_version=$(grep -E 'IMAGE_TAG(=|:)' "$backup_dir/docker-compose.yml" | head -n 1 | sed -E 's/.*IMAGE_TAG(=|:)[[:space:]]*//' | tr -d ' "')`,
     '[ -n "$rollback_image" ] && [ -n "$rollback_version" ] || { echo "ERROR: rollback image or IMAGE_TAG is missing from backup Compose"; exit 1; }',
