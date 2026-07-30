@@ -111,6 +111,7 @@ function runTradePoolCatalogLogGate(exitCode, logs) {
     'set -e',
     `timeout() { printf %s '${encodedLogs}' | base64 -d; return ${Number(exitCode)}; }`,
     'service_name=hospital_stack_hospital-backend',
+    'container_id=target-container',
     'release_started_at=2026-07-30T04:10:16Z',
     ...tradePoolCatalogLogCheckCommands()
   ].join('\n');
@@ -120,7 +121,7 @@ function runTradePoolCatalogLogGate(exitCode, logs) {
   });
 }
 
-test('trade-pool log gate accepts captured completion after service log timeout', () => {
+test('trade-pool log gate accepts captured completion after container log timeout', () => {
   const result = runTradePoolCatalogLogGate(124,
     'catalog database upgrade finished outcome=ALREADY_COMPLETED');
 
@@ -146,12 +147,12 @@ test('trade-pool log gate rejects an explicit catalog upgrade failure', () => {
   assert.match(result.stdout, /catalog database upgrade failure detected/);
 });
 
-test('trade-pool log gate rejects unexpected service log command failures', () => {
+test('trade-pool log gate rejects unexpected container log command failures', () => {
   const result = runTradePoolCatalogLogGate(125,
     'catalog database upgrade finished outcome=ALREADY_COMPLETED');
 
   assert.equal(result.status, 1);
-  assert.match(result.stdout, /service log collection failed with exit 125/);
+  assert.match(result.stdout, /container log collection failed with exit 125/);
 });
 
 test('parses IDEA Docker run config release values', () => {
@@ -325,8 +326,9 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedScriptTree(step.command).includes('migration_logs_status=$?')
     && decodedScriptTree(step.command).includes('catalog_log_collection_exit=')
     && decodedScriptTree(step.command).includes('validating captured output')
-    && decodedScriptTree(step.command).includes('timeout 20 docker service logs')
-    && decodedScriptTree(step.command).includes('--tail 2000')
+    && decodedScriptTree(step.command).includes('timeout 20 docker logs --since')
+    && decodedScriptTree(step.command).includes('"$container_id" >"$migration_logs_file"')
+    && decodedScriptTree(step.command).includes('trap \'rm -f "$migration_logs_file"\' EXIT')
     && decodedScriptTree(step.command).includes('/admin/tradepool')
     && decodedScriptTree(step.command).includes('/api/admin/toilet-market/pool')
     && decodedScriptTree(step.command).includes('tradepool_release_validation=PASS')));
