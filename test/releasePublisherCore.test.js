@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const {spawnSync} = require('node:child_process');
 const test = require('node:test');
 
 process.env.RELEASE_PUBLISHER_TEST_MODE = 'true';
@@ -37,7 +38,8 @@ const {
   resolveCatalogSchemaVersion,
   analyzeReleaseChanges,
   assertReleaseTargetChanged,
-  readRemoteComposeImageTag
+  readRemoteComposeImageTag,
+  tradePoolCatalogLogCheckCommands
 } = require('../src/releasePublisherCore');
 
 const sampleXml = `<component name="ProjectRunConfigurationManager">
@@ -102,6 +104,55 @@ function decodedScriptTree(command) {
   }
   return decoded.join('\n');
 }
+
+function runTradePoolCatalogLogGate(exitCode, logs) {
+  const encodedLogs = Buffer.from(logs, 'utf8').toString('base64');
+  const script = [
+    'set -e',
+    `timeout() { printf %s '${encodedLogs}' | base64 -d; return ${Number(exitCode)}; }`,
+    'service_name=hospital_stack_hospital-backend',
+    'release_started_at=2026-07-30T04:10:16Z',
+    ...tradePoolCatalogLogCheckCommands()
+  ].join('\n');
+  const encodedScript = Buffer.from(script, 'utf8').toString('base64');
+  return spawnSync('bash', ['-c', `printf %s '${encodedScript}' | base64 -d | bash`], {
+    encoding: 'utf8'
+  });
+}
+
+test('trade-pool log gate accepts captured completion after service log timeout', () => {
+  const result = runTradePoolCatalogLogGate(124,
+    'catalog database upgrade finished outcome=ALREADY_COMPLETED');
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /catalog_log_collection_exit=124/);
+  assert.match(result.stdout, /validating captured output/);
+});
+
+test('trade-pool log gate rejects a timed out capture without completion evidence', () => {
+  const result = runTradePoolCatalogLogGate(124, 'application startup complete');
+
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /catalog upgrade completion log is missing/);
+});
+
+test('trade-pool log gate rejects an explicit catalog upgrade failure', () => {
+  const result = runTradePoolCatalogLogGate(0, [
+    'catalog database upgrade finished outcome=APPLIED',
+    'catalog database upgrade failed reason=validation'
+  ].join('\n'));
+
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /catalog database upgrade failure detected/);
+});
+
+test('trade-pool log gate rejects unexpected service log command failures', () => {
+  const result = runTradePoolCatalogLogGate(125,
+    'catalog database upgrade finished outcome=ALREADY_COMPLETED');
+
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /service log collection failed with exit 125/);
+});
 
 test('parses IDEA Docker run config release values', () => {
   const config = parseIdeaRunConfig(sampleXml);
@@ -271,6 +322,9 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedScriptTree(step.command).includes('idx_toilet_tx_target_id')
     && decodedScriptTree(step.command).includes('Catalog marker must equal target version')
     && decodedScriptTree(step.command).includes('catalog database upgrade failed')
+    && decodedScriptTree(step.command).includes('migration_logs_status=$?')
+    && decodedScriptTree(step.command).includes('catalog_log_collection_exit=')
+    && decodedScriptTree(step.command).includes('validating captured output')
     && decodedScriptTree(step.command).includes('timeout 20 docker service logs')
     && decodedScriptTree(step.command).includes('--tail 2000')
     && decodedScriptTree(step.command).includes('/admin/tradepool')
