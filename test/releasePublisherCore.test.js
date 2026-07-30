@@ -333,6 +333,15 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedScriptTree(step.command).includes('/api/admin/toilet-market/pool')
     && decodedScriptTree(step.command).includes('tradepool_release_validation=PASS')));
   const gameRollback = plan.steps.find(step => step.key === 'game-rollback-command');
+  const gameRollbackDecision = plan.steps.find(step => step.key === 'game-rollback-decision');
+  assert.ok(gameRollbackDecision);
+  assert.equal(gameRollbackDecision.executable, false);
+  const rollbackDecisionScript = decodedRemoteScript(gameRollbackDecision.command);
+  assert.ok(rollbackDecisionScript.includes('automatic_rollback_evidence'));
+  assert.ok(rollbackDecisionScript.includes('automatic_rollback_decision=HOLD_TARGET'));
+  assert.ok(rollbackDecisionScript.includes('automatic_rollback_decision=ROLLBACK_CONFIRMED'));
+  assert.ok(rollbackDecisionScript.includes('active_other'));
+  assert.ok(rollbackDecisionScript.includes('healthy_target'));
   assert.ok(gameRollback);
   assert.equal(gameRollback.executable, false);
   const rollbackScript = decodedRemoteScript(gameRollback.command);
@@ -367,6 +376,7 @@ test('creates dry run command plan without production execution enabled', () => 
   assertStepType(plan, 'deploy-stack', 'production', true);
   assertStepType(plan, 'final-runtime-check', 'remote-check', false);
   assertStepType(plan, 'verify-tradepool-release', 'remote-check', false);
+  assertStepType(plan, 'game-rollback-decision', 'remote-check', false);
 });
 
 test('backs up and applies changed database migrations before switching the production image', () => {
@@ -1332,6 +1342,76 @@ test('execute errors are written to history with partial progress', async () => 
   assert.equal(runCommand.commands.length, 1);
 });
 
+test('healthy target evidence suppresses automatic rollback after post-deploy verification failure', async () => {
+  const root = tempProject(sampleXml);
+  const historyPath = path.join(root, 'history.json');
+  const runCommand = recoveryDecisionTestRunner('HOLD_TARGET');
+  const result = await executePlan(root, {
+    appTag: '2026070702',
+    dryRun: false,
+    dockerContext: 'SSH178',
+    includeStackDeploy: true
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  }, {runCommand});
+
+  assert.equal(result.status, 'RECOVERY_REQUIRED');
+  assert.match(result.logs.join('\n'), /自动回滚已禁止/);
+  assert.equal(runCommand.rollbackRuns, 0);
+  assert.equal(runCommand.decisionRuns, 1);
+  const history = readReleaseHistory(root, 1, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath})[0];
+  assert.equal(history.status, 'RECOVERY_REQUIRED');
+  assert.equal(history.stepSummary.find(step => step.key === 'verify-tradepool-release').status, 'failed');
+  assert.equal(history.stepSummary.find(step => step.key === 'game-rollback-decision').status, 'done');
+  assert.equal(history.stepSummary.find(step => step.key === 'game-rollback-command').status, 'pending');
+});
+
+test('confirmed unsafe target evidence permits automatic rollback', async () => {
+  const root = tempProject(sampleXml);
+  const historyPath = path.join(root, 'history.json');
+  const runCommand = recoveryDecisionTestRunner('ROLLBACK_CONFIRMED');
+  const result = await executePlan(root, {
+    appTag: '2026070702',
+    dryRun: false,
+    dockerContext: 'SSH178',
+    includeStackDeploy: true
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  }, {runCommand});
+
+  assert.equal(result.status, 'ROLLED_BACK');
+  assert.equal(runCommand.rollbackRuns, 1);
+  assert.equal(runCommand.decisionRuns, 1);
+});
+
+test('rollback decision check failure preserves the target and blocks automatic rollback', async () => {
+  const root = tempProject(sampleXml);
+  const historyPath = path.join(root, 'history.json');
+  const runCommand = recoveryDecisionTestRunner('CHECK_ERROR');
+  const result = await executePlan(root, {
+    appTag: '2026070702',
+    dryRun: false,
+    dockerContext: 'SSH178',
+    includeStackDeploy: true
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  }, {runCommand});
+
+  assert.equal(result.status, 'RECOVERY_REQUIRED');
+  assert.match(result.logs.join('\n'), /复核异常，禁止自动回滚/);
+  assert.equal(runCommand.rollbackRuns, 0);
+  assert.equal(runCommand.decisionRuns, 1);
+});
+
 test('test mode blocks operating-system publication commands when no runner is injected', async () => {
   const root = tempProject(sampleXml);
   const historyPath = path.join(root, 'history.json');
@@ -1722,6 +1802,37 @@ function testCommandRunner(options = {}) {
     return 'test_command=PASS\n';
   };
   runner.commands = commands;
+  return runner;
+}
+
+function recoveryDecisionTestRunner(decision) {
+  const commands = [];
+  const runner = async (cwd, command, env, onChunk) => {
+    commands.push(command);
+    const script = decodedScriptTree(command);
+    if (script.includes('tradepool_release_validation=PASS')) {
+      throw new Error('simulated post-deploy verification failure');
+    }
+    let output = 'test_command=PASS\n';
+    if (script.includes('automatic_rollback_evidence')) {
+      runner.decisionRuns += 1;
+      if (decision === 'CHECK_ERROR') {
+        throw new Error('simulated rollback decision check failure');
+      }
+      output = `automatic_rollback_decision=${decision}\n`;
+    } else if (script.includes('automatic_rollback_validation=PASS')) {
+      runner.rollbackRuns += 1;
+      output = 'automatic_rollback_validation=PASS\n';
+    } else if (command.includes('git rev-parse HEAD')) {
+      output = '0123456789abcdef0123456789abcdef01234567\n'
+        + '0123456\t2026-07-07 20:30:40 +0900\tRelease hospital backend\n';
+    }
+    if (onChunk) onChunk(output);
+    return output;
+  };
+  runner.commands = commands;
+  runner.decisionRuns = 0;
+  runner.rollbackRuns = 0;
   return runner;
 }
 

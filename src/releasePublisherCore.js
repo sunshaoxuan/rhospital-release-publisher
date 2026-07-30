@@ -511,9 +511,19 @@ function createPlan(projectRoot, request, env = process.env) {
       timeoutSeconds: 120
     }));
     steps.push(releaseStep({
+      key: 'game-rollback-decision',
+      title: '记录自动回滚最小触发复核',
+      summary: '自动回滚前只读确认目标版本确实不健康、版本不符或仍与旧版本并行运行；证据不足时保留目标版本和现场',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        gameAutomaticRollbackDecisionCommand(config.stackName, config.containerName, imageTag, appTag)
+      )),
+      validation: '只有 automatic_rollback_decision=ROLLBACK_CONFIRMED 才允许执行自动回滚；HOLD_TARGET 和复核异常均保留现场',
+      actionType: 'remote-check'
+    }));
+    steps.push(releaseStep({
       key: 'game-rollback-command',
       title: '记录游戏回滚命令',
-      summary: '业务验收失败或切换后取消时自动暂停在售 ADMIN 挂单、恢复发布前 Compose，并等待旧版本重新健康',
+      summary: '最小触发复核明确确认目标运行态不安全后，自动暂停在售 ADMIN 挂单、恢复发布前 Compose，并等待旧版本重新健康',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
         gameAutomaticRollbackCommand(remoteComposeDir, config.stackName, config.containerName)
       )),
@@ -1063,11 +1073,66 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
     pushStepLog(failedStepKey, `${error.name === 'CancellationError' ? 'CANCELLED' : 'ERROR'}: ${error.message}`);
     runtimePlan = markStepStatus(runtimePlan, completedStepKeys, failedStepKey,
       error.name === 'CancellationError' ? 'cancelled' : 'failed', stepLogs, stepTiming);
-    const shouldRecover = plan.releaseTarget === 'game'
+    const shouldEvaluateRecovery = plan.releaseTarget === 'game'
       && cutoverStarted
       && !completedStepKeys.includes('verify-tradepool-release');
-    if (shouldRecover) {
+    if (shouldEvaluateRecovery) {
+      const rollbackDecisionStep = plan.steps.find(step => step.key === 'game-rollback-decision');
       const rollbackStep = plan.steps.find(step => step.key === 'game-rollback-command');
+      currentStepKey = rollbackDecisionStep.key;
+      startStepTimer(rollbackDecisionStep.key, stepTiming);
+      pushStepLog(rollbackDecisionStep.key, `[CHECK] ${rollbackDecisionStep.title}`);
+      pushStepLog(rollbackDecisionStep.key, `[RUN] ${rollbackDecisionStep.command}`);
+      updateStep(rollbackDecisionStep.key, 'running');
+      let rollbackConfirmed = false;
+      try {
+        const decisionOutput = await runCommand(projectRoot, rollbackDecisionStep.command, env, chunk => {
+          const line = chunk.trim();
+          if (line) {
+            pushStepLog(rollbackDecisionStep.key, line);
+          }
+          refreshStepElapsed(rollbackDecisionStep.key, stepTiming);
+          updateStep(rollbackDecisionStep.key, 'running');
+        }, elapsedSeconds => {
+          refreshStepElapsed(rollbackDecisionStep.key, stepTiming);
+          if (elapsedSeconds % 10 === 0) {
+            pushStepLog(rollbackDecisionStep.key, `[RUNNING] 自动回滚复核已运行 ${elapsedSeconds} 秒`);
+          }
+          updateStep(rollbackDecisionStep.key, 'running');
+        }, null, 60);
+        rollbackConfirmed = String(decisionOutput).includes('automatic_rollback_decision=ROLLBACK_CONFIRMED');
+        if (!rollbackConfirmed
+            && !String(decisionOutput).includes('automatic_rollback_decision=HOLD_TARGET')) {
+          throw new Error('自动回滚复核没有返回受支持的决策');
+        }
+        completedStepKeys.push(rollbackDecisionStep.key);
+        const decisionDurationMs = finishStepTimer(rollbackDecisionStep.key, stepTiming);
+        pushStepLog(rollbackDecisionStep.key,
+          `[DONE] ${rollbackDecisionStep.title}，用时 ${formatDurationMs(decisionDurationMs)}`);
+        runtimePlan = markStepStatus(runtimePlan, completedStepKeys, rollbackDecisionStep.key,
+          'done', stepLogs, stepTiming);
+        updateStep(rollbackDecisionStep.key, 'done');
+      } catch (decisionError) {
+        finishStepTimer(rollbackDecisionStep.key, stepTiming);
+        pushStepLog(rollbackDecisionStep.key,
+          `RECOVERY_REQUIRED: 自动回滚复核异常，禁止自动回滚并保留目标现场: ${decisionError.message}`);
+        runtimePlan = markStepStatus(runtimePlan, completedStepKeys, rollbackDecisionStep.key,
+          'failed', stepLogs, stepTiming);
+        const heldLogs = logs.slice();
+        appendReleaseHistory(projectRoot,
+          buildHistoryEntry('RECOVERY_REQUIRED', runtimePlan, heldLogs, completedStepKeys), env);
+        return {status: 'RECOVERY_REQUIRED', plan: runtimePlan, logs: heldLogs, completedStepKeys};
+      }
+      if (!rollbackConfirmed) {
+        pushStepLog(rollbackDecisionStep.key,
+          'RECOVERY_REQUIRED: 目标版本仍满足最小健康条件，自动回滚已禁止，保留目标版本和失败现场供复核');
+        runtimePlan = markStepStatus(runtimePlan, completedStepKeys, rollbackDecisionStep.key,
+          'done', stepLogs, stepTiming);
+        const heldLogs = logs.slice();
+        appendReleaseHistory(projectRoot,
+          buildHistoryEntry('RECOVERY_REQUIRED', runtimePlan, heldLogs, completedStepKeys), env);
+        return {status: 'RECOVERY_REQUIRED', plan: runtimePlan, logs: heldLogs, completedStepKeys};
+      }
       currentStepKey = rollbackStep.key;
       executionStatus = 'RECOVERING';
       startStepTimer(rollbackStep.key, stepTiming);
@@ -2700,6 +2765,48 @@ function tradePoolPostDeployCheckCommand(remoteComposeDir, stackName, containerN
     'if [ "$admin_api_status" = 302 ]; then printf "%s\\n" "$admin_api_result" | grep -q \'/login\' || { echo "ERROR: admin API redirect is not a login redirect"; exit 1; }; fi',
     'echo "tradepool_page=$page_result admin_api=$admin_api_result"',
     "echo 'tradepool_release_validation=PASS'"
+  ];
+}
+
+function gameAutomaticRollbackDecisionCommand(stackName, containerName, expectedImage, expectedVersion) {
+  const serviceName = gameServiceName(stackName, containerName);
+  return [
+    `service_name=${shellToken(serviceName)}`,
+    `expected_image=${shellToken(expectedImage)}`,
+    `expected_version=${shellToken(expectedVersion)}`,
+    'service_image=$(docker service inspect "$service_name" --format \'{{.Spec.TaskTemplate.ContainerSpec.Image}}\')',
+    'service_env=$(docker service inspect "$service_name" --format \'{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}\')',
+    'service_version=$(printf "%s\\n" "$service_env" | sed -n \'s/^IMAGE_TAG=//p\' | head -n 1)',
+    'expected_replicas=$(docker service inspect "$service_name" --format \'{{if .Spec.Mode.Replicated}}{{.Spec.Mode.Replicated.Replicas}}{{else}}1{{end}}\')',
+    'active_target=0',
+    'active_other=0',
+    'while IFS=\'|\' read -r task_image task_state; do',
+    '  [ -n "$task_image" ] || continue',
+    '  case "$task_image" in',
+    '    "$expected_image"|"$expected_image"@*) case "$task_state" in Running*) active_target=$((active_target + 1));; esac ;;',
+    '    *) case "$task_state" in Running*) active_other=$((active_other + 1));; esac ;;',
+    '  esac',
+    'done <<EOF',
+    '$(docker service ps "$service_name" --filter desired-state=running --format \'{{.Image}}|{{.CurrentState}}\')',
+    'EOF',
+    'healthy_target=0',
+    'for container_id in $(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name"); do',
+    '  container_image=$(docker inspect "$container_id" --format \'{{.Config.Image}}\')',
+    '  container_health=$(docker inspect "$container_id" --format \'{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}\')',
+    '  container_env=$(docker inspect "$container_id" --format \'{{range .Config.Env}}{{println .}}{{end}}\')',
+    '  container_version=$(printf "%s\\n" "$container_env" | sed -n \'s/^IMAGE_TAG=//p\' | head -n 1)',
+    '  case "$container_image" in',
+    '    "$expected_image"|"$expected_image"@*) if [ "$container_health" = healthy ] && [ "$container_version" = "$expected_version" ]; then healthy_target=$((healthy_target + 1)); fi ;;',
+    '  esac',
+    'done',
+    'image_matches=false',
+    'case "$service_image" in "$expected_image"|"$expected_image"@*) image_matches=true;; esac',
+    'echo "automatic_rollback_evidence image=$service_image version=$service_version expected_replicas=$expected_replicas active_target=$active_target active_other=$active_other healthy_target=$healthy_target"',
+    'if [ "$image_matches" = true ] && [ "$service_version" = "$expected_version" ] && [ "$active_target" -ge "$expected_replicas" ] && [ "$healthy_target" -ge "$expected_replicas" ] && [ "$active_other" -eq 0 ]; then',
+    '  echo automatic_rollback_decision=HOLD_TARGET',
+    'else',
+    '  echo automatic_rollback_decision=ROLLBACK_CONFIRMED',
+    'fi'
   ];
 }
 
