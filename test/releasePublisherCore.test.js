@@ -1737,6 +1737,14 @@ test('plan loading and image labels distinguish target from production compose',
   assert.match(css, /animation: refresh-spin 0.8s linear infinite/);
 });
 
+test('successful plan regeneration clears an earlier error status', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+
+  assert.match(app, /async function plan\(\) \{\s*setStatus\('正在生成发布流程', ''\);/);
+  assert.match(app, /renderPlan\(result\);\s*setStatus\('发布流程已生成', 'success'\);\s*return result;/);
+  assert.match(app, /catch \(error\) \{[\s\S]*setStaticValue\(fields\.targetImageFlow, '发布流程生成失败', true\);/);
+});
+
 test('commit selector includes a refresh control wired to the git refresh endpoint', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');

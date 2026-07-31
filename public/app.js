@@ -761,6 +761,7 @@
   }
 
   async function plan() {
+    setStatus('正在生成发布流程', '');
     renderPlanLoading();
     try {
       const result = await requestJson('/api/plan', {
@@ -768,6 +769,7 @@
         body: JSON.stringify(payload())
       });
       renderPlan(result);
+      setStatus('发布流程已生成', 'success');
       return result;
     } catch (error) {
       setStaticValue(fields.targetImageFlow, '发布流程生成失败', true);
