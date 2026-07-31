@@ -521,6 +521,60 @@ test('rejects destructive database migrations that make automatic application ro
   }), /包含不兼容旧版本自动恢复的操作/);
 });
 
+test('accepts locked unique-id deletion of original player logs from a temporary snapshot', () => {
+  const root = tempProject(sampleXml);
+  const migrationPath = 'scripts/migration/controlled-log-delete.sql';
+  const absoluteMigration = path.join(root, ...migrationPath.split('/'));
+  fs.mkdirSync(path.dirname(absoluteMigration), {recursive: true});
+  fs.writeFileSync(absoluteMigration, [
+    '\\set ON_ERROR_STOP on',
+    'begin;',
+    "set local lock_timeout = '5s';",
+    "set local statement_timeout = '2min';",
+    'create temporary table tmp_admin_gift_reclaim_right_bottom_log on commit drop as',
+    'select candidate.record_id, player_log.id as log_id from candidate join t_log_right_bottom player_log on player_log.hospital_id = candidate.hospital_id;',
+    'select record_id from tmp_admin_gift_reclaim_right_bottom_log group by record_id having count(*) > 1;',
+    'select player_log.id from t_log_right_bottom player_log join tmp_admin_gift_reclaim_right_bottom_log matched on matched.log_id = player_log.id for update of player_log;',
+    'delete from t_log_right_bottom player_log using tmp_admin_gift_reclaim_right_bottom_log matched where player_log.id = matched.log_id;',
+    'commit;',
+    'select 1;',
+    ''
+  ].join('\n'), 'utf8');
+
+  assert.doesNotThrow(() => createPlan(root, {
+    appTag: '2026073101',
+    dryRun: true,
+    includeStackDeploy: true,
+    gitCommit: 'latest',
+    changeAnalysis: {targets: {game: {changedPaths: [migrationPath]}}}
+  }));
+});
+
+test('rejects player log deletion without locked unique-id snapshot contract', () => {
+  const root = tempProject(sampleXml);
+  const migrationPath = 'scripts/migration/uncontrolled-log-delete.sql';
+  const absoluteMigration = path.join(root, ...migrationPath.split('/'));
+  fs.mkdirSync(path.dirname(absoluteMigration), {recursive: true});
+  fs.writeFileSync(absoluteMigration, [
+    '\\set ON_ERROR_STOP on',
+    'begin;',
+    "set local lock_timeout = '5s';",
+    "set local statement_timeout = '2min';",
+    "delete from t_log_right_bottom where content like 'gift%';",
+    'commit;',
+    'select 1;',
+    ''
+  ].join('\n'), 'utf8');
+
+  assert.throws(() => createPlan(root, {
+    appTag: '2026073101',
+    dryRun: true,
+    includeStackDeploy: true,
+    gitCommit: 'latest',
+    changeAnalysis: {targets: {game: {changedPaths: [migrationPath]}}}
+  }), /包含未受控的 DELETE FROM 操作/);
+});
+
 test('blocks runtime changes when the release impact assessment was not updated', () => {
   const root = releaseImpactGitProject();
   const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();

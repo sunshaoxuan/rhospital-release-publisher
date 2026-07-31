@@ -1672,6 +1672,59 @@ function normalizeReleaseMigrationSql(sql) {
   return String(sql || '').replace(/\r(?=\n|$)/g, '');
 }
 
+function validateControlledDeleteStatements(filePath, source) {
+  const deleteStatements = [...source.matchAll(/\bdelete\s+from\s+([a-z_][a-z0-9_]*)\b[\s\S]*?;/gi)];
+  const controlledLogDeletes = {
+    t_log_right_bottom: {
+      alias: 'player_log',
+      snapshot: 'tmp_admin_gift_reclaim_right_bottom_log'
+    },
+    t_log_system: {
+      alias: 'system_log',
+      snapshot: 'tmp_admin_gift_reclaim_system_log'
+    },
+    t_log_yuanbao: {
+      alias: 'yuanbao_log',
+      snapshot: 'tmp_admin_gift_reclaim_yuanbao_log'
+    }
+  };
+
+  for (const match of deleteStatements) {
+    const tableName = match[1].toLowerCase();
+    const statement = match[0].replace(/\s+/g, ' ').trim();
+    if (tableName.startsWith('tmp_')) {
+      const temporaryTablePattern = new RegExp(`\\bcreate\\s+temporary\\s+table\\s+${tableName}\\b`, 'i');
+      if (temporaryTablePattern.test(source)) {
+        continue;
+      }
+    }
+
+    const contract = controlledLogDeletes[tableName];
+    if (contract) {
+      const escapedSnapshot = contract.snapshot.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const deletePattern = new RegExp(
+        `^delete from ${tableName} ${contract.alias} using ${escapedSnapshot} matched where ${contract.alias}\\.id = matched\\.log_id;$`,
+        'i'
+      );
+      const snapshotPattern = new RegExp(
+        `\\bcreate\\s+temporary\\s+table\\s+${escapedSnapshot}\\s+on\\s+commit\\s+drop\\s+as[\\s\\S]*?\\b${contract.alias}\\.id\\s+as\\s+log_id\\b`,
+        'i'
+      );
+      const lockPattern = new RegExp(
+        `\\bjoin\\s+${escapedSnapshot}\\s+matched\\s+on\\s+matched\\.log_id\\s*=\\s*${contract.alias}\\.id[\\s\\S]*?\\bfor\\s+update\\s+of\\s+${contract.alias}\\b`,
+        'i'
+      );
+      if (deletePattern.test(statement)
+          && snapshotPattern.test(source)
+          && lockPattern.test(source)
+          && /\bgroup\s+by\s+record_id\s+having\s+count\s*\(\s*\*\s*\)\s*>\s*1\b/i.test(source)) {
+        continue;
+      }
+    }
+    throw new Error(`数据库迁移 ${filePath} 包含未受控的 DELETE FROM 操作: ${tableName}`);
+  }
+}
+
 function validateReleaseMigration(filePath, sql) {
   const source = String(sql || '');
   const requirements = [
@@ -1686,10 +1739,11 @@ function validateReleaseMigration(filePath, sql) {
   if (missing.length > 0) {
     throw new Error(`数据库迁移 ${filePath} 缺少发布安全约束: ${missing.join(', ')}`);
   }
-  const incompatible = source.match(/\b(drop\s+(?:table|column|index|constraint)|truncate\b|rename\s+(?:column|to)\b|alter\s+column\b|delete\s+from\b)/i);
+  const incompatible = source.match(/\b(drop\s+(?:table|column|index|constraint)|truncate\b|rename\s+(?:column|to)\b|alter\s+column\b)/i);
   if (incompatible) {
     throw new Error(`数据库迁移 ${filePath} 包含不兼容旧版本自动恢复的操作: ${incompatible[0]}`);
   }
+  validateControlledDeleteStatements(filePath, source);
 }
 
 function assertJpaSchemaMigrationCoverage(projectRoot, targetCommit, changeAnalysis, releaseMigrations) {
