@@ -322,6 +322,17 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.command.includes('--app-tag 2026070702')
     && step.validation.includes('X-Cache')
     && step.validation.includes('Steam ES 模块')));
+  assert.ok(plan.steps.some(step => step.key === 'build-game-static-assets'
+    && step.command.includes('--target frontend-assets')
+    && step.validationCommand.includes('--mode validate')
+    && step.validationCommand.includes('game-static-assets.mjs')));
+  assert.ok(plan.steps.some(step => step.key === 'stage-game-static-assets'
+    && step.productionAction
+    && step.command.includes('game-static-assets.mjs')
+    && step.command.includes('--mode stage')));
+  assert.ok(plan.steps.some(step => step.key === 'verify-game-static-assets-predeploy'
+    && step.command.includes('--mode verify')
+    && step.validation.includes('X-Cache=LOCAL')));
   assert.ok(plan.steps.some(step => step.key === 'verify-tradepool-release'
     && decodedScriptTree(step.command).includes('RELEASE_DB_AUDIT_MODE=verify')
     && decodedScriptTree(step.command).includes('RELEASE_EXPECTED_CATALOG_VERSION=20')
@@ -373,10 +384,13 @@ test('creates dry run command plan without production execution enabled', () => 
   assertStepType(plan, 'save-run-config', 'local-config', false);
   assertStepType(plan, 'compile-artifact', 'build', false);
   assertStepType(plan, 'build-image', 'build', false);
+  assertStepType(plan, 'build-game-static-assets', 'build', false);
   assertStepType(plan, 'validate-game-image', 'build', false);
   assertStepType(plan, 'publish-image', 'production', true);
   assertStepType(plan, 'resolve-ssh-target', 'local-check', false);
   assertStepType(plan, 'read-remote-compose', 'remote-check', false);
+  assertStepType(plan, 'stage-game-static-assets', 'production', true);
+  assertStepType(plan, 'verify-game-static-assets-predeploy', 'remote-check', false);
   assertStepType(plan, 'game-database-preflight', 'remote-check', false);
   assertStepType(plan, 'backup-game-release', 'production', true);
   assertStepType(plan, 'update-remote-compose', 'production', true);
@@ -625,6 +639,7 @@ test('accepts an updated release impact assessment with exact runtime path and r
   assert.deepEqual(historyEntry.releaseImpactRuntimePaths, [runtimePath]);
   assert.deepEqual(historyEntry.releaseImpactRequiredChecks, [
     'test-game-backend',
+    'verify-game-static-assets-predeploy',
     'pre-deploy-checklist',
     'final-runtime-check',
     'verify-game-static-delivery'
@@ -746,7 +761,7 @@ test('rejects a release impact assessment that omits a mandatory base check', ()
     assessmentId: '20260717-missing-base-check',
     coveredRuntimePaths: [runtimePath],
     checklistDecision: 'existing-checks-sufficient',
-    requiredChecks: ['test-game-backend', 'pre-deploy-checklist']
+    requiredChecks: ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist']
   });
   runGit(root, ['add', '.']);
   runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'missing base check']);
@@ -1945,6 +1960,7 @@ function releaseImpactPlanRequest(target, baseline, changedPaths, ignoredPaths) 
 function writeReleaseImpact(root, options) {
   const requiredChecks = (options.requiredChecks || [
     'test-game-backend',
+    'verify-game-static-assets-predeploy',
     'pre-deploy-checklist',
     'final-runtime-check',
     'verify-game-static-delivery'

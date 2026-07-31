@@ -192,7 +192,16 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 固定 CheckList 之外，业务仓库通过 `release/release-impact.json` 保存逐次发版影响评估。发布器比较最近一次成功生产发布提交和目标提交，检测游戏或论坛运行路径变化。存在运行变化时，评估文件必须同时更新并使用新的 `assessmentId`，`coveredRuntimePaths` 必须与 Git 差异完全一致。评估还必须说明代码影响、数据库影响、风险等级、现有检查是否足够，并引用发布器已注册的可执行步骤。遗漏评估、沿用旧标识、路径覆盖不完整、数据库影响未声明或检查步骤不存在时，发布计划生成直接失败。
 
-游戏发布至少保留 `test-game-backend`、`pre-deploy-checklist`、`final-runtime-check` 和 `verify-game-static-delivery`。论坛构建发布至少保留 `validate-forum-source`、`forum-preflight` 和 `final-runtime-check`。实体、Repository、DAO 或迁移脚本变化时必须声明数据库影响；存在迁移脚本时还必须选择 `apply-database-migrations`。现有步骤无法覆盖新增风险时，应先在本仓库增加可执行检查和测试，再由业务仓库的影响评估引用该步骤。
+游戏发布至少保留 `test-game-backend`、`verify-game-static-assets-predeploy`、`pre-deploy-checklist`、`final-runtime-check` 和 `verify-game-static-delivery`。论坛构建发布至少保留 `validate-forum-source`、`forum-preflight` 和 `final-runtime-check`。实体、Repository、DAO 或迁移脚本变化时必须声明数据库影响；存在迁移脚本时还必须选择 `apply-database-migrations`。现有步骤无法覆盖新增风险时，应先在本仓库增加可执行检查和测试，再由业务仓库的影响评估引用该步骤。
+
+游戏静态资源采用应用切换前交付：
+
+1. `build-game-static-assets` 从业务仓库 `frontend-assets` Docker 目标生成清单与内容寻址对象。
+2. `stage-game-static-assets` 按 `C:\workspace\rhopital\release\game-static-gateways.json` 向 Riven 与 VMISS 增量安装对象，远端逐文件复算完整 SHA-256，保留全部旧对象。需要使用其他受管清单时可设置 `RELEASE_PUBLISHER_GATEWAY_STATIC_CONFIG`。
+3. `verify-game-static-assets-predeploy` 直连两台前置，对清单每个 `/assets/**?h=` 地址执行 HTTPS HEAD，全部要求 HTTP 200、`X-Cache=LOCAL` 与 `X-Asset-Source=gate-object`。
+4. 上述步骤全部完成后才进入生产 Compose 更新和 Swarm 热滚。任一节点、任一文件或 TLS 检查失败时流程停止。
+
+双前置 Nginx 的本地对象优先规则属于一次性基础设施配置，由 `C:\workspace\rhopital` 维护并经过独立生产变更授权安装。以后每次应用发布的资源预置与逐文件验证由本发布器自动完成。
 
 ## 游戏静态资源交付验收
 

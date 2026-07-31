@@ -30,7 +30,7 @@ const RELEASE_IMPACT_SCHEMA_VERSION = 1;
 const RELEASE_CHECKLIST_DECISIONS = new Set(['existing-checks-sufficient', 'checklist-updated']);
 const RELEASE_DATABASE_IMPACTS = new Set(['none', 'query-change', 'schema-change', 'data-change', 'configuration-change']);
 const REQUIRED_RELEASE_CHECKS = {
-  game: ['test-game-backend', 'pre-deploy-checklist', 'final-runtime-check', 'verify-game-static-delivery'],
+  game: ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist', 'final-runtime-check', 'verify-game-static-delivery'],
   forum: ['validate-forum-source', 'forum-preflight', 'final-runtime-check']
 };
 const KNOWN_RELEASE_CHECKS = {
@@ -38,10 +38,12 @@ const KNOWN_RELEASE_CHECKS = {
     'validate-game-sso-source',
     'test-game-backend',
     'compile-artifact',
+    'build-game-static-assets',
     'validate-game-image',
     'game-database-preflight',
     'apply-database-migrations',
     'pre-deploy-checklist',
+    'verify-game-static-assets-predeploy',
     'final-runtime-check',
     'verify-game-static-delivery',
     'verify-tradepool-release'
@@ -77,6 +79,7 @@ const DEFAULT_FORUM_CONTAINER_NAME = 'flarum';
 const DEFAULT_JETBRAINS_PRODUCT_DIR = 'IntelliJIdea2026.1';
 const DEFAULT_HISTORY_FILE = '.release-history.json';
 const DEFAULT_PUBLISHER_CONFIG = 'release-publisher.config.json';
+const DEFAULT_GATEWAY_STATIC_CONFIG = path.resolve(__dirname, '..', '..', 'rhopital', 'release', 'game-static-gateways.json');
 const TAG_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
 const GIT_REF_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._/@:-]{0,127}$/;
 const GIT_COMMIT_PATTERN = /^[0-9a-fA-F]{7,40}$/;
@@ -327,6 +330,23 @@ function createPlan(projectRoot, request, env = process.env) {
       executable: true
     }),
     releaseStep({
+      key: 'build-game-static-assets',
+      title: '构建内容寻址静态资源交付物',
+      summary: '从同一目标提交生成逐文件 SHA-256 清单和前置机不可变对象目录',
+      command: dockerCommand(dockerTarget, [
+        'build',
+        '--target', 'frontend-assets',
+        '-f', config.dockerfile,
+        '--build-arg', `APP_TAG=${appTag}`,
+        '-t', `${imageTag}-frontend-assets`,
+        '.'
+      ]),
+      validation: gameStaticAssetArtifactCommand('validate', imageTag, appTag, gatewayStaticConfigPath(env), dockerTarget),
+      validationCommand: gameStaticAssetArtifactCommand('validate', imageTag, appTag, gatewayStaticConfigPath(env), dockerTarget),
+      actionType: 'build',
+      executable: true
+    }),
+    releaseStep({
       key: 'validate-game-image',
       title: '验证游戏镜像版本、迁移包与交易池能力',
       summary: `确认运行镜像内的 TAG、迁移清单、SSO、Catalog v${catalogSchemaVersion} 和管理员交易池代码完整`,
@@ -375,6 +395,27 @@ function createPlan(projectRoot, request, env = process.env) {
       validation: `必须同时读到游戏镜像、IMAGE_TAG、FORUM_SSO_ENABLED=true 和论坛 SSO Secret`,
       actionType: 'remote-check',
       executable: true
+    }));
+    steps.push(releaseStep({
+      key: 'stage-game-static-assets',
+      title: '预置双前置不可变静态资源',
+      summary: '在应用切换前向 Riven 与 VMISS 增量写入目标提交的内容寻址资源，并逐文件复算 SHA-256',
+      command: gameStaticAssetArtifactCommand('stage', imageTag, appTag, gatewayStaticConfigPath(env), dockerTarget),
+      validation: '两台前置必须输出 gateway_static_stage=PASS，现有旧 HASH 对象保持可用',
+      actionType: 'production',
+      productionAction: true,
+      executable: true,
+      timeoutSeconds: 1800
+    }));
+    steps.push(releaseStep({
+      key: 'verify-game-static-assets-predeploy',
+      title: '应用切换前逐文件验证双前置资源',
+      summary: '直连两台前置，对目标清单每个 /assets/**?h= 地址执行 HTTPS 验证并确认由本地不可变对象提供',
+      command: gameStaticAssetArtifactCommand('verify', imageTag, appTag, gatewayStaticConfigPath(env), dockerTarget),
+      validation: '两台前置的目标清单全部返回 HTTP 200、X-Cache=LOCAL 和 X-Asset-Source=gate-object，任一文件失败即禁止热滚',
+      actionType: 'remote-check',
+      executable: true,
+      timeoutSeconds: 2100
     }));
     steps.push(releaseStep({
       key: 'game-database-preflight',
@@ -591,6 +632,14 @@ function createPlan(projectRoot, request, env = process.env) {
 function gameStaticDeliveryCheckCommand(appTag) {
   const scriptPath = path.resolve(__dirname, '..', 'scripts', 'verify-game-static-delivery.mjs');
   return `node ${shellToken(scriptPath)} --app-tag ${shellToken(appTag)}`;
+}
+
+function gameStaticAssetArtifactCommand(mode, imageTag, appTag, configPath, dockerTarget) {
+  const scriptPath = path.resolve(__dirname, '..', 'scripts', 'game-static-assets.mjs');
+  const dockerContextArgument = dockerTarget && dockerTarget.mode === 'context' && dockerTarget.context
+    ? ` --docker-context ${shellToken(dockerTarget.context)}`
+    : '';
+  return `node ${shellToken(scriptPath)} --mode ${shellToken(mode)} --image ${shellToken(`${imageTag}-frontend-assets`)} --app-tag ${shellToken(appTag)} --config ${shellToken(configPath)}${dockerContextArgument}`;
 }
 
 function createForumPlan(projectRoot, request, env = process.env) {
@@ -2350,6 +2399,12 @@ function publisherConfigPath(env = process.env) {
   return env.RELEASE_PUBLISHER_CONFIG
     ? path.resolve(env.RELEASE_PUBLISHER_CONFIG)
     : path.resolve(__dirname, '..', DEFAULT_PUBLISHER_CONFIG);
+}
+
+function gatewayStaticConfigPath(env = process.env) {
+  return env.RELEASE_PUBLISHER_GATEWAY_STATIC_CONFIG
+    ? path.resolve(env.RELEASE_PUBLISHER_GATEWAY_STATIC_CONFIG)
+    : DEFAULT_GATEWAY_STATIC_CONFIG;
 }
 
 function publishImageCommand(imageTag, target) {
