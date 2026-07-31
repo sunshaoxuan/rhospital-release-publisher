@@ -315,6 +315,13 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('service_sso_secret=')
     && decodedRemoteScript(step.command).includes('active_other_count')
     && decodedRemoteScript(step.command).includes('rollout_validation=PASS')));
+  assert.ok(plan.steps.some(step => step.key === 'verify-game-static-delivery'
+    && step.finalCheck
+    && step.timeoutSeconds === 2100
+    && step.command.includes('verify-game-static-delivery.mjs')
+    && step.command.includes('--app-tag 2026070702')
+    && step.validation.includes('X-Cache')
+    && step.validation.includes('Steam ES 模块')));
   assert.ok(plan.steps.some(step => step.key === 'verify-tradepool-release'
     && decodedScriptTree(step.command).includes('RELEASE_DB_AUDIT_MODE=verify')
     && decodedScriptTree(step.command).includes('RELEASE_EXPECTED_CATALOG_VERSION=20')
@@ -375,6 +382,7 @@ test('creates dry run command plan without production execution enabled', () => 
   assertStepType(plan, 'update-remote-compose', 'production', true);
   assertStepType(plan, 'deploy-stack', 'production', true);
   assertStepType(plan, 'final-runtime-check', 'remote-check', false);
+  assertStepType(plan, 'verify-game-static-delivery', 'remote-check', false);
   assertStepType(plan, 'verify-tradepool-release', 'remote-check', false);
   assertStepType(plan, 'game-rollback-decision', 'remote-check', false);
 });
@@ -618,7 +626,8 @@ test('accepts an updated release impact assessment with exact runtime path and r
   assert.deepEqual(historyEntry.releaseImpactRequiredChecks, [
     'test-game-backend',
     'pre-deploy-checklist',
-    'final-runtime-check'
+    'final-runtime-check',
+    'verify-game-static-delivery'
   ]);
 });
 
@@ -1929,7 +1938,8 @@ function writeReleaseImpact(root, options) {
   const requiredChecks = (options.requiredChecks || [
     'test-game-backend',
     'pre-deploy-checklist',
-    'final-runtime-check'
+    'final-runtime-check',
+    'verify-game-static-delivery'
   ]).map(stepKey => ({
     stepKey,
     reason: `检查 ${stepKey} 能够覆盖本次发布影响并提供失败证据`

@@ -59,7 +59,7 @@ npm start
 npm test
 ```
 
-该命令只验证计划生成、状态流转、历史记录和命令文本。执行类测试必须注入内存命令运行器，测试模式会阻止启动真实 PowerShell 发布命令。`npm test` 不执行 Docker build、Docker run、docker save、SCP、SSH、数据库迁移、生产部署或自动回退。镜像制作与上传只属于页面明确启动的正式发布流程。
+该命令串行验证计划生成、状态流转、历史记录、静态资源交付判定和命令文本。串行模式避免 Windows Bash 超时用例争用共享进程资源。执行类测试必须注入内存命令运行器，测试模式会阻止启动真实 PowerShell 发布命令。`npm test` 不执行 Docker build、Docker run、docker save、SCP、SSH、数据库迁移、生产部署或自动回退。镜像制作与上传只属于页面明确启动的正式发布流程。
 
 打开：
 
@@ -192,7 +192,27 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 固定 CheckList 之外，业务仓库通过 `release/release-impact.json` 保存逐次发版影响评估。发布器比较最近一次成功生产发布提交和目标提交，检测游戏或论坛运行路径变化。存在运行变化时，评估文件必须同时更新并使用新的 `assessmentId`，`coveredRuntimePaths` 必须与 Git 差异完全一致。评估还必须说明代码影响、数据库影响、风险等级、现有检查是否足够，并引用发布器已注册的可执行步骤。遗漏评估、沿用旧标识、路径覆盖不完整、数据库影响未声明或检查步骤不存在时，发布计划生成直接失败。
 
-游戏发布至少保留 `test-game-backend`、`pre-deploy-checklist` 和 `final-runtime-check`。论坛构建发布至少保留 `validate-forum-source`、`forum-preflight` 和 `final-runtime-check`。实体、Repository、DAO 或迁移脚本变化时必须声明数据库影响；存在迁移脚本时还必须选择 `apply-database-migrations`。现有步骤无法覆盖新增风险时，应先在本仓库增加可执行检查和测试，再由业务仓库的影响评估引用该步骤。
+游戏发布至少保留 `test-game-backend`、`pre-deploy-checklist`、`final-runtime-check` 和 `verify-game-static-delivery`。论坛构建发布至少保留 `validate-forum-source`、`forum-preflight` 和 `final-runtime-check`。实体、Repository、DAO 或迁移脚本变化时必须声明数据库影响；存在迁移脚本时还必须选择 `apply-database-migrations`。现有步骤无法覆盖新增风险时，应先在本仓库增加可执行检查和测试，再由业务仓库的影响评估引用该步骤。
+
+## 游戏静态资源交付验收
+
+`verify-game-static-delivery` 在应用最终运行校验之后执行，使用 Chrome DevTools Protocol 完成以下检查：
+
+1. 分别直连 Riven 与 VMISS 前置，绕过负载均衡随机分配。
+2. 每个前置使用本次应用 TAG 和节点名组成独立探针查询参数，第一次产生冷缓存，第二次验证暖缓存。
+3. 网页域名必须真实登录并进入 `FirstFloor`，加载状态达到 100%。
+4. 全部 `/assets/**` 请求必须零 4xx/5xx、零网络失败并包含 `X-Cache`，暖缓存不得出现 MISS。
+5. 冷缓存 MISS 响应体总量不得超过默认 240 MiB 源站预算。预算可以通过 `RHOSPITAL_RELEASE_ORIGIN_BUDGET_BYTES` 调整。
+6. Steam 域名使用同一前置独立加载，必须枚举到至少一个 ES 模块，并要求全部 JavaScript 模块成功且包含缓存状态。
+7. 浏览器运行时错误、控制台错误和加载器错误均会阻止发布完成。
+
+登录 token 只从 `RHOSPITAL_RELEASE_AUTH_TOKEN_FILE` 指向的本地受控文件读取。文件可以保存原始 token 或 `token=<value>`，脚本不会输出 token。缺少文件、Chrome、前置地址或任一验收证据时检查失败关闭。节点 IP、网页域名和 Steam 域名可分别通过 `RHOSPITAL_RIVEN_GATE_IP`、`RHOSPITAL_VMISS_GATE_IP`、`RHOSPITAL_GAME_HOST` 与 `RHOSPITAL_STEAM_HOST` 覆盖。
+
+查看本地参数说明不会访问生产：
+
+```powershell
+node scripts\verify-game-static-delivery.mjs --help
+```
 
 包含管理员交易池的游戏发布还会执行以下门禁：
 

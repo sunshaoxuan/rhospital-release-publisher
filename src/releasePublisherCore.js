@@ -30,7 +30,7 @@ const RELEASE_IMPACT_SCHEMA_VERSION = 1;
 const RELEASE_CHECKLIST_DECISIONS = new Set(['existing-checks-sufficient', 'checklist-updated']);
 const RELEASE_DATABASE_IMPACTS = new Set(['none', 'query-change', 'schema-change', 'data-change', 'configuration-change']);
 const REQUIRED_RELEASE_CHECKS = {
-  game: ['test-game-backend', 'pre-deploy-checklist', 'final-runtime-check'],
+  game: ['test-game-backend', 'pre-deploy-checklist', 'final-runtime-check', 'verify-game-static-delivery'],
   forum: ['validate-forum-source', 'forum-preflight', 'final-runtime-check']
 };
 const KNOWN_RELEASE_CHECKS = {
@@ -43,6 +43,7 @@ const KNOWN_RELEASE_CHECKS = {
     'apply-database-migrations',
     'pre-deploy-checklist',
     'final-runtime-check',
+    'verify-game-static-delivery',
     'verify-tradepool-release'
   ]),
   forum: new Set([
@@ -498,6 +499,17 @@ function createPlan(projectRoot, request, env = process.env) {
       timeoutSeconds: 1860
     }));
     steps.push(releaseStep({
+      key: 'verify-game-static-delivery',
+      title: '验证双前置游戏静态资源交付',
+      summary: '使用安全令牌启动真实 Chrome，分别直连 Riven 与 VMISS，执行冷缓存、热缓存和 Steam 登录后完整加载验收',
+      command: gameStaticDeliveryCheckCommand(appTag),
+      validation: '两台前置均须加载到 FirstFloor，全部 /assets/ 和 Steam ES 模块零 4xx/5xx、零浏览器错误、响应包含 X-Cache，热缓存无 MISS，单节点冷缓存源站字节不超过预算',
+      actionType: 'remote-check',
+      executable: true,
+      finalCheck: true,
+      timeoutSeconds: 2100
+    }));
+    steps.push(releaseStep({
       key: 'verify-tradepool-release',
       title: '验证管理员交易池发布结果',
       summary: `核对 Catalog v${catalogSchemaVersion} 标记、字段、索引、迁移日志、匿名页面跳转和管理员 API 拒绝未登录请求`,
@@ -574,6 +586,11 @@ function createPlan(projectRoot, request, env = process.env) {
       '旧代码回滚前必须暂停所有 ACTIVE 的 ADMIN 挂单，避免旧版交易逻辑继续处理系统库存'
     ]
   };
+}
+
+function gameStaticDeliveryCheckCommand(appTag) {
+  const scriptPath = path.resolve(__dirname, '..', 'scripts', 'verify-game-static-delivery.mjs');
+  return `node ${shellToken(scriptPath)} --app-tag ${shellToken(appTag)}`;
 }
 
 function createForumPlan(projectRoot, request, env = process.env) {

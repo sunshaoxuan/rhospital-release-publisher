@@ -9,7 +9,7 @@
     "service:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-windows-service.ps1",
     "service:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/status-windows-service.ps1",
     "service:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall-windows-service.ps1",
-    "test": "node --test test/*.test.js"
+    "test": "node --test --test-concurrency=1 test/*.test.js"
   },
   "engines": {
     "node": ">=18"
