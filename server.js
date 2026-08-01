@@ -105,7 +105,11 @@ const server = http.createServer(async (req, res) => {
         dockerContextResolution,
         ideaDockerServerResolution,
         dockerCommandTarget: resolveDockerCommandTarget(dockerServerName, dockerContextResolution, ideaDockerServerResolution),
-        executionEnabled: true
+        executionEnabled: true,
+        remoteRehearsalAvailable: Boolean(
+          process.env.RELEASE_PUBLISHER_REHEARSAL_GATEWAY_STATIC_CONFIG
+          && fs.existsSync(path.resolve(process.env.RELEASE_PUBLISHER_REHEARSAL_GATEWAY_STATIC_CONFIG))
+        )
       });
     }
     if (pathname === '/api/remote-tag' && req.method === 'GET') {

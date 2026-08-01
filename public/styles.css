@@ -469,6 +469,14 @@ button:disabled {
   accent-color: var(--blue);
 }
 
+.check-note {
+  display: block;
+  margin: -4px 0 10px 27px;
+  color: var(--ink-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .actions {
   display: flex;
   justify-content: flex-end;

@@ -1269,6 +1269,70 @@ test('execute dry run marks every pipeline step checked without mutating files o
   assert.equal(history.length, 0);
 });
 
+test('remote rehearsal dry run runs only the isolated rehearsal command', async () => {
+  const root = tempProject(sampleXml);
+  const historyPath = path.join(root, 'history.json');
+  const rehearsalConfigPath = path.join(root, 'rehearsal-gateways.json');
+  const productionConfigPath = path.join(root, 'production-gateways.json');
+  const gateway = (id, host, remoteAssetRoot) => ({
+    id,
+    host,
+    username: 'tester',
+    port: '22',
+    domain: 'stage.rhospital.test',
+    remoteAssetRoot
+  });
+  fs.writeFileSync(rehearsalConfigPath, JSON.stringify({
+    environment: 'rehearsal',
+    gateways: [
+      gateway('stage-a', 'stage-a.example', '/tmp/rhospital-release-rehearsal'),
+      gateway('stage-b', 'stage-b.example', '/tmp/rhospital-release-rehearsal')
+    ]
+  }), 'utf8');
+  fs.writeFileSync(productionConfigPath, JSON.stringify({
+    gateways: [gateway('prod-a', 'prod-a.example', '/var/lib/assets'), gateway('prod-b', 'prod-b.example', '/var/lib/assets')]
+  }), 'utf8');
+  const runCommand = testCommandRunner();
+  const result = await executePlan(root, {
+    appTag: '2026070702',
+    dryRun: true,
+    remoteRehearsal: true,
+    dockerContext: 'SSH178',
+    includeStackDeploy: true
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_GATEWAY_STATIC_CONFIG: productionConfigPath,
+    RELEASE_PUBLISHER_REHEARSAL_GATEWAY_STATIC_CONFIG: rehearsalConfigPath,
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  }, {runCommand});
+
+  assert.equal(result.status, 'DRY_RUN');
+  assert.equal(result.plan.remoteRehearsal, true);
+  const rehearsalStep = result.plan.steps.find(step => step.key === 'rehearse-game-static-assets');
+  assert.equal(rehearsalStep.status, 'done');
+  assert.equal(rehearsalStep.actionType, 'rehearsal');
+  assert.match(runCommand.commands[0], /--mode rehearse/);
+  assert.match(runCommand.commands[0], /--production-config/);
+  assert.ok(result.plan.steps.filter(step => step.key !== 'rehearse-game-static-assets')
+    .every(step => step.status === 'dry-run-checked'));
+  assert.equal(readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath}).length, 0);
+
+  assert.throws(() => createPlan(root, {
+    appTag: '2026070702',
+    dryRun: false,
+    remoteRehearsal: true,
+    includeStackDeploy: true
+  }, {
+    RELEASE_PUBLISHER_GATEWAY_STATIC_CONFIG: productionConfigPath,
+    RELEASE_PUBLISHER_REHEARSAL_GATEWAY_STATIC_CONFIG: rehearsalConfigPath,
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+  }), /只能在 dry run 模式下执行/);
+});
+
 test('forum dry run returns its target without changing config or history', async () => {
   const root = tempProject(sampleXml);
   const configPath = path.join(root, '.run', '148.135.9.123.run.xml');
@@ -1826,10 +1890,15 @@ test('release console exposes game and forum targets with target-aware API paylo
   assert.match(html, /id="forum-image-mode"/);
   assert.match(html, /option value="build">构建并上传新镜像<\/option>/);
   assert.match(html, /option value="reuse">复用生产已有镜像<\/option>/);
+  assert.match(html, /id="remote-rehearsal"/);
+  assert.match(html, /未配置隔离前置演练清单/);
   assert.match(html, /id="deploy-toggle-label"/);
   assert.match(app, /releaseTarget:\s*releaseTarget\.value/);
   assert.match(app, /forumImageMode:\s*forumImageMode\.value/);
   assert.match(app, /releaseChangedOnly:\s*true/);
+  assert.match(app, /remoteRehearsal:\s*remoteRehearsal\.checked/);
+  assert.match(app, /remoteRehearsalAvailable/);
+  assert.match(app, /--远程前置演练|远程前置演练/);
   assert.match(app, /api\/changes/);
   assert.match(app, /recommendedTarget === 'game'/);
   assert.match(app, /function renderChangeAnalysis/);
@@ -1849,6 +1918,7 @@ test('release console exposes game and forum targets with target-aware API paylo
   assert.match(server, /RELEASE_PUBLISHER_FORUM_REMOTE_COMPOSE_DIR/);
   assert.match(server, /pathname === '\/api\/version'/);
   assert.match(server, /capturePublisherRuntimeVersion/);
+  assert.match(server, /RELEASE_PUBLISHER_REHEARSAL_GATEWAY_STATIC_CONFIG/);
   assert.match(server, /assertReleaseTargetChanged/);
   assert.match(server, /gitCommit:\s*body\.gitCommit === 'latest'[\s\S]*?analysis\.targetCommit/);
 });

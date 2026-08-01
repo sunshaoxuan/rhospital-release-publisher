@@ -9,6 +9,8 @@ import { spawnSync } from 'node:child_process';
 const HASH_PATTERN = /^[0-9a-f]{20}$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const SAFE_TAG_PATTERN = /^[0-9A-Za-z][0-9A-Za-z._-]{0,63}$/;
+const SAFE_REHEARSAL_ROOT_PATTERN = /^\/tmp\/rhospital-release-rehearsal(?:\/|$)/;
+const SAFE_GATEWAY_ID_PATTERN = /^[0-9A-Za-z._-]+$/;
 
 export function parseManifest(text) {
     const entries = text.split(/\r?\n/).filter(Boolean).map((line, index) => {
@@ -160,6 +162,103 @@ echo "gateway_static_stage=PASS gateway=${gateway.id} files=$count manifest=$roo
     ], { input: script });
 }
 
+export function buildRehearsalRemoteScript() {
+    return String.raw`set -eu
+base="$1"
+tag="$2"
+archive="$3"
+run_id="$4"
+gateway_id="$5"
+case "$base" in
+  /tmp/rhospital-release-rehearsal|/tmp/rhospital-release-rehearsal/*) ;;
+  *) echo "unsafe rehearsal root" >&2; exit 1 ;;
+esac
+case "$run_id" in
+  rehearsal-[0-9A-Za-z._-]*) ;;
+  *) echo "unsafe rehearsal id" >&2; exit 1 ;;
+esac
+case "$gateway_id" in
+  [0-9A-Za-z._-]*) ;;
+  *) echo "unsafe gateway id" >&2; exit 1 ;;
+esac
+run_root="$base/$run_id"
+root="$run_root/$gateway_id"
+incoming="$root/.incoming"
+cleanup() { rm -rf "$run_root"; rm -f "$archive"; }
+trap cleanup EXIT
+mkdir -p "$incoming" "$root/objects" "$root/manifests"
+tar -xzf "$archive" -C "$incoming"
+test -s "$incoming/manifest.tsv"
+tab="$(printf '\t')"
+validate_objects() {
+  count=0
+  while IFS="$tab" read -r public_hash full_hash size public_path; do
+    source_file="$incoming/objects/$public_hash/assets$public_path"
+    destination="$root/objects/$public_hash/assets$public_path"
+    test -f "$source_file"
+    test -f "$destination"
+    test "$(wc -c < "$destination" | tr -d ' ')" = "$size"
+    test "$(sha256sum "$destination" | awk '{print $1}')" = "$full_hash"
+    count=$((count + 1))
+  done < "$incoming/manifest.tsv"
+  test "$count" -gt 0
+}
+count=0
+while IFS="$tab" read -r public_hash full_hash size public_path; do
+  case "$public_hash" in *[!0-9a-f]*|'') echo "invalid public hash" >&2; exit 1;; esac
+  test "$(printf '%s' "$public_hash" | wc -c | tr -d ' ')" -eq 20
+  case "$full_hash" in *[!0-9a-f]*|'') echo "invalid SHA-256" >&2; exit 1;; esac
+  test "$(printf '%s' "$full_hash" | wc -c | tr -d ' ')" -eq 64
+  test "$public_hash" = "$(printf '%s' "$full_hash" | cut -c1-20)"
+  case "$public_path" in /*) ;; *) echo "invalid public path" >&2; exit 1;; esac
+  case "$public_path" in *..*|*\\*) echo "unsafe public path" >&2; exit 1;; esac
+  source_file="$incoming/objects/$public_hash/assets$public_path"
+  destination="$root/objects/$public_hash/assets$public_path"
+  test -f "$source_file"
+  test "$(wc -c < "$source_file" | tr -d ' ')" = "$size"
+  test "$(sha256sum "$source_file" | awk '{print $1}')" = "$full_hash"
+  install -D -m 0644 "$source_file" "$destination"
+  count=$((count + 1))
+done < "$incoming/manifest.tsv"
+test "$count" -gt 0
+install -m 0644 "$incoming/manifest.tsv" "$root/manifests/$tag.tsv"
+validate_objects
+echo "rehearsal_create_validate=PASS gateway=$gateway_id files=$count"
+first_line="$(sed -n '1p' "$incoming/manifest.tsv")"
+IFS="$tab" read -r first_public_hash first_full_hash first_size first_public_path <<EOF
+$first_line
+EOF
+first_destination="$root/objects/$first_public_hash/assets$first_public_path"
+rm -f "$first_destination"
+if validate_objects; then
+  echo "rehearsal_delete_detection=FAIL gateway=$gateway_id" >&2
+  exit 1
+fi
+echo "rehearsal_delete_detection=PASS gateway=$gateway_id"
+install -D -m 0644 "$incoming/objects/$first_public_hash/assets$first_public_path" "$first_destination"
+validate_objects
+echo "rehearsal_restore_validate=PASS gateway=$gateway_id"
+trap - EXIT
+rm -rf "$run_root"
+rm -f "$archive"
+test ! -e "$run_root"
+echo "gateway_static_rehearsal=PASS gateway=$gateway_id files=$count"
+`;
+}
+
+function rehearseGateway(gateway, archivePath, appTag, runId) {
+    const remoteArchive = `/tmp/rhospital-assets-rehearsal-${appTag}-${process.pid}.tgz`;
+    run('scp', [
+        ...scpArgs(gateway),
+        archivePath,
+        `${gateway.username}@${gateway.host}:${remoteArchive}`
+    ]);
+    run('ssh', [
+        ...sshArgs(gateway),
+        'bash', '-s', '--', gateway.remoteAssetRoot, appTag, remoteArchive, runId, gateway.id
+    ], { input: buildRehearsalRemoteScript() });
+}
+
 function headAsset(gateway, entry) {
     const requestPath = `/assets${entry.publicPath}?h=${entry.publicHash}`;
     return new Promise((resolve, reject) => {
@@ -207,9 +306,7 @@ async function verifyGateway(gateway, entries, concurrency = 16) {
     console.log(`gateway_static_http=PASS gateway=${gateway.id} files=${entries.length}`);
 }
 
-function loadConfig(configPath) {
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    const gateways = config.gateways;
+function validateGatewayList(gateways) {
     if (!Array.isArray(gateways) || gateways.length !== 2) {
         throw new Error('gateway config must declare exactly two gateways');
     }
@@ -223,6 +320,43 @@ function loadConfig(configPath) {
     return gateways;
 }
 
+function gatewayIdentity(gateway) {
+    return `${String(gateway.host).toLowerCase()}:${String(gateway.port || '22')}:${String(gateway.domain).toLowerCase()}`;
+}
+
+export function validateRehearsalConfig(config, productionConfig = null) {
+    if (!config || config.environment !== 'rehearsal') {
+        throw new Error('remote rehearsal gateway config must set environment=rehearsal');
+    }
+    const gateways = validateGatewayList(config.gateways);
+    const productionIdentities = new Set((productionConfig?.gateways || []).map(gatewayIdentity));
+    for (const gateway of gateways) {
+        if (!SAFE_GATEWAY_ID_PATTERN.test(String(gateway.id))) {
+            throw new Error(`rehearsal gateway ${gateway.id} has an unsafe id`);
+        }
+        if (!SAFE_REHEARSAL_ROOT_PATTERN.test(String(gateway.remoteAssetRoot))
+                || String(gateway.remoteAssetRoot).includes('..')
+                || String(gateway.remoteAssetRoot).includes('\\')) {
+            throw new Error(`rehearsal gateway ${gateway.id} must use /tmp/rhospital-release-rehearsal`);
+        }
+        if (productionIdentities.has(gatewayIdentity(gateway))) {
+            throw new Error(`rehearsal gateway ${gateway.id} duplicates a production gateway identity`);
+        }
+    }
+    return gateways;
+}
+
+function loadConfig(configPath, options = {}) {
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    if (options.rehearsal) {
+        const productionConfig = options.productionConfigPath
+            ? JSON.parse(fs.readFileSync(options.productionConfigPath, 'utf8'))
+            : null;
+        return validateRehearsalConfig(config, productionConfig);
+    }
+    return validateGatewayList(config.gateways);
+}
+
 function parseArgs(argv) {
     const values = {};
     for (let index = 0; index < argv.length; index += 2) {
@@ -233,11 +367,14 @@ function parseArgs(argv) {
         }
         values[name.slice(2)] = value;
     }
-    if (!['validate', 'stage', 'verify'].includes(values.mode)) {
-        throw new Error('--mode must be validate, stage or verify');
+    if (!['validate', 'stage', 'verify', 'rehearse'].includes(values.mode)) {
+        throw new Error('--mode must be validate, stage, verify or rehearse');
     }
     if (!values.image || !SAFE_TAG_PATTERN.test(values['app-tag'] || '')) {
         throw new Error('--image and a safe --app-tag are required');
+    }
+    if (values.mode === 'rehearse' && !values['production-config']) {
+        throw new Error('--production-config is required for rehearsal');
     }
     return values;
 }
@@ -252,16 +389,26 @@ async function main() {
         const entries = validateArtifact(artifactRoot);
         console.log(`static_asset_artifact=PASS files=${entries.length}`);
         const configPath = path.resolve(args.config || 'release/game-static-gateways.json');
-        const gateways = loadConfig(configPath);
+        const gateways = loadConfig(configPath, {
+            rehearsal: args.mode === 'rehearse',
+            productionConfigPath: args['production-config']
+        });
         console.log(`static_gateway_config=PASS gateways=${gateways.length}`);
         if (args.mode === 'validate') {
             return;
         }
-        if (args.mode === 'stage') {
+        if (args.mode === 'stage' || args.mode === 'rehearse') {
             const archivePath = path.join(workRoot, `rhospital-assets-${args['app-tag']}.tgz`);
             run('tar', ['-czf', archivePath, '-C', artifactRoot, '.']);
-            for (const gateway of gateways) {
-                stageGateway(gateway, archivePath, args['app-tag']);
+            if (args.mode === 'stage') {
+                for (const gateway of gateways) {
+                    stageGateway(gateway, archivePath, args['app-tag']);
+                }
+            } else {
+                const runId = `rehearsal-${Date.now()}-${process.pid}`;
+                for (const gateway of gateways) {
+                    rehearseGateway(gateway, archivePath, args['app-tag'], runId);
+                }
             }
         } else {
             for (const gateway of gateways) {

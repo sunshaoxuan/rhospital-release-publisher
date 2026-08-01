@@ -184,6 +184,15 @@ function createPlan(projectRoot, request, env = process.env) {
   const dockerTarget = resolveDockerCommandTarget(dockerContext, dockerContextResolution);
   const remoteImageTarget = resolveRemoteImageTarget(remoteSshTarget, ideaDockerServerResolution);
   const includeStackDeploy = Boolean(request.includeStackDeploy);
+  const dryRun = request.dryRun !== false;
+  const remoteRehearsal = request.remoteRehearsal === true;
+  const rehearsalConfigPath = remoteRehearsal ? rehearsalGatewayStaticConfigPath(env) : '';
+  if (remoteRehearsal && !dryRun) {
+    throw new Error('远程前置演练只能在 dry run 模式下执行');
+  }
+  if (remoteRehearsal && (!rehearsalConfigPath || !fs.existsSync(rehearsalConfigPath))) {
+    throw new Error('未配置隔离前置演练清单，请设置 RELEASE_PUBLISHER_REHEARSAL_GATEWAY_STATIC_CONFIG');
+  }
   const gitBranch = validateGitBranch(request.gitBranch || env.RELEASE_PUBLISHER_GIT_BRANCH || 'origin/master');
   const gitCommit = validateGitCommit(request.gitCommit || 'latest');
   const catalogSchemaVersion = resolveCatalogSchemaVersion(projectRoot, gitCommit);
@@ -346,6 +355,24 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'build',
       executable: true
     }),
+    ...(remoteRehearsal ? [releaseStep({
+      key: 'rehearse-game-static-assets',
+      title: '远程演练前置资源创建、删除与恢复',
+      summary: '在隔离前置临时根目录真实执行 SSH、SCP、对象创建、完整 HASH 校验、删除失败检测、恢复和清理',
+      command: gameStaticAssetRehearsalCommand(
+        imageTag,
+        appTag,
+        rehearsalConfigPath,
+        gatewayStaticConfigPath(env),
+        dockerTarget,
+        config.dockerfile
+      ),
+      validation: '两台隔离前置必须输出 rehearsal_create_validate、rehearsal_delete_detection、rehearsal_restore_validate 和 gateway_static_rehearsal=PASS，临时根目录必须清理',
+      actionType: 'rehearsal',
+      executable: true,
+      rehearsal: true,
+      timeoutSeconds: 1800
+    })] : []),
     releaseStep({
       key: 'validate-game-image',
       title: '验证游戏镜像版本、迁移包与交易池能力',
@@ -618,10 +645,13 @@ function createPlan(projectRoot, request, env = process.env) {
     gitCommit,
     changeAnalysis: request.changeAnalysis || null,
     includeStackDeploy,
-    dryRun: request.dryRun !== false,
+    dryRun,
+    remoteRehearsal,
     steps,
     guardrails: [
-      '勾选 dry run 时只生成命令和写入预览',
+      remoteRehearsal
+        ? '远程前置演练只允许使用 environment=rehearsal 的隔离清单，并在 /tmp/rhospital-release-rehearsal 下创建、删除、恢复后清理对象'
+        : '勾选 dry run 时只生成命令和写入预览',
       '取消 dry run 后会执行本地测试、镜像上传和勾选范围内的远端发布步骤',
       '目标提交新增或修改的 scripts/migration/*.sql 必须存在于目标镜像，并在镜像切换前完成备份、提取、校验和执行',
       '旧代码回滚前必须暂停所有 ACTIVE 的 ADMIN 挂单，避免旧版交易逻辑继续处理系统库存'
@@ -634,12 +664,35 @@ function gameStaticDeliveryCheckCommand(appTag) {
   return `node ${shellToken(scriptPath)} --app-tag ${shellToken(appTag)}`;
 }
 
-function gameStaticAssetArtifactCommand(mode, imageTag, appTag, configPath, dockerTarget) {
+function gameStaticAssetRehearsalCommand(imageTag, appTag, rehearsalConfigPath, productionConfigPath, dockerTarget, dockerfile) {
+  const buildCommand = dockerCommand(dockerTarget, [
+    'build',
+    '--target', 'frontend-assets',
+    '-f', dockerfile,
+    '--build-arg', `APP_TAG=${appTag}`,
+    '-t', `${imageTag}-frontend-assets`,
+    '.'
+  ]);
+  const rehearsalCommand = gameStaticAssetArtifactCommand(
+    'rehearse',
+    imageTag,
+    appTag,
+    rehearsalConfigPath,
+    dockerTarget,
+    {productionConfigPath}
+  );
+  return `${buildCommand}; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; ${rehearsalCommand}`;
+}
+
+function gameStaticAssetArtifactCommand(mode, imageTag, appTag, configPath, dockerTarget, options = {}) {
   const scriptPath = path.resolve(__dirname, '..', 'scripts', 'game-static-assets.mjs');
   const dockerContextArgument = dockerTarget && dockerTarget.mode === 'context' && dockerTarget.context
     ? ` --docker-context ${shellToken(dockerTarget.context)}`
     : '';
-  return `node ${shellToken(scriptPath)} --mode ${shellToken(mode)} --image ${shellToken(`${imageTag}-frontend-assets`)} --app-tag ${shellToken(appTag)} --config ${shellToken(configPath)}${dockerContextArgument}`;
+  const productionConfigArgument = options.productionConfigPath
+    ? ` --production-config ${shellToken(options.productionConfigPath)}`
+    : '';
+  return `node ${shellToken(scriptPath)} --mode ${shellToken(mode)} --image ${shellToken(`${imageTag}-frontend-assets`)} --app-tag ${shellToken(appTag)} --config ${shellToken(configPath)}${productionConfigArgument}${dockerContextArgument}`;
 }
 
 function createForumPlan(projectRoot, request, env = process.env) {
@@ -943,7 +996,8 @@ function releaseStep({
   actionType = 'local-check',
   executable = false,
   finalCheck = false,
-  timeoutSeconds = 0
+  timeoutSeconds = 0,
+  rehearsal = false
 }) {
   return {
     key,
@@ -957,6 +1011,7 @@ function releaseStep({
     executable,
     finalCheck,
     timeoutSeconds,
+    rehearsal,
     status: 'pending'
   };
 }
@@ -1044,14 +1099,60 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
         })
       : {status: 'DRY_RUN', appTag: plan.appTag, imageTag: plan.imageTag, changed: false};
     logs.push(`${saved.status}: ${plan.imageTag}`);
-    completedStepKeys.push(...plan.steps.map(step => step.key));
-    const stepLogs = {};
-    for (const step of plan.steps) {
-      stepLogs[step.key] = step.key === (plan.releaseTarget === 'game' ? 'save-run-config' : 'validate-release-input')
-        ? logs.slice()
-        : [];
+    const rehearsalStep = plan.steps.find(step => step.rehearsal);
+    if (rehearsalStep) {
+      currentStepKey = rehearsalStep.key;
+      startStepTimer(rehearsalStep.key, stepTiming);
+      stepLogs[rehearsalStep.key] = [];
+      stepLogs[rehearsalStep.key].push(`[START] ${rehearsalStep.title}`);
+      logs.push(`[START] ${rehearsalStep.title}`);
+      updateStep(rehearsalStep.key, 'running');
+      try {
+        await runCommand(projectRoot, rehearsalStep.command, env, chunk => {
+          const line = chunk.trim();
+          if (line) {
+            stepLogs[rehearsalStep.key].push(line);
+            logs.push(line);
+            updateStep(rehearsalStep.key, 'running');
+          }
+        }, elapsedSeconds => {
+          refreshStepElapsed(rehearsalStep.key, stepTiming);
+          if (elapsedSeconds % 10 === 0) {
+            const heartbeat = `[RUNNING] ${rehearsalStep.title} 已运行 ${elapsedSeconds} 秒，等待远端演练输出`;
+            stepLogs[rehearsalStep.key].push(heartbeat);
+            logs.push(heartbeat);
+          }
+          updateStep(rehearsalStep.key, 'running');
+        }, signal, rehearsalStep.timeoutSeconds);
+        completedStepKeys.push(rehearsalStep.key);
+        const durationMs = finishStepTimer(rehearsalStep.key, stepTiming);
+        const done = `[DONE] ${rehearsalStep.title}，用时 ${formatDurationMs(durationMs)}`;
+        stepLogs[rehearsalStep.key].push(done);
+        logs.push(done);
+        updateStep(rehearsalStep.key, 'done');
+      } catch (error) {
+        finishStepTimer(rehearsalStep.key, stepTiming);
+        const failure = `ERROR: ${error.message}`;
+        stepLogs[rehearsalStep.key].push(failure);
+        logs.push(failure);
+        updateStep(rehearsalStep.key, 'failed');
+        throw error;
+      }
     }
-    const markedPlan = markCompletedSteps(plan, completedStepKeys, 'dry-run-checked', stepLogs, {});
+    const dryRunStepKeys = plan.steps
+      .filter(step => !step.rehearsal)
+      .map(step => step.key);
+    completedStepKeys.push(...dryRunStepKeys);
+    const dryRunStepLogs = {};
+    for (const step of plan.steps) {
+      dryRunStepLogs[step.key] = step.key === (plan.releaseTarget === 'game' ? 'save-run-config' : 'validate-release-input')
+        ? logs.slice()
+        : stepLogs[step.key] || [];
+    }
+    let markedPlan = markCompletedSteps(plan, dryRunStepKeys, 'dry-run-checked', dryRunStepLogs, {});
+    if (rehearsalStep) {
+      markedPlan = markStepStatus(markedPlan, [], rehearsalStep.key, 'done', stepLogs, stepTiming);
+    }
     return {status: 'DRY_RUN', plan: markedPlan, logs, completedStepKeys};
   }
   const pushStepLog = (stepKey, line) => {
@@ -2405,6 +2506,12 @@ function gatewayStaticConfigPath(env = process.env) {
   return env.RELEASE_PUBLISHER_GATEWAY_STATIC_CONFIG
     ? path.resolve(env.RELEASE_PUBLISHER_GATEWAY_STATIC_CONFIG)
     : DEFAULT_GATEWAY_STATIC_CONFIG;
+}
+
+function rehearsalGatewayStaticConfigPath(env = process.env) {
+  return env.RELEASE_PUBLISHER_REHEARSAL_GATEWAY_STATIC_CONFIG
+    ? path.resolve(env.RELEASE_PUBLISHER_REHEARSAL_GATEWAY_STATIC_CONFIG)
+    : '';
 }
 
 function publishImageCommand(imageTag, target) {

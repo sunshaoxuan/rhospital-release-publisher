@@ -14,6 +14,8 @@
   const remoteSshTarget = document.getElementById('remote-ssh-target');
   const remoteComposeDir = document.getElementById('remote-compose-dir');
   const dryRun = document.getElementById('dry-run');
+  const remoteRehearsal = document.getElementById('remote-rehearsal');
+  const remoteRehearsalNote = document.getElementById('remote-rehearsal-note');
   const includeStack = document.getElementById('include-stack');
   const deployToggleLabel = document.getElementById('deploy-toggle-label');
   const cancelBtn = document.getElementById('cancel-btn');
@@ -162,13 +164,14 @@
       remoteComposeDir: remoteComposeDir.value.trim(),
       releaseChangedOnly: true,
       dryRun: dryRun.checked,
+      remoteRehearsal: remoteRehearsal.checked,
       includeStackDeploy: includeStack.checked
     };
   }
 
   function renderExecutionState(config) {
     if (dryRun.checked) {
-      executionState.textContent = 'dry run 模式';
+      executionState.textContent = remoteRehearsal.checked ? 'dry run · 远程前置演练' : 'dry run 模式';
       executionState.className = 'state dry-run-state';
       return;
     }
@@ -221,7 +224,21 @@
     deployToggleLabel.textContent = isForum
       ? '执行论坛 Compose 发布'
       : '执行游戏 Swarm 热滚';
+    renderRemoteRehearsal(config, isForum);
     renderExecutionState(config);
+  }
+
+  function renderRemoteRehearsal(config, isForum = releaseTarget.value === 'forum') {
+    const available = Boolean(config.remoteRehearsalAvailable) && !isForum;
+    if (!available) {
+      remoteRehearsal.checked = false;
+    }
+    remoteRehearsal.disabled = !available || !dryRun.checked;
+    remoteRehearsalNote.textContent = available
+      ? '仅连接隔离前置，在临时根目录创建、删除、恢复后清理对象'
+      : isForum
+        ? '论坛目标不支持游戏前置演练'
+        : '未配置隔离前置演练清单';
   }
 
   function renderSshResolution(sshResolution) {
@@ -471,6 +488,7 @@
       'local-config': '本地配置',
       build: '构建动作',
       production: '生产动作',
+      rehearsal: '远程演练',
       'remote-check': '远端只读校验'
     };
     return labels[step.actionType] || '本地动作';
@@ -481,6 +499,9 @@
       return 'readonly';
     }
     if (step.productionAction || step.actionType === 'production') {
+      return 'warn';
+    }
+    if (step.actionType === 'rehearsal') {
       return 'warn';
     }
     if (step.actionType === 'build') {
@@ -958,6 +979,15 @@
     plan().catch(error => setStatus(error.message, 'error'));
   });
   dryRun.addEventListener('change', () => {
+    if (!dryRun.checked) {
+      remoteRehearsal.checked = false;
+    }
+    renderRemoteRehearsal(latestConfig || {});
+    renderExecutionState(latestConfig || {});
+    plan().catch(error => setStatus(error.message, 'error'));
+  });
+  remoteRehearsal.addEventListener('change', () => {
+    renderRemoteRehearsal(latestConfig || {});
     renderExecutionState(latestConfig || {});
     plan().catch(error => setStatus(error.message, 'error'));
   });

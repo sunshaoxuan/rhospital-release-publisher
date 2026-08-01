@@ -131,7 +131,7 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 ## Dry Run
 
-页面默认勾选 `dry run`。此模式只做以下动作：
+页面默认勾选 `dry run`。普通模式只做以下动作：
 
 - 读取配置
 - 生成 Git 状态检查、fetch、pull 或 checkout 命令
@@ -144,6 +144,24 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 - 在总进度流程中把每一步标记为 `dry run 已校验`
 
 不会执行 Docker build，不会写入生产镜像池，不会登录生产终端，不会修改生产 `docker-compose.yml`。
+
+### 远程前置演练
+
+服务配置 `RELEASE_PUBLISHER_REHEARSAL_GATEWAY_STATIC_CONFIG` 后，页面会启用 `远程前置演练` 复选项。此选项只能与 `dry run` 同时使用，正式执行请求会被拒绝。演练清单必须设置 `environment: rehearsal`，声明两台与生产身份不同的前置，并将 `remoteAssetRoot` 限定在 `/tmp/rhospital-release-rehearsal` 下。发布器会真实使用 SSH 和 SCP，先构建 `frontend-assets`，再在每台隔离前置执行对象创建、逐文件完整 SHA-256 校验、删除一个对象确认验证失败、恢复对象、再次校验和临时根目录清理。生产清单会作为对照输入，重复生产网关身份会闭锁演练。
+
+远程演练不会调用生产 Compose、Swarm、镜像池或生产静态对象目录。演练清单没有配置时，复选项保持禁用，普通 dry run 继续保持完全无远端副作用。演练只覆盖远程文件交付链，真实 Nginx `X-Cache=LOCAL` 和浏览器冷暖缓存验收仍需要隔离演练前置配置对应的 Nginx 路由和测试域名。
+
+演练清单的最小结构如下，实际 `host`、SSH 用户、密钥和域名必须来自隔离环境：
+
+```json
+{
+  "environment": "rehearsal",
+  "gateways": [
+    {"id": "stage-a", "host": "stage-a.example", "username": "tester", "port": "22", "domain": "stage.rhospital.test", "remoteAssetRoot": "/tmp/rhospital-release-rehearsal"},
+    {"id": "stage-b", "host": "stage-b.example", "username": "tester", "port": "22", "domain": "stage.rhospital.test", "remoteAssetRoot": "/tmp/rhospital-release-rehearsal"}
+  ]
+}
+```
 
 页面右上角状态显示当前执行模式：
 
