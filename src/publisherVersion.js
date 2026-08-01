@@ -40,6 +40,34 @@ function getPublisherVersionStatus(repositoryRoot, runtime, options = {}) {
   };
 }
 
+function assertPublisherActionVersion(versionStatus) {
+  if (versionStatus && versionStatus.status === 'UP_TO_DATE') {
+    return versionStatus;
+  }
+  const status = versionStatus && versionStatus.status || 'UNKNOWN';
+  const runtimeVersion = versionStatus && versionStatus.runtimeVersion || 'unknown';
+  const repository = versionStatus && versionStatus.repository || {};
+  let message;
+  if (status === 'RESTART_REQUIRED') {
+    message = `发布器仓库已更新，服务将自动重启。运行版本 ${runtimeVersion}，仓库提交 ${repository.shortCommit || 'unknown'}，请稍后重试。`;
+  } else if (status === 'UNCOMMITTED_CHANGES') {
+    message = '发布器仓库存在未提交的运行代码，发布计划和执行已锁定。请先提交或还原发布器改动。';
+  } else {
+    message = '发布器运行版本无法确认，发布计划和执行已锁定。';
+  }
+  const error = new Error(message);
+  error.code = 'PUBLISHER_RUNTIME_NOT_CURRENT';
+  error.statusCode = 409;
+  error.versionStatus = status;
+  throw error;
+}
+
+function shouldAutoRestartPublisher(versionStatus, hasActiveJobs) {
+  return Boolean(versionStatus)
+    && versionStatus.status === 'RESTART_REQUIRED'
+    && !hasActiveJobs;
+}
+
 function readPublisherRepositoryVersion(repositoryRoot, options = {}) {
   const root = path.resolve(repositoryRoot);
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
@@ -125,6 +153,8 @@ module.exports = {
   RUNTIME_PATHS,
   capturePublisherRuntimeVersion,
   getPublisherVersionStatus,
+  assertPublisherActionVersion,
+  shouldAutoRestartPublisher,
   readPublisherRepositoryVersion,
   comparePublisherVersions,
   publisherContentHash,

@@ -36,7 +36,9 @@ const {
 } = require('./src/releaseJobStore');
 const {
   capturePublisherRuntimeVersion,
-  getPublisherVersionStatus
+  getPublisherVersionStatus,
+  assertPublisherActionVersion,
+  shouldAutoRestartPublisher
 } = require('./src/publisherVersion');
 
 const projectRoot = defaultProjectRoot();
@@ -49,6 +51,12 @@ const jobs = new Map();
 const jobControllers = new Map();
 const jobStorePath = path.resolve(process.env.RELEASE_PUBLISHER_JOBS_FILE || path.join(__dirname, '.release-jobs.json'));
 let persistJobsTimer = null;
+let publisherRestartTimer = null;
+let publisherRestartPending = false;
+const publisherVersionCheckIntervalMs = positiveInteger(
+  process.env.RELEASE_PUBLISHER_VERSION_CHECK_INTERVAL_MS,
+  10000
+);
 
 const contentTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -160,18 +168,22 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/changes' && req.method === 'POST') {
       const body = await readBody(req);
+      assertPublisherActionReady();
       return sendJson(res, 200, analyzeReleaseChanges(projectRoot, body, process.env));
     }
     if (pathname === '/api/plan' && req.method === 'POST') {
       const body = await readBody(req);
+      assertPublisherActionReady();
       return sendJson(res, 200, createPlan(projectRoot, prepareReleaseRequest(body, false)));
     }
     if (pathname === '/api/save-tag' && req.method === 'POST') {
       const body = await readBody(req);
+      assertPublisherActionReady();
       return sendJson(res, 200, saveTag(projectRoot, body));
     }
     if (pathname === '/api/execute' && req.method === 'POST') {
       const body = await readBody(req);
+      assertPublisherActionReady();
       const job = createExecutionJob(prepareReleaseRequest(body, true));
       return sendJson(res, 202, job);
     }
@@ -193,11 +205,19 @@ const server = http.createServer(async (req, res) => {
     }
     return sendJson(res, 404, {message: 'Not found'});
   } catch (error) {
-    return sendJson(res, 400, {message: error.message});
+    return sendJson(res, error.statusCode || 400, {
+      message: error.message,
+      code: error.code || undefined
+    });
   }
 });
 
 loadStoredJobs();
+const publisherVersionTimer = setInterval(
+  checkPublisherRepositoryVersion,
+  publisherVersionCheckIntervalMs
+);
+publisherVersionTimer.unref();
 
 server.on('error', error => {
   if (error.code === 'EADDRINUSE') {
@@ -209,7 +229,9 @@ server.on('error', error => {
 });
 
 server.listen(port, bindAddress, () => {
-  console.log(`RHospital Release Console is running at http://${bindAddress}:${port}`);
+  const address = server.address();
+  const listeningPort = address && typeof address === 'object' ? address.port : port;
+  console.log(`RHospital Release Console is running at http://${bindAddress}:${listeningPort}`);
   console.log(`Publisher version: ${publisherRuntimeVersion.version}`);
   console.log(`Hospital project root: ${projectRoot}`);
   console.log('Dry run default: true');
@@ -222,6 +244,69 @@ function sendFile(res, filePath) {
   const ext = path.extname(filePath);
   res.writeHead(200, {'Content-Type': contentTypes[ext] || 'application/octet-stream'});
   fs.createReadStream(filePath).pipe(res);
+}
+
+function currentPublisherVersionStatus() {
+  return getPublisherVersionStatus(publisherRepositoryRoot, publisherRuntimeVersion);
+}
+
+function hasActivePublisherJobs() {
+  return [...jobs.values()].some(job => isActiveJobStatus(job.status));
+}
+
+function assertPublisherActionReady() {
+  if (publisherRestartPending) {
+    const error = new Error('发布器正在等待受控重启，发布计划和执行已锁定，请稍后重试。');
+    error.code = 'PUBLISHER_RESTART_PENDING';
+    error.statusCode = 409;
+    throw error;
+  }
+  const versionStatus = currentPublisherVersionStatus();
+  schedulePublisherRestart(versionStatus);
+  return assertPublisherActionVersion(versionStatus);
+}
+
+function checkPublisherRepositoryVersion() {
+  try {
+    schedulePublisherRestart(currentPublisherVersionStatus());
+  } catch (error) {
+    console.error(`Publisher version monitor failed: ${error.message}`);
+  }
+}
+
+function schedulePublisherRestart(versionStatus) {
+  if (publisherRestartPending
+      || publisherRestartTimer
+      || !shouldAutoRestartPublisher(versionStatus, hasActivePublisherJobs())) {
+    return false;
+  }
+  publisherRestartPending = true;
+  publisherRestartTimer = setTimeout(() => {
+    publisherRestartTimer = null;
+    let latestVersionStatus;
+    try {
+      latestVersionStatus = currentPublisherVersionStatus();
+    } catch (error) {
+      publisherRestartPending = false;
+      console.error(`Publisher restart check failed: ${error.message}`);
+      return;
+    }
+    if (!shouldAutoRestartPublisher(latestVersionStatus, hasActivePublisherJobs())) {
+      publisherRestartPending = false;
+      return;
+    }
+    console.log(`Publisher repository changed from ${publisherRuntimeVersion.shortCommit} to ${latestVersionStatus.repository.shortCommit}; restarting idle process.`);
+    server.close(() => process.exit(75));
+    const forceExitTimer = setTimeout(() => process.exit(75), 5000);
+    forceExitTimer.unref();
+  }, 250);
+  publisherRestartTimer.unref();
+  return true;
+}
+
+function positiveInteger(value, fallback) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function sendJson(res, status, payload) {

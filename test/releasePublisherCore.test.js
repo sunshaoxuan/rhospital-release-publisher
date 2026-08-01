@@ -115,10 +115,19 @@ function runTradePoolCatalogLogGate(exitCode, logs) {
     'release_started_at=2026-07-30T04:10:16Z',
     ...tradePoolCatalogLogCheckCommands()
   ].join('\n');
-  const encodedScript = Buffer.from(script, 'utf8').toString('base64');
-  return spawnSync('bash', ['-c', `printf %s '${encodedScript}' | base64 -d | bash`], {
+  return spawnSync(testBashExecutable(), ['-c', script], {
     encoding: 'utf8'
   });
+}
+
+function testBashExecutable() {
+  if (process.platform !== 'win32') return 'bash';
+  const candidates = [
+    process.env.GIT_BASH_PATH,
+    path.join(process.env.ProgramFiles || 'C:\\Program Files', 'Git', 'bin', 'bash.exe'),
+    path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Git', 'bin', 'bash.exe')
+  ];
+  return candidates.find(candidate => candidate && fs.existsSync(candidate)) || 'bash';
 }
 
 test('trade-pool log gate accepts captured completion after container log timeout', () => {
