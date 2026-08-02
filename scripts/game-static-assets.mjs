@@ -247,6 +247,8 @@ trap - EXIT
 rm -rf "$run_root"
 rm -f "$archive"
 test ! -e "$run_root"
+rmdir "$base" 2>/dev/null || true
+test ! -e "$base"
 echo "gateway_static_rehearsal=PASS gateway=$gateway_id files=$count"
 `;
 }
