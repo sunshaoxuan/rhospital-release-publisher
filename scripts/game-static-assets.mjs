@@ -195,10 +195,15 @@ validate_objects() {
   while IFS="$tab" read -r public_hash full_hash size public_path; do
     source_file="$incoming/objects/$public_hash/assets$public_path"
     destination="$root/objects/$public_hash/assets$public_path"
-    test -f "$source_file"
-    test -f "$destination"
-    test "$(wc -c < "$destination" | tr -d ' ')" = "$size"
-    test "$(sha256sum "$destination" | awk '{print $1}')" = "$full_hash"
+    if ! test -f "$source_file" || ! test -f "$destination"; then
+      return 1
+    fi
+    if ! test "$(wc -c < "$destination" | tr -d ' ')" = "$size"; then
+      return 1
+    fi
+    if ! test "$(sha256sum "$destination" | awk '{print $1}')" = "$full_hash"; then
+      return 1
+    fi
     count=$((count + 1))
   done < "$incoming/manifest.tsv"
   test "$count" -gt 0

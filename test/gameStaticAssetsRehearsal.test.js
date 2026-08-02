@@ -74,6 +74,7 @@ test('remote rehearsal script covers create, delete detection, restore and clean
   assert.match(script, /rehearsal_delete_detection=PASS/);
   assert.match(script, /rehearsal_restore_validate=PASS/);
   assert.match(script, /gateway_static_rehearsal=PASS/);
+  assert.match(script, /if ! test -f "\$source_file" \|\| ! test -f "\$destination"; then\s+return 1/);
   assert.match(script, /rm -rf "\$run_root"/);
   assert.match(script, /rmdir "\$base"/);
 });
