@@ -357,8 +357,8 @@ function createPlan(projectRoot, request, env = process.env) {
     }),
     ...(remoteRehearsal ? [releaseStep({
       key: 'rehearse-game-static-assets',
-      title: '远程演练前置资源创建、删除与恢复',
-      summary: '在隔离前置临时根目录真实执行 SSH、SCP、对象创建、完整 HASH 校验、删除失败检测、恢复和清理',
+      title: '远程演练前置资源、路由与清理',
+      summary: '在前置机临时根目录真实执行 SSH、SCP、对象创建、完整 HASH 校验、删除失败检测、恢复和清理，并只读检查已加载的 Nginx 或 OpenResty 路由',
       command: gameStaticAssetRehearsalCommand(
         imageTag,
         appTag,
@@ -367,7 +367,7 @@ function createPlan(projectRoot, request, env = process.env) {
         dockerTarget,
         config.dockerfile
       ),
-      validation: '两台隔离前置必须输出 rehearsal_create_validate、rehearsal_delete_detection、rehearsal_restore_validate 和 gateway_static_rehearsal=PASS，临时根目录必须清理',
+      validation: '两台前置必须输出 rehearsal_create_validate、rehearsal_delete_detection、rehearsal_restore_validate 和 gateway_static_rehearsal=PASS；生产主机演练还必须通过 gateway_static_route，若已有清单则必须通过 gateway_static_http_probe，临时根目录必须清理',
       actionType: 'rehearsal',
       executable: true,
       rehearsal: true,

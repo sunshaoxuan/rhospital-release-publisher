@@ -149,9 +149,9 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 服务配置 `RELEASE_PUBLISHER_REHEARSAL_GATEWAY_STATIC_CONFIG` 后，页面会启用 `远程前置演练` 复选项。此选项只能与 `dry run` 同时使用，正式执行请求会被拒绝。普通演练清单必须设置 `environment: rehearsal`，声明两台与生产身份不同的前置，并将 `remoteAssetRoot` 限定在 `/tmp/rhospital-release-rehearsal` 下。发布器会真实使用 SSH 和 SCP，先构建 `frontend-assets`，再在每台前置执行对象创建、逐文件完整 SHA-256 校验、删除一个对象确认验证失败、恢复对象、再次校验和临时根目录清理。生产清单会作为对照输入，重复生产主机、端口或域名会闭锁普通演练。
 
-经明确授权后，也可以使用生产双前置做一次临时根目录演练。此时清单必须同时设置 `allowProductionHosts: true` 和 `scope: production-temp-root`，并且两台主机、端口、域名、用户和密钥必须逐项匹配生产清单。脚本仍只接受 `/tmp/rhospital-release-rehearsal`，不会访问生产静态对象根目录、Nginx、Compose、Swarm 或镜像池；演练结束会删除运行目录、上传归档和空的临时根目录。
+经明确授权后，也可以使用生产双前置做一次临时根目录演练。此时清单必须同时设置 `allowProductionHosts: true` 和 `scope: production-temp-root`，并且两台主机、端口、域名、用户和密钥必须逐项匹配生产清单。脚本仍只接受 `/tmp/rhospital-release-rehearsal`，不会写入生产静态对象根目录，也不会执行 Nginx/OpenResty reload、Compose、Swarm 或镜像池操作。演练会只读检查已加载的 `/assets/` 路由、对象根目录和响应头；已有生产清单时再通过本机 HTTPS 探针确认 HTTP 200、`X-Cache=LOCAL` 与 `X-Asset-Source=gate-object`。演练结束会删除运行目录、上传归档和空的临时根目录。
 
-远程演练不会调用生产 Compose、Swarm、镜像池或生产静态对象目录。演练清单没有配置时，复选项保持禁用，普通 dry run 继续保持完全无远端副作用。演练只覆盖远程文件交付链，真实 Nginx `X-Cache=LOCAL` 和浏览器冷暖缓存验收仍需要隔离演练前置配置对应的 Nginx 路由和测试域名。
+远程演练不会调用生产 Compose、Swarm、镜像池或生产静态对象目录。演练清单没有配置时，复选项保持禁用，普通 dry run 继续保持完全无远端副作用。隔离前置如果没有可读的 Web 路由会明确标记为跳过，生产主机演练必须通过已加载路由检查；发布器仍会在正式发布的应用切换前逐文件直连验证目标对象。
 
 演练清单的最小结构如下，实际 `host`、SSH 用户、密钥和域名必须来自隔离环境：
 
@@ -224,6 +224,8 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 2. `stage-game-static-assets` 按 `C:\workspace\rhopital\release\game-static-gateways.json` 向 Riven 与 VMISS 增量安装对象，远端逐文件复算完整 SHA-256，保留全部旧对象。需要使用其他受管清单时可设置 `RELEASE_PUBLISHER_GATEWAY_STATIC_CONFIG`。
 3. `verify-game-static-assets-predeploy` 直连两台前置，对清单每个 `/assets/**?h=` 地址执行 HTTPS HEAD，全部要求 HTTP 200、`X-Cache=LOCAL` 与 `X-Asset-Source=gate-object`。
 4. 上述步骤全部完成后才进入生产 Compose 更新和 Swarm 热滚。任一节点、任一文件或 TLS 检查失败时流程停止。
+
+启用生产双前置远程演练时，演练还会读取两台节点当前加载的 Nginx/OpenResty 配置，确认 `/assets/`、不可变对象根目录和本地响应头规则已经生效；节点已有静态清单时会再从本机 HTTPS 入口抽取一个对象执行 200、`LOCAL` 和 `gate-object` 探针。路由缺失会在演练阶段失败，发布器不会把它当成文件预置成功。
 
 双前置 Nginx 的本地对象优先规则属于一次性基础设施配置，由 `C:\workspace\rhopital` 维护并经过独立生产变更授权安装。以后每次应用发布的资源预置与逐文件验证由本发布器自动完成。
 

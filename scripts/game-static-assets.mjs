@@ -156,10 +156,13 @@ install -m 0644 "$incoming/manifest.tsv" "$root/manifests/$tag.tsv.tmp"
 mv -f "$root/manifests/$tag.tsv.tmp" "$root/manifests/$tag.tsv"
 echo "gateway_static_stage=PASS gateway=${gateway.id} files=$count manifest=$root/manifests/$tag.tsv"
 `;
-    run('ssh', [
+    const output = run('ssh', [
         ...sshArgs(gateway),
         'bash', '-s', '--', gateway.remoteAssetRoot, appTag, remoteArchive
     ], { input: script });
+    for (const line of output.split(/\r?\n/).filter(Boolean)) {
+        console.log(line);
+    }
 }
 
 export function buildRehearsalRemoteScript() {
@@ -169,6 +172,8 @@ tag="$2"
 archive="$3"
 run_id="$4"
 gateway_id="$5"
+production_root="$6"
+domain="$7"
 case "$base" in
   /tmp/rhospital-release-rehearsal|/tmp/rhospital-release-rehearsal/*) ;;
   *) echo "unsafe rehearsal root" >&2; exit 1 ;;
@@ -181,11 +186,91 @@ case "$gateway_id" in
   [0-9A-Za-z._-]*) ;;
   *) echo "unsafe gateway id" >&2; exit 1 ;;
 esac
+case "$production_root" in
+  ''|/*) ;;
+  *) echo "unsafe production asset root" >&2; exit 1 ;;
+esac
+case "$domain" in
+  [0-9A-Za-z.-]*) ;;
+  *) echo "unsafe gateway domain" >&2; exit 1 ;;
+esac
 run_root="$base/$run_id"
 root="$run_root/$gateway_id"
 incoming="$root/.incoming"
 cleanup() { rm -rf "$run_root"; rm -f "$archive"; rmdir "$base" 2>/dev/null || true; }
 trap cleanup EXIT
+
+check_loaded_route() {
+  if test -z "$production_root"; then
+    echo "gateway_static_route=SKIP gateway=$gateway_id reason=no-production-root"
+    echo "gateway_static_http_probe=SKIP gateway=$gateway_id reason=no-production-root"
+    return 0
+  fi
+  route_dump=''
+  if command -v nginx >/dev/null 2>&1; then
+    if ! route_dump="$(nginx -T 2>&1)"; then
+      echo "ERROR: gateway_static_route=FAIL gateway=$gateway_id reason=nginx-config-dump" >&2
+      return 1
+    fi
+  elif command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -qx 'openresty'; then
+    if ! route_dump="$(docker exec openresty sh -lc 'openresty -T 2>&1 || nginx -T 2>&1')"; then
+      echo "ERROR: gateway_static_route=FAIL gateway=$gateway_id reason=openresty-config-dump" >&2
+      return 1
+    fi
+  else
+    echo "ERROR: gateway_static_route=FAIL gateway=$gateway_id reason=no-nginx-inspector" >&2
+    return 1
+  fi
+  for marker in \
+    'location ^~ /assets/' \
+    "root $production_root/objects;" \
+    'try_files /$rhospital_asset_object_key$uri @asset_origin;' \
+    'add_header X-Cache "LOCAL" always;' \
+    'add_header X-Asset-Source "gate-object" always;' \
+    'add_header Service-Worker-Allowed "/" always;'; do
+    if ! printf '%s\n' "$route_dump" | grep -Fq -- "$marker"; then
+      echo "ERROR: gateway_static_route=FAIL gateway=$gateway_id missing=$marker" >&2
+      return 1
+    fi
+  done
+  echo "gateway_static_route=PASS gateway=$gateway_id root=$production_root"
+
+  if ! command -v curl >/dev/null 2>&1; then
+    echo "gateway_static_http_probe=SKIP gateway=$gateway_id reason=no-curl"
+    return 0
+  fi
+  manifest=''
+  if test -d "$production_root/manifests"; then
+    manifest="$(find "$production_root/manifests" -maxdepth 1 -type f -name '*.tsv' -printf '%T@ %p\n' 2>/dev/null | sort -nr | sed -n '1s/^[^ ]* //p')"
+  fi
+  if test -z "$manifest"; then
+    echo "gateway_static_http_probe=SKIP gateway=$gateway_id reason=no-production-manifest"
+    return 0
+  fi
+  first_line="$(sed -n '1p' "$manifest")"
+  IFS="$tab" read -r probe_public_hash probe_full_hash probe_size probe_public_path <<EOF
+$first_line
+EOF
+  probe_url="https://$domain/assets$probe_public_path?h=$probe_public_hash"
+  if ! response="$(curl --silent --show-error --head --max-time 15 --resolve "$domain:443:127.0.0.1" "$probe_url" 2>&1)"; then
+    echo "ERROR: gateway_static_http_probe=FAIL gateway=$gateway_id url=$probe_url" >&2
+    return 1
+  fi
+  if ! printf '%s\n' "$response" | grep -Eiq '^HTTP/[0-9.]+[[:space:]]+200([[:space:]]|$)'; then
+    echo "ERROR: gateway_static_http_probe=FAIL gateway=$gateway_id reason=status url=$probe_url" >&2
+    return 1
+  fi
+  if ! printf '%s\n' "$response" | grep -Eiq '^X-Cache:[[:space:]]*LOCAL([[:space:]]|$)'; then
+    echo "ERROR: gateway_static_http_probe=FAIL gateway=$gateway_id reason=x-cache url=$probe_url" >&2
+    return 1
+  fi
+  if ! printf '%s\n' "$response" | grep -Eiq '^X-Asset-Source:[[:space:]]*gate-object([[:space:]]|$)'; then
+    echo "ERROR: gateway_static_http_probe=FAIL gateway=$gateway_id reason=x-asset-source url=$probe_url" >&2
+    return 1
+  fi
+  echo "gateway_static_http_probe=PASS gateway=$gateway_id url=$probe_url"
+}
+
 mkdir -p "$incoming" "$root/objects" "$root/manifests"
 tar -xzf "$archive" -C "$incoming"
 test -s "$incoming/manifest.tsv"
@@ -243,6 +328,7 @@ echo "rehearsal_delete_detection=PASS gateway=$gateway_id"
 install -D -m 0644 "$incoming/objects/$first_public_hash/assets$first_public_path" "$first_destination"
 validate_objects
 echo "rehearsal_restore_validate=PASS gateway=$gateway_id"
+check_loaded_route
 trap - EXIT
 rm -rf "$run_root"
 rm -f "$archive"
@@ -262,7 +348,8 @@ function rehearseGateway(gateway, archivePath, appTag, runId) {
     ]);
     const output = run('ssh', [
         ...sshArgs(gateway),
-        'bash', '-s', '--', gateway.remoteAssetRoot, appTag, remoteArchive, runId, gateway.id
+        'bash', '-s', '--', gateway.remoteAssetRoot, appTag, remoteArchive, runId, gateway.id,
+        gateway.productionAssetRoot || '', gateway.domain
     ], { input: buildRehearsalRemoteScript() });
     for (const line of output.split(/\r?\n/).filter(Boolean)) {
         console.log(line);
@@ -283,13 +370,19 @@ function headAsset(gateway, entry) {
             timeout: 15000
         }, response => {
             response.resume();
+            const responseEvidence = [
+                `server=${response.headers.server || '(missing)'}`,
+                `content-type=${response.headers['content-type'] || '(missing)'}`,
+                `x-cache=${response.headers['x-cache'] || '(missing)'}`,
+                `x-asset-source=${response.headers['x-asset-source'] || '(missing)'}`
+            ].join(' ');
             if (response.statusCode !== 200) {
-                reject(new Error(`${gateway.id} ${requestPath} returned HTTP ${response.statusCode}`));
+                reject(new Error(`${gateway.id} ${requestPath} returned HTTP ${response.statusCode} (${responseEvidence})`));
                 return;
             }
             if (String(response.headers['x-cache'] || '').toUpperCase() !== 'LOCAL'
                     || response.headers['x-asset-source'] !== 'gate-object') {
-                reject(new Error(`${gateway.id} ${requestPath} was not served by the local immutable store`));
+                reject(new Error(`${gateway.id} ${requestPath} was not served by the local immutable store (${responseEvidence})`));
                 return;
             }
             if (entry.publicPath === '/sw.js' && response.headers['service-worker-allowed'] !== '/') {
@@ -314,6 +407,16 @@ async function verifyGateway(gateway, entries, concurrency = 16) {
     });
     await Promise.all(workers);
     console.log(`gateway_static_http=PASS gateway=${gateway.id} files=${entries.length}`);
+}
+
+async function verifyGateways(gateways, entries) {
+    const results = await Promise.allSettled(gateways.map(gateway => verifyGateway(gateway, entries)));
+    const failures = results
+        .filter(result => result.status === 'rejected')
+        .map(result => result.reason instanceof Error ? result.reason.message : String(result.reason));
+    if (failures.length > 0) {
+        throw new Error(failures.join('\n'));
+    }
 }
 
 function validateGatewayList(gateways) {
@@ -386,7 +489,16 @@ function loadConfig(configPath, options = {}) {
         const productionConfig = options.productionConfigPath
             ? JSON.parse(fs.readFileSync(options.productionConfigPath, 'utf8'))
             : null;
-        return validateRehearsalConfig(config, productionConfig);
+        const gateways = validateRehearsalConfig(config, productionConfig);
+        const productionByHostPort = new Map(
+            (productionConfig?.gateways || []).map(gateway => [gatewayHostPort(gateway), gateway])
+        );
+        return gateways.map(gateway => {
+            const productionGateway = productionByHostPort.get(gatewayHostPort(gateway));
+            return productionGateway
+                ? {...gateway, productionAssetRoot: productionGateway.remoteAssetRoot}
+                : gateway;
+        });
     }
     return validateGatewayList(config.gateways);
 }
@@ -445,9 +557,7 @@ async function main() {
                 }
             }
         } else {
-            for (const gateway of gateways) {
-                await verifyGateway(gateway, entries);
-            }
+            await verifyGateways(gateways, entries);
         }
     } finally {
         fs.rmSync(workRoot, { recursive: true, force: true });
