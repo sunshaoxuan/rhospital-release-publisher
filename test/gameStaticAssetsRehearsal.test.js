@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const {spawnSync} = require('node:child_process');
+const fs = require('node:fs');
 const test = require('node:test');
 const path = require('node:path');
 
@@ -77,6 +78,13 @@ test('remote rehearsal script covers create, delete detection, restore and clean
   assert.match(script, /if ! test -f "\$source_file" \|\| ! test -f "\$destination"; then\s+return 1/);
   assert.match(script, /rm -rf "\$run_root"/);
   assert.match(script, /rmdir "\$base"/);
+});
+
+test('remote rehearsal forwards gateway PASS markers to the publisher log', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'game-static-assets.mjs'), 'utf8');
+  assert.match(source, /const output = run\('ssh'/);
+  assert.match(source, /output\.split\(\/\\r\?\\n\/\)\.filter\(Boolean\)\.forEach|for \(const line of output\.split/);
+  assert.match(source, /console\.log\(line\)/);
 });
 
 test('remote rehearsal command requires a production gateway config', () => {

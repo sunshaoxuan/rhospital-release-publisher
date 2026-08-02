@@ -258,10 +258,13 @@ function rehearseGateway(gateway, archivePath, appTag, runId) {
         archivePath,
         `${gateway.username}@${gateway.host}:${remoteArchive}`
     ]);
-    run('ssh', [
+    const output = run('ssh', [
         ...sshArgs(gateway),
         'bash', '-s', '--', gateway.remoteAssetRoot, appTag, remoteArchive, runId, gateway.id
     ], { input: buildRehearsalRemoteScript() });
+    for (const line of output.split(/\r?\n/).filter(Boolean)) {
+        console.log(line);
+    }
 }
 
 function headAsset(gateway, entry) {
