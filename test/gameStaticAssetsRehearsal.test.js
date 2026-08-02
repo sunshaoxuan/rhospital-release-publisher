@@ -87,8 +87,8 @@ test('remote rehearsal checks the loaded gateway route and an existing local obj
 
   assert.match(script, /gateway_static_route=PASS/);
   assert.match(script, /location \^~ \/assets\//);
-  assert.match(script, /root \$production_root\/objects/);
-  assert.match(script, /try_files \/\$rhospital_asset_object_key\$uri @asset_origin/);
+  assert.match(script, /rhospital-assets\/objects\/\$rhospital_asset_object_key/);
+  assert.match(script, /try_files \$uri @asset_origin/);
   assert.match(script, /X-Cache "LOCAL"/);
   assert.match(script, /X-Asset-Source "gate-object"/);
   assert.match(script, /Service-Worker-Allowed/);

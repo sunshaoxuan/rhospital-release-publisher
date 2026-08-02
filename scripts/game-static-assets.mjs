@@ -223,8 +223,8 @@ check_loaded_route() {
   fi
   for marker in \
     'location ^~ /assets/' \
-    "root $production_root/objects;" \
-    'try_files /$rhospital_asset_object_key$uri @asset_origin;' \
+    'rhospital-assets/objects/$rhospital_asset_object_key;' \
+    'try_files $uri @asset_origin;' \
     'add_header X-Cache "LOCAL" always;' \
     'add_header X-Asset-Source "gate-object" always;' \
     'add_header Service-Worker-Allowed "/" always;'; do
