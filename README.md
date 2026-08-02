@@ -93,7 +93,7 @@ npm run service:status
 npm run service:uninstall
 ```
 
-服务名为 `RHospitalReleaseConsole`，显示名为 `RHospital Release Console`。服务由 Windows Service Control Manager 以 `LocalSystem` 自动启动，再通过当前登录用户令牌创建隐藏的 PowerShell 和 Node 子进程。发布操作继续使用当前用户的 GitHub 凭据、SSH 配置和 Docker 配置，运行期间不会创建控制台窗口。
+服务名为 `RHospitalReleaseConsole`，显示名为 `RHospital Release Console`。服务由 Windows Service Control Manager 以 `LocalSystem` 自动启动，再枚举本机 Windows 会话，优先使用与安装用户匹配的活动会话令牌创建隐藏的 PowerShell 和 Node 子进程。活动 RDP 会话与物理控制台会话均受支持；同一用户会话断开后仍可用于受控重启。发布操作继续使用当前用户的 GitHub 凭据、SSH 配置和 Docker 配置，运行期间不会创建控制台窗口。
 
 安装过程需要管理员权限，并会在新服务通过 HTTP 健康检查后删除旧的 `RHospital Release Console` 计划任务。服务日志写入：
 

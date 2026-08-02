@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -315,30 +316,14 @@ internal static class InteractiveProcessLauncher
     {
         process = null;
         error = string.Empty;
-        uint sessionId = NativeMethods.WTSGetActiveConsoleSessionId();
-        if (sessionId == InvalidSessionId)
-        {
-            error = "no active console session";
-            return false;
-        }
-
         IntPtr userToken = IntPtr.Zero;
         IntPtr environment = IntPtr.Zero;
         try
         {
-            if (!NativeMethods.WTSQueryUserToken(sessionId, out userToken))
+            uint sessionId;
+            if (!TryGetExpectedUserToken(options.ExpectedUser, out userToken, out sessionId, out error))
             {
-                error = new Win32Exception(Marshal.GetLastWin32Error()).Message;
                 return false;
-            }
-
-            using (WindowsIdentity identity = new WindowsIdentity(userToken))
-            {
-                if (!string.Equals(identity.Name, options.ExpectedUser, StringComparison.OrdinalIgnoreCase))
-                {
-                    error = "active user " + identity.Name + " does not match " + options.ExpectedUser;
-                    return false;
-                }
             }
 
             if (!NativeMethods.CreateEnvironmentBlock(out environment, userToken, false))
@@ -414,6 +399,121 @@ internal static class InteractiveProcessLauncher
         }
     }
 
+    private static bool TryGetExpectedUserToken(
+        string expectedUser,
+        out IntPtr userToken,
+        out uint sessionId,
+        out string error)
+    {
+        userToken = IntPtr.Zero;
+        sessionId = InvalidSessionId;
+        error = string.Empty;
+        List<uint> candidates = CandidateSessionIds();
+        List<string> failures = new List<string>();
+
+        foreach (uint candidateSessionId in candidates)
+        {
+            IntPtr candidateToken = IntPtr.Zero;
+            try
+            {
+                if (!NativeMethods.WTSQueryUserToken(candidateSessionId, out candidateToken))
+                {
+                    failures.Add("session " + candidateSessionId + ": "
+                        + new Win32Exception(Marshal.GetLastWin32Error()).Message);
+                    continue;
+                }
+
+                using (WindowsIdentity identity = new WindowsIdentity(candidateToken))
+                {
+                    if (!string.Equals(identity.Name, expectedUser, StringComparison.OrdinalIgnoreCase))
+                    {
+                        failures.Add("session " + candidateSessionId + " belongs to " + identity.Name);
+                        continue;
+                    }
+                }
+
+                userToken = candidateToken;
+                candidateToken = IntPtr.Zero;
+                sessionId = candidateSessionId;
+                return true;
+            }
+            catch (Exception candidateError)
+            {
+                failures.Add("session " + candidateSessionId + ": " + candidateError.Message);
+            }
+            finally
+            {
+                if (candidateToken != IntPtr.Zero)
+                {
+                    NativeMethods.CloseHandle(candidateToken);
+                }
+            }
+        }
+
+        error = candidates.Count == 0
+            ? "no interactive Windows session is available"
+            : "no session token matched " + expectedUser + "; " + string.Join("; ", failures.ToArray());
+        return false;
+    }
+
+    private static List<uint> CandidateSessionIds()
+    {
+        List<uint> active = new List<uint>();
+        List<uint> retained = new List<uint>();
+        IntPtr sessionBuffer = IntPtr.Zero;
+        int sessionCount = 0;
+        try
+        {
+            if (NativeMethods.WTSEnumerateSessions(
+                IntPtr.Zero, 0, 1, out sessionBuffer, out sessionCount))
+            {
+                int itemSize = Marshal.SizeOf(typeof(NativeMethods.WTS_SESSION_INFO));
+                for (int index = 0; index < sessionCount; index++)
+                {
+                    IntPtr item = IntPtr.Add(sessionBuffer, index * itemSize);
+                    NativeMethods.WTS_SESSION_INFO session = (NativeMethods.WTS_SESSION_INFO)
+                        Marshal.PtrToStructure(item, typeof(NativeMethods.WTS_SESSION_INFO));
+                    uint id = unchecked((uint)session.SessionId);
+                    if (session.State == NativeMethods.WTS_CONNECTSTATE_CLASS.WTSActive)
+                    {
+                        AddUnique(active, id);
+                    }
+                    else if (session.State == NativeMethods.WTS_CONNECTSTATE_CLASS.WTSConnected
+                        || session.State == NativeMethods.WTS_CONNECTSTATE_CLASS.WTSDisconnected)
+                    {
+                        AddUnique(retained, id);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            if (sessionBuffer != IntPtr.Zero)
+            {
+                NativeMethods.WTSFreeMemory(sessionBuffer);
+            }
+        }
+
+        uint consoleSessionId = NativeMethods.WTSGetActiveConsoleSessionId();
+        if (consoleSessionId != InvalidSessionId)
+        {
+            AddUnique(active, consoleSessionId);
+        }
+        foreach (uint id in retained)
+        {
+            AddUnique(active, id);
+        }
+        return active;
+    }
+
+    private static void AddUnique(List<uint> sessions, uint sessionId)
+    {
+        if (!sessions.Contains(sessionId))
+        {
+            sessions.Add(sessionId);
+        }
+    }
+
     private static string Quote(string value)
     {
         return "\"" + value.Replace("\"", "\\\"") + "\"";
@@ -424,6 +524,28 @@ internal static class NativeMethods
 {
     private const int JobObjectExtendedLimitInformation = 9;
     private const uint JobObjectLimitKillOnJobClose = 0x00002000;
+
+    internal enum WTS_CONNECTSTATE_CLASS
+    {
+        WTSActive,
+        WTSConnected,
+        WTSConnectQuery,
+        WTSShadow,
+        WTSDisconnected,
+        WTSIdle,
+        WTSListen,
+        WTSReset,
+        WTSDown,
+        WTSInit
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct WTS_SESSION_INFO
+    {
+        internal int SessionId;
+        internal IntPtr WinStationName;
+        internal WTS_CONNECTSTATE_CLASS State;
+    }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal struct STARTUPINFO
@@ -524,6 +646,18 @@ internal static class NativeMethods
 
     [DllImport("kernel32.dll")]
     internal static extern uint WTSGetActiveConsoleSessionId();
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool WTSEnumerateSessions(
+        IntPtr serverHandle,
+        int reserved,
+        int version,
+        out IntPtr sessionInfo,
+        out int count);
+
+    [DllImport("wtsapi32.dll")]
+    internal static extern void WTSFreeMemory(IntPtr memory);
 
     [DllImport("wtsapi32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

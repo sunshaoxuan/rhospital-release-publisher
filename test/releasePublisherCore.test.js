@@ -1876,11 +1876,15 @@ test('native Windows service runs the release console without an interactive win
   assert.match(uninstaller, /Remove-NetFirewallRule/);
   assert.match(serviceHost, /class ReleaseConsoleService : ServiceBase/);
   assert.match(serviceHost, /WTSQueryUserToken/);
+  assert.match(serviceHost, /WTSEnumerateSessions/);
+  assert.match(serviceHost, /WTS_CONNECTSTATE_CLASS\.WTSActive/);
+  assert.match(serviceHost, /WTS_CONNECTSTATE_CLASS\.WTSDisconnected/);
+  assert.match(serviceHost, /TryGetExpectedUserToken\(options\.ExpectedUser/);
   assert.match(serviceHost, /CreateProcessAsUser/);
   assert.match(serviceHost, /CreateNoWindow \| CreateSuspended \| CreateUnicodeEnvironment/);
   assert.match(serviceHost, /JobObjectLimitKillOnJobClose/);
   assert.match(serviceHost, /AssignProcessToJobObject/);
-  assert.match(serviceHost, /identity\.Name, options\.ExpectedUser/);
+  assert.match(serviceHost, /identity\.Name, expectedUser/);
   assert.match(serviceHost, /--bind-address/);
   assert.match(runner, /RELEASE_PUBLISHER_HOST = \$BindAddress/);
   assert.match(packageJson, /scripts\/install-windows-service\.ps1/);
