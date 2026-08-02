@@ -184,7 +184,7 @@ esac
 run_root="$base/$run_id"
 root="$run_root/$gateway_id"
 incoming="$root/.incoming"
-cleanup() { rm -rf "$run_root"; rm -f "$archive"; }
+cleanup() { rm -rf "$run_root"; rm -f "$archive"; rmdir "$base" 2>/dev/null || true; }
 trap cleanup EXIT
 mkdir -p "$incoming" "$root/objects" "$root/manifests"
 tar -xzf "$archive" -C "$incoming"
@@ -324,12 +324,25 @@ function gatewayIdentity(gateway) {
     return `${String(gateway.host).toLowerCase()}:${String(gateway.port || '22')}:${String(gateway.domain).toLowerCase()}`;
 }
 
+function gatewayHostPort(gateway) {
+    return `${String(gateway.host).toLowerCase()}:${String(gateway.port || '22')}`;
+}
+
 export function validateRehearsalConfig(config, productionConfig = null) {
     if (!config || config.environment !== 'rehearsal') {
         throw new Error('remote rehearsal gateway config must set environment=rehearsal');
     }
     const gateways = validateGatewayList(config.gateways);
-    const productionIdentities = new Set((productionConfig?.gateways || []).map(gatewayIdentity));
+    const allowProductionHosts = config.allowProductionHosts === true;
+    if (allowProductionHosts && config.scope !== 'production-temp-root') {
+        throw new Error('production host rehearsal must set scope=production-temp-root');
+    }
+    const productionGateways = productionConfig ? validateGatewayList(productionConfig.gateways) : [];
+    if (allowProductionHosts && productionGateways.length === 0) {
+        throw new Error('production host rehearsal requires the production gateway config');
+    }
+    const productionIdentities = new Set(productionGateways.map(gatewayIdentity));
+    const productionByHostPort = new Map(productionGateways.map(gateway => [gatewayHostPort(gateway), gateway]));
     for (const gateway of gateways) {
         if (!SAFE_GATEWAY_ID_PATTERN.test(String(gateway.id))) {
             throw new Error(`rehearsal gateway ${gateway.id} has an unsafe id`);
@@ -339,8 +352,19 @@ export function validateRehearsalConfig(config, productionConfig = null) {
                 || String(gateway.remoteAssetRoot).includes('\\')) {
             throw new Error(`rehearsal gateway ${gateway.id} must use /tmp/rhospital-release-rehearsal`);
         }
-        if (productionIdentities.has(gatewayIdentity(gateway))) {
+        const identity = gatewayIdentity(gateway);
+        const hostPort = gatewayHostPort(gateway);
+        const productionGateway = productionByHostPort.get(hostPort);
+        if (!allowProductionHosts && (productionIdentities.has(identity) || productionGateway)) {
             throw new Error(`rehearsal gateway ${gateway.id} duplicates a production gateway identity`);
+        }
+        if (allowProductionHosts && (!productionGateway || !productionIdentities.has(identity))) {
+            throw new Error(`production host rehearsal gateway ${gateway.id} must match a production gateway identity`);
+        }
+        if (allowProductionHosts
+                && (String(gateway.username) !== String(productionGateway.username)
+                    || String(gateway.keyPath || '') !== String(productionGateway.keyPath || ''))) {
+            throw new Error(`production host rehearsal gateway ${gateway.id} must reuse production SSH credentials`);
         }
     }
     return gateways;

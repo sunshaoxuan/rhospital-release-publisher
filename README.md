@@ -147,7 +147,9 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 ### 远程前置演练
 
-服务配置 `RELEASE_PUBLISHER_REHEARSAL_GATEWAY_STATIC_CONFIG` 后，页面会启用 `远程前置演练` 复选项。此选项只能与 `dry run` 同时使用，正式执行请求会被拒绝。演练清单必须设置 `environment: rehearsal`，声明两台与生产身份不同的前置，并将 `remoteAssetRoot` 限定在 `/tmp/rhospital-release-rehearsal` 下。发布器会真实使用 SSH 和 SCP，先构建 `frontend-assets`，再在每台隔离前置执行对象创建、逐文件完整 SHA-256 校验、删除一个对象确认验证失败、恢复对象、再次校验和临时根目录清理。生产清单会作为对照输入，重复生产网关身份会闭锁演练。
+服务配置 `RELEASE_PUBLISHER_REHEARSAL_GATEWAY_STATIC_CONFIG` 后，页面会启用 `远程前置演练` 复选项。此选项只能与 `dry run` 同时使用，正式执行请求会被拒绝。普通演练清单必须设置 `environment: rehearsal`，声明两台与生产身份不同的前置，并将 `remoteAssetRoot` 限定在 `/tmp/rhospital-release-rehearsal` 下。发布器会真实使用 SSH 和 SCP，先构建 `frontend-assets`，再在每台前置执行对象创建、逐文件完整 SHA-256 校验、删除一个对象确认验证失败、恢复对象、再次校验和临时根目录清理。生产清单会作为对照输入，重复生产主机、端口或域名会闭锁普通演练。
+
+经明确授权后，也可以使用生产双前置做一次临时根目录演练。此时清单必须同时设置 `allowProductionHosts: true` 和 `scope: production-temp-root`，并且两台主机、端口、域名、用户和密钥必须逐项匹配生产清单。脚本仍只接受 `/tmp/rhospital-release-rehearsal`，不会访问生产静态对象根目录、Nginx、Compose、Swarm 或镜像池；演练结束会删除运行目录、上传归档和空的临时根目录。
 
 远程演练不会调用生产 Compose、Swarm、镜像池或生产静态对象目录。演练清单没有配置时，复选项保持禁用，普通 dry run 继续保持完全无远端副作用。演练只覆盖远程文件交付链，真实 Nginx `X-Cache=LOCAL` 和浏览器冷暖缓存验收仍需要隔离演练前置配置对应的 Nginx 路由和测试域名。
 
@@ -156,6 +158,8 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 ```json
 {
   "environment": "rehearsal",
+  "allowProductionHosts": false,
+  "scope": "isolated-frontends",
   "gateways": [
     {"id": "stage-a", "host": "stage-a.example", "username": "tester", "port": "22", "domain": "stage.rhospital.test", "remoteAssetRoot": "/tmp/rhospital-release-rehearsal"},
     {"id": "stage-b", "host": "stage-b.example", "username": "tester", "port": "22", "domain": "stage.rhospital.test", "remoteAssetRoot": "/tmp/rhospital-release-rehearsal"}

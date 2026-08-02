@@ -235,7 +235,7 @@
     }
     remoteRehearsal.disabled = !available || !dryRun.checked;
     remoteRehearsalNote.textContent = available
-      ? '仅连接隔离前置，在临时根目录创建、删除、恢复后清理对象'
+      ? '仅在两台前置的临时根目录创建、删除、恢复后清理对象'
       : isForum
         ? '论坛目标不支持游戏前置演练'
         : '未配置隔离前置演练清单';
