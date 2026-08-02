@@ -37,6 +37,7 @@ const KNOWN_RELEASE_CHECKS = {
   game: new Set([
     'validate-game-sso-source',
     'test-game-backend',
+    'validate-game-static-delivery-prerequisites',
     'compile-artifact',
     'build-game-static-assets',
     'validate-game-image',
@@ -284,6 +285,15 @@ function createPlan(projectRoot, request, env = process.env) {
       command: `读取 ${config.runConfigPath}`,
       validation: `APP_TAG=${appTag}, image=${imageTag}`,
       actionType: 'local-check'
+    }),
+    releaseStep({
+      key: 'validate-game-static-delivery-prerequisites',
+      title: '校验登录验收运行条件',
+      summary: '在所有生产动作前确认登录令牌文件、Chrome、双前置地址和目标域名可用于发布后真实加载验收',
+      command: gameStaticDeliveryPrerequisiteCheckCommand(appTag),
+      validation: '必须输出 game_static_delivery_prerequisites=PASS，令牌内容不得写入命令、日志或发布历史',
+      actionType: 'local-check',
+      executable: true
     }),
     releaseStep({
       key: 'save-run-config',
@@ -662,6 +672,10 @@ function createPlan(projectRoot, request, env = process.env) {
 function gameStaticDeliveryCheckCommand(appTag) {
   const scriptPath = path.resolve(__dirname, '..', 'scripts', 'verify-game-static-delivery.mjs');
   return `node ${shellToken(scriptPath)} --app-tag ${shellToken(appTag)}`;
+}
+
+function gameStaticDeliveryPrerequisiteCheckCommand(appTag) {
+  return `${gameStaticDeliveryCheckCommand(appTag)} --check-prerequisites`;
 }
 
 function gameStaticAssetRehearsalCommand(imageTag, appTag, rehearsalConfigPath, productionConfigPath, dockerTarget, dockerfile) {

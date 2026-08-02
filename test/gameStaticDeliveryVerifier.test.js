@@ -1,6 +1,9 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
+const {spawnSync} = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 
 async function verifier() {
@@ -55,6 +58,94 @@ test('resolves independent game and Steam hosts from release environment', async
   });
   assert.throws(() => resolveProbeHosts({ 'steam-host': 'https://steam.example.test' }, {}),
     /Steam host must be a hostname/);
+});
+
+test('prerequisite check fails closed when the controlled token file is missing', async () => {
+  const {resolveStaticDeliveryPrerequisites} = await verifier();
+
+  assert.throws(() => resolveStaticDeliveryPrerequisites({
+    'app-tag': '20260803',
+    'auth-token-file': path.join(os.tmpdir(), 'missing-rhospital-smoke-token'),
+    chrome: process.execPath
+  }, {}), /Authenticated smoke token file is missing/);
+});
+
+test('prerequisite check validates token, Chrome, gateways and hosts without network access', async t => {
+  const {resolveStaticDeliveryPrerequisites} = await verifier();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rhospital-static-prerequisites-'));
+  t.after(() => fs.rmSync(root, {recursive: true, force: true}));
+  const tokenFile = path.join(root, 'smoke-token.txt');
+  fs.writeFileSync(tokenFile, 'token=controlled-secret\n', 'utf8');
+
+  const result = resolveStaticDeliveryPrerequisites({
+    'app-tag': '20260803',
+    'auth-token-file': tokenFile,
+    chrome: process.execPath,
+    'riven-ip': '192.0.2.45',
+    'vmiss-ip': '192.0.2.64',
+    'game-host': 'game.example.test',
+    'steam-host': 'steam.example.test'
+  }, {});
+
+  assert.equal(result.appTag, '20260803');
+  assert.equal(result.token, 'controlled-secret');
+  assert.equal(result.chromePath, process.execPath);
+  assert.deepEqual(result.gateways.map(gateway => gateway.ip), ['192.0.2.45', '192.0.2.64']);
+  assert.equal(result.gameHost, 'game.example.test');
+  assert.equal(result.steamHost, 'steam.example.test');
+});
+
+test('prerequisite check rejects invalid gateway addresses and numeric limits', async t => {
+  const {resolveStaticDeliveryPrerequisites} = await verifier();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rhospital-static-prerequisites-invalid-'));
+  t.after(() => fs.rmSync(root, {recursive: true, force: true}));
+  const tokenFile = path.join(root, 'smoke-token.txt');
+  fs.writeFileSync(tokenFile, 'controlled-secret\n', 'utf8');
+  const base = {'app-tag': '20260803', 'auth-token-file': tokenFile, chrome: process.execPath};
+
+  assert.throws(() => resolveStaticDeliveryPrerequisites({...base, 'riven-ip': 'not-an-ip'}, {}),
+    /riven gateway must be an IP address/);
+  assert.throws(() => resolveStaticDeliveryPrerequisites({...base, 'timeout-ms': '0'}, {}),
+    /Browser timeout must be greater than zero/);
+});
+
+test('prerequisite CLI reports readiness without exposing the token', t => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rhospital-static-prerequisites-cli-'));
+  t.after(() => fs.rmSync(root, {recursive: true, force: true}));
+  const tokenFile = path.join(root, 'smoke-token.txt');
+  const controlledToken = 'controlled-secret-must-not-be-logged';
+  fs.writeFileSync(tokenFile, `${controlledToken}\n`, 'utf8');
+  const script = path.resolve(__dirname, '..', 'scripts', 'verify-game-static-delivery.mjs');
+  const result = spawnSync(process.execPath, [
+    script,
+    '--app-tag', '20260803',
+    '--auth-token-file', tokenFile,
+    '--chrome', process.execPath,
+    '--riven-ip', '192.0.2.45',
+    '--vmiss-ip', '192.0.2.64',
+    '--game-host', 'game.example.test',
+    '--steam-host', 'steam.example.test',
+    '--check-prerequisites'
+  ], {encoding: 'utf8'});
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /game_static_delivery_prerequisites=PASS/);
+  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, new RegExp(controlledToken));
+});
+
+test('prerequisite CLI uses a distinct failure marker', () => {
+  const script = path.resolve(__dirname, '..', 'scripts', 'verify-game-static-delivery.mjs');
+  const result = spawnSync(process.execPath, [
+    script,
+    '--app-tag', '20260803',
+    '--auth-token-file', path.join(os.tmpdir(), 'missing-rhospital-smoke-token-cli'),
+    '--chrome', process.execPath,
+    '--check-prerequisites'
+  ], {encoding: 'utf8'});
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /game_static_delivery_prerequisites=FAIL/);
+  assert.doesNotMatch(result.stderr, /game_static_delivery_validation=FAIL/);
 });
 
 test('warm validation rejects cache misses', async () => {

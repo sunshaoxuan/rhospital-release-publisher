@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import http from 'node:http';
+import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -52,14 +53,14 @@ function requireNode22() {
   }
 }
 
-function resolveChrome(explicitPath) {
+function resolveChrome(explicitPath, env = process.env) {
   const candidates = [
     explicitPath,
-    process.env.RHOSPITAL_RELEASE_CHROME_PATH,
+    env.RHOSPITAL_RELEASE_CHROME_PATH,
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe'
   ].filter(Boolean);
-  const chrome = candidates.find(candidate => fs.existsSync(candidate));
+  const chrome = candidates.find(candidate => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
   if (!chrome) {
     throw new Error('Chrome executable is missing; set RHOSPITAL_RELEASE_CHROME_PATH');
   }
@@ -67,13 +68,47 @@ function resolveChrome(explicitPath) {
 }
 
 function readToken(tokenFile) {
-  if (!tokenFile || !fs.existsSync(tokenFile)) {
+  if (!tokenFile || !fs.existsSync(tokenFile) || !fs.statSync(tokenFile).isFile()) {
     throw new Error('Authenticated smoke token file is missing; set RHOSPITAL_RELEASE_AUTH_TOKEN_FILE');
   }
   const raw = fs.readFileSync(tokenFile, 'utf8').trim();
   const token = raw.startsWith('token=') ? raw.slice('token='.length).trim() : raw;
   if (!token) throw new Error('Authenticated smoke token file is empty');
   return token;
+}
+
+function positiveNumber(value, label, {allowZero = false} = {}) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || (allowZero ? number < 0 : number <= 0)) {
+    throw new Error(`${label} must be ${allowZero ? 'zero or greater' : 'greater than zero'}`);
+  }
+  return number;
+}
+
+export function resolveStaticDeliveryPrerequisites(args = {}, env = process.env) {
+  requireNode22();
+  const appTag = String(args['app-tag'] || env.RHOSPITAL_RELEASE_APP_TAG || '').trim();
+  if (!appTag) throw new Error('Release app tag is required');
+  const token = readToken(args['auth-token-file'] || env.RHOSPITAL_RELEASE_AUTH_TOKEN_FILE);
+  const chromePath = resolveChrome(args.chrome, env);
+  const timeoutMs = positiveNumber(
+    args['timeout-ms'] || env.RHOSPITAL_RELEASE_BROWSER_TIMEOUT_MS || DEFAULT_TIMEOUT_MS,
+    'Browser timeout');
+  const originBudgetBytes = positiveNumber(
+    args['origin-budget-bytes'] || env.RHOSPITAL_RELEASE_ORIGIN_BUDGET_BYTES || DEFAULT_ORIGIN_BUDGET_BYTES,
+    'Origin byte budget',
+    {allowZero: true});
+  const gateways = DEFAULT_GATEWAYS.map(gateway => ({
+    ...gateway,
+    ip: String(args[`${gateway.name}-ip`]
+      || env[`RHOSPITAL_RELEASE_${gateway.name.toUpperCase()}_IP`]
+      || gateway.ip).trim()
+  }));
+  for (const gateway of gateways) {
+    if (net.isIP(gateway.ip) === 0) throw new Error(`${gateway.name} gateway must be an IP address`);
+  }
+  const {gameHost, steamHost} = resolveProbeHosts(args, env);
+  return {appTag, token, chromePath, timeoutMs, originBudgetBytes, gateways, gameHost, steamHost};
 }
 
 function delay(ms) {
@@ -362,24 +397,17 @@ export function assertProbe(summary, { warm, steam, originBudgetBytes = DEFAULT_
 }
 
 async function main() {
-  requireNode22();
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
-    console.log('Usage: node scripts/verify-game-static-delivery.mjs --app-tag TAG --auth-token-file FILE');
+    console.log('Usage: node scripts/verify-game-static-delivery.mjs --app-tag TAG --auth-token-file FILE [--check-prerequisites]');
     return;
   }
-  const appTag = String(args['app-tag'] || process.env.RHOSPITAL_RELEASE_APP_TAG || '').trim();
-  if (!appTag) throw new Error('Release app tag is required');
-  const token = readToken(args['auth-token-file'] || process.env.RHOSPITAL_RELEASE_AUTH_TOKEN_FILE);
-  const chromePath = resolveChrome(args.chrome);
-  const timeoutMs = Number(args['timeout-ms'] || process.env.RHOSPITAL_RELEASE_BROWSER_TIMEOUT_MS || DEFAULT_TIMEOUT_MS);
-  const originBudgetBytes = Number(
-    args['origin-budget-bytes'] || process.env.RHOSPITAL_RELEASE_ORIGIN_BUDGET_BYTES || DEFAULT_ORIGIN_BUDGET_BYTES);
-  const gateways = DEFAULT_GATEWAYS.map(gateway => ({
-    ...gateway,
-    ip: args[`${gateway.name}-ip`] || process.env[`RHOSPITAL_RELEASE_${gateway.name.toUpperCase()}_IP`] || gateway.ip
-  }));
-  const { gameHost, steamHost } = resolveProbeHosts(args);
+  const prerequisites = resolveStaticDeliveryPrerequisites(args);
+  if (args['check-prerequisites']) {
+    console.log(`game_static_delivery_prerequisites=PASS token=readable chrome=available gateways=${prerequisites.gateways.length} game_host=${prerequisites.gameHost} steam_host=${prerequisites.steamHost}`);
+    return;
+  }
+  const {appTag, token, chromePath, timeoutMs, originBudgetBytes, gateways, gameHost, steamHost} = prerequisites;
   const mappedHosts = [...new Set([gameHost, steamHost])];
 
   const receipts = [];
@@ -409,7 +437,10 @@ async function main() {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   main().catch(error => {
-    console.error(`game_static_delivery_validation=FAIL ${error.stack || error.message}`);
+    const label = process.argv.includes('--check-prerequisites')
+      ? 'game_static_delivery_prerequisites'
+      : 'game_static_delivery_validation';
+    console.error(`${label}=FAIL ${error.stack || error.message}`);
     process.exitCode = 1;
   });
 }

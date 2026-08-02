@@ -331,6 +331,15 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.command.includes('--app-tag 2026070702')
     && step.validation.includes('X-Cache')
     && step.validation.includes('Steam ES 模块')));
+  assert.ok(plan.steps.some(step => step.key === 'validate-game-static-delivery-prerequisites'
+    && step.command.includes('verify-game-static-delivery.mjs')
+    && step.command.includes('--app-tag 2026070702')
+    && step.command.includes('--check-prerequisites')
+    && step.validation.includes('game_static_delivery_prerequisites=PASS')));
+  const prerequisiteIndex = plan.steps.findIndex(step => step.key === 'validate-game-static-delivery-prerequisites');
+  const firstProductionIndex = plan.steps.findIndex(step => step.productionAction === true);
+  assert.ok(prerequisiteIndex >= 0 && prerequisiteIndex < firstProductionIndex,
+    'static delivery prerequisites must run before every production action');
   assert.ok(plan.steps.some(step => step.key === 'build-game-static-assets'
     && step.command.includes('--target frontend-assets')
     && step.validationCommand.includes('--mode validate')
@@ -390,6 +399,7 @@ test('creates dry run command plan without production execution enabled', () => 
   assertStepType(plan, 'pre-deploy-checklist', 'remote-check', false);
   assertStepType(plan, 'test-game-backend', 'local-check', false);
   assertStepType(plan, 'validate-release-input', 'local-check', false);
+  assertStepType(plan, 'validate-game-static-delivery-prerequisites', 'local-check', false);
   assertStepType(plan, 'save-run-config', 'local-config', false);
   assertStepType(plan, 'compile-artifact', 'build', false);
   assertStepType(plan, 'build-image', 'build', false);

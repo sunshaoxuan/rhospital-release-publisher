@@ -1,5 +1,9 @@
 # 变更记录
 
+## 2026-08-03
+
+1. 游戏正式发布新增强制前置步骤 `validate-game-static-delivery-prerequisites`，在构建和全部生产动作前检查 Node.js、受控登录 token 文件、Chrome、双前置 IP、网页与 Steam 域名及数值限制。凭据或环境缺失时发布会在镜像上传、前置写入、数据库备份、迁移和 Swarm 切换前停止；检查日志只记录可用性，不输出 token。发布后真实登录验收继续保持失败关闭。
+
 ## 2026-08-02
 
 1. 远程前置演练新增已加载 Nginx/OpenResty `/assets/` 路由检查和现有对象 HTTPS 探针，生产主机演练会在临时目录文件操作通过后确认本地对象根目录、`X-Cache=LOCAL` 与 `X-Asset-Source=gate-object` 已生效；预置动作和静态校验日志同时转发 PASS 标记，并在 HTTP 失败时记录服务端与响应头证据，页面说明同步反映路由检查范围。
