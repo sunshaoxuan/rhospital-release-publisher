@@ -2,7 +2,7 @@
 
 ## 2026-08-02
 
-1. 远程前置演练新增已加载 Nginx/OpenResty `/assets/` 路由检查和现有对象 HTTPS 探针，生产主机演练会在临时目录文件操作通过后确认本地对象根目录、`X-Cache=LOCAL` 与 `X-Asset-Source=gate-object` 已生效；预置动作和静态校验日志同时转发 PASS 标记，并在 HTTP 失败时记录服务端与响应头证据。
+1. 远程前置演练新增已加载 Nginx/OpenResty `/assets/` 路由检查和现有对象 HTTPS 探针，生产主机演练会在临时目录文件操作通过后确认本地对象根目录、`X-Cache=LOCAL` 与 `X-Asset-Source=gate-object` 已生效；预置动作和静态校验日志同时转发 PASS 标记，并在 HTTP 失败时记录服务端与响应头证据，页面说明同步反映路由检查范围。
 
 ## 2026-07-31
 
