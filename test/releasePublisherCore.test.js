@@ -1898,6 +1898,7 @@ test('release console exposes game and forum targets with target-aware API paylo
   assert.match(app, /releaseChangedOnly:\s*true/);
   assert.match(app, /remoteRehearsal:\s*remoteRehearsal\.checked/);
   assert.match(app, /remoteRehearsalAvailable/);
+  assert.match(app, /remoteRehearsalAvailable:\s*latestConfig\?\.remoteRehearsalAvailable/);
   assert.match(app, /--远程前置演练|远程前置演练/);
   assert.match(app, /api\/changes/);
   assert.match(app, /recommendedTarget === 'game'/);

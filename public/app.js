@@ -299,6 +299,7 @@
     renderConfig({
       ...plan.config,
       ...remoteImageState,
+      remoteRehearsalAvailable: latestConfig?.remoteRehearsalAvailable,
       suggestedTag: latestConfig ? latestConfig.suggestedTag : plan.appTag
     });
     renderChangeAnalysis(plan.changeAnalysis);
