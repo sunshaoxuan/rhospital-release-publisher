@@ -243,7 +243,7 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 登录 token 只从 `RHOSPITAL_RELEASE_AUTH_TOKEN_FILE` 指向的本地受控文件读取。文件可以保存原始 token 或 `token=<value>`，脚本不会输出 token。Windows 服务启动器会显式读取发布用户或机器级环境变量。token 必须符合游戏服务签发格式，并在检查时至少保留两小时有效期。缺少文件、格式错误、临近到期、Chrome、前置地址或任一验收证据时检查失败关闭。节点 IP、网页域名和 Steam 域名可分别通过 `RHOSPITAL_RIVEN_GATE_IP`、`RHOSPITAL_VMISS_GATE_IP`、`RHOSPITAL_GAME_HOST` 与 `RHOSPITAL_STEAM_HOST` 覆盖。
 
-正式游戏发布在完整 Maven 测试、构建和全部生产动作之前强制执行 `validate-game-static-delivery-prerequisites`。该步骤只检查 Node.js、登录 token 文件与有效期、Chrome、两台前置地址、网页域名、Steam 域名和数值限制，不启动浏览器或访问生产环境。任一条件缺失时发布立即停止。令牌值不会写入命令、日志或发布历史。
+正式游戏发布在代码切换、完整 Maven 测试、构建和全部生产动作之前强制执行 `validate-game-static-delivery-prerequisites`。该步骤只检查 Node.js、登录 token 文件与有效期、Chrome、两台前置地址、网页域名、Steam 域名和数值限制，不启动浏览器或访问生产环境。任一条件缺失时发布立即停止，因此环境缺失不会把工作区留在指定提交的 detached HEAD。令牌值不会写入命令、日志或发布历史。
 
 查看本地参数说明不会访问生产：
 

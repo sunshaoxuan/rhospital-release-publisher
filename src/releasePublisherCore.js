@@ -222,6 +222,23 @@ function createPlan(projectRoot, request, env = process.env) {
       executable: true
     }),
     releaseStep({
+      key: 'validate-release-input',
+      title: '读取配置并校验 TAG',
+      summary: '确认本地发布配置、镜像 TAG 和 APP_TAG 使用同一个版本号',
+      command: `读取 ${config.runConfigPath}`,
+      validation: `APP_TAG=${appTag}, image=${imageTag}`,
+      actionType: 'local-check'
+    }),
+    releaseStep({
+      key: 'validate-game-static-delivery-prerequisites',
+      title: '校验登录验收运行条件',
+      summary: '在代码切换、耗时测试和所有生产动作前确认登录令牌文件、Chrome、双前置地址和目标域名可用于发布后真实加载验收',
+      command: gameStaticDeliveryPrerequisiteCheckCommand(appTag),
+      validation: '必须输出 game_static_delivery_prerequisites=PASS，令牌内容不得写入命令、日志或发布历史',
+      actionType: 'local-check',
+      executable: true
+    }),
+    releaseStep({
       key: 'git-fetch',
       title: '获取远端代码',
       summary: '从 origin 拉取远端引用，供最新发布或指定 ref 发布使用',
@@ -266,23 +283,6 @@ function createPlan(projectRoot, request, env = process.env) {
         `git grep -n -E ${shellToken(`MARKER_VERSION[[:space:]]*=[[:space:]]*${catalogSchemaVersion};`)} HEAD -- ${shellToken(CATALOG_UPGRADE_SOURCE_PATH)}`
       ]),
       validation: `目标提交必须包含 ${GAME_SSO_BASELINE_COMMIT.slice(0, 8)}、三个游戏 SSO 核心文件和 Catalog v${catalogSchemaVersion} 升级声明`,
-      actionType: 'local-check',
-      executable: true
-    }),
-    releaseStep({
-      key: 'validate-release-input',
-      title: '读取配置并校验 TAG',
-      summary: '确认本地发布配置、镜像 TAG 和 APP_TAG 使用同一个版本号',
-      command: `读取 ${config.runConfigPath}`,
-      validation: `APP_TAG=${appTag}, image=${imageTag}`,
-      actionType: 'local-check'
-    }),
-    releaseStep({
-      key: 'validate-game-static-delivery-prerequisites',
-      title: '校验登录验收运行条件',
-      summary: '在所有生产动作前确认登录令牌文件、Chrome、双前置地址和目标域名可用于发布后真实加载验收',
-      command: gameStaticDeliveryPrerequisiteCheckCommand(appTag),
-      validation: '必须输出 game_static_delivery_prerequisites=PASS，令牌内容不得写入命令、日志或发布历史',
       actionType: 'local-check',
       executable: true
     }),

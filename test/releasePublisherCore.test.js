@@ -338,11 +338,14 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.validation.includes('game_static_delivery_prerequisites=PASS')));
   const prerequisiteIndex = plan.steps.findIndex(step => step.key === 'validate-game-static-delivery-prerequisites');
   const backendTestIndex = plan.steps.findIndex(step => step.key === 'test-game-backend');
+  const gitUpdateIndex = plan.steps.findIndex(step => step.key === 'git-update');
   const firstProductionIndex = plan.steps.findIndex(step => step.productionAction === true);
   assert.ok(prerequisiteIndex >= 0 && prerequisiteIndex < firstProductionIndex,
     'static delivery prerequisites must run before every production action');
   assert.ok(prerequisiteIndex < backendTestIndex,
     'static delivery prerequisites must run before the full backend test suite');
+  assert.ok(prerequisiteIndex < gitUpdateIndex,
+    'static delivery prerequisites must run before changing the working tree revision');
   assert.ok(plan.steps.some(step => step.key === 'build-game-static-assets'
     && step.command.includes('--target frontend-assets')
     && step.validationCommand.includes('--mode validate')
