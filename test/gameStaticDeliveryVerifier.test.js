@@ -50,6 +50,58 @@ test('summarizes successful hashed module delivery and cache status', async () =
   assert.equal(summary.badResponseCount, 0);
 });
 
+test('records New Relic collector failures separately from game failures', async () => {
+  const { summarizeProbe, assertProbe, probeFailureEvidence } = await verifier();
+  const result = passingResult({
+    failures: [{
+      url: 'https://bam.nr-data.net/jserrors/1/abc',
+      errorText: 'net::ERR_FAILED',
+      canceled: false
+    }],
+    runtimeErrors: [{
+      source: 'browser-log',
+      message: 'Failed to load resource: net::ERR_FAILED',
+      url: 'https://bam.nr-data.net/jserrors/1/abc'
+    }, {
+      source: 'console',
+      message: 'Access to fetch at https://bam.nr-data.net/events/1/abc was blocked by CORS',
+      url: 'https://rhospital.cc/run/newGame'
+    }]
+  });
+
+  const summary = summarizeProbe(result);
+  const evidence = probeFailureEvidence(result);
+  assert.equal(summary.networkFailureCount, 0);
+  assert.equal(summary.runtimeErrorCount, 0);
+  assert.equal(summary.ignoredTelemetryFailureCount, 1);
+  assert.equal(summary.ignoredTelemetryRuntimeErrorCount, 2);
+  assert.equal(evidence.failures.length, 0);
+  assert.equal(evidence.runtimeErrors.length, 0);
+  assert.equal(evidence.ignoredTelemetryFailures.length, 1);
+  assert.equal(evidence.ignoredTelemetryRuntimeErrors.length, 2);
+  assert.doesNotThrow(() => assertProbe(summary, { warm: false, steam: false }));
+});
+
+test('keeps application resource and runtime failures blocking', async () => {
+  const { summarizeProbe, assertProbe } = await verifier();
+  const summary = summarizeProbe(passingResult({
+    failures: [{
+      url: 'https://rhospital.cc/assets/js/main.js',
+      errorText: 'net::ERR_FAILED',
+      canceled: false
+    }],
+    runtimeErrors: [{
+      source: 'runtime-exception',
+      message: 'ReferenceError: gameBoot is not defined',
+      url: 'https://rhospital.cc/assets/js/main.js'
+    }]
+  }));
+
+  assert.equal(summary.networkFailureCount, 1);
+  assert.equal(summary.runtimeErrorCount, 1);
+  assert.throws(() => assertProbe(summary, { warm: false, steam: false }), /network requests failed/);
+});
+
 test('resolves independent game and Steam hosts from release environment', async () => {
   const { resolveProbeHosts } = await verifier();
 
@@ -177,7 +229,7 @@ test('warm validation rejects cache misses', async () => {
 });
 
 test('validation rejects failed resources, missing cache headers and incomplete loading', async () => {
-  const { summarizeProbe, assertProbe } = await verifier();
+  const { summarizeProbe, assertProbe, probeFailureEvidence } = await verifier();
   const result = passingResult({
     state: { href: 'https://rhospital.cc/run/newGame', firstFloor: false, loadState: { phase: 'asset-timeout' } },
     responses: [{
@@ -189,6 +241,11 @@ test('validation rejects failed resources, missing cache headers and incomplete 
     failures: [{ errorText: 'net::ERR_TIMED_OUT', canceled: false }]
   });
   const summary = summarizeProbe(result);
+  const evidence = probeFailureEvidence(result);
+
+  assert.equal(evidence.failedResponses[0].status, 504);
+  assert.equal(evidence.failures[0].errorText, 'net::ERR_TIMED_OUT');
+  assert.deepEqual(evidence.runtimeErrors, []);
 
   assert.throws(() => assertProbe(summary, { warm: false, steam: true }), error => {
     assert.match(error.message, /did not reach FirstFloor/);

@@ -239,7 +239,7 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 4. 全部 `/assets/**` 请求必须零 4xx/5xx、零网络失败并包含 `X-Cache`，暖缓存不得出现 MISS。
 5. 冷缓存 MISS 响应体总量不得超过默认 240 MiB 源站预算。预算可以通过 `RHOSPITAL_RELEASE_ORIGIN_BUDGET_BYTES` 调整。
 6. Steam 域名使用同一前置独立加载，必须枚举到至少一个 ES 模块，并要求全部 JavaScript 模块成功且包含缓存状态。
-7. 浏览器运行时错误、控制台错误和加载器错误均会阻止发布完成。
+7. 游戏页面的浏览器运行时错误、控制台错误和加载器错误均会阻止发布完成。主机名精确匹配 `bam.nr-data.net` 的 New Relic 上报失败会单独计数和保留证据，不参与游戏健康判定；其他第三方或应用错误继续阻止发布。
 
 登录 token 只从 `RHOSPITAL_RELEASE_AUTH_TOKEN_FILE` 指向的本地受控文件读取。文件可以保存原始 token 或 `token=<value>`，脚本不会输出 token。Windows 服务启动器会显式读取发布用户或机器级环境变量。token 必须符合游戏服务签发格式，并在检查时至少保留两小时有效期。缺少文件、格式错误、临近到期、Chrome、前置地址或任一验收证据时检查失败关闭。节点 IP、网页域名和 Steam 域名可分别通过 `RHOSPITAL_RIVEN_GATE_IP`、`RHOSPITAL_VMISS_GATE_IP`、`RHOSPITAL_GAME_HOST` 与 `RHOSPITAL_STEAM_HOST` 覆盖。
 

@@ -13,6 +13,7 @@ const DEFAULT_GATEWAYS = [
 const DEFAULT_TIMEOUT_MS = 300000;
 const DEFAULT_ORIGIN_BUDGET_BYTES = 240 * 1024 * 1024;
 const MINIMUM_TOKEN_VALIDITY_MS = 2 * 60 * 60 * 1000;
+const IGNORED_TELEMETRY_HOSTS = new Set(['bam.nr-data.net']);
 
 function parseArgs(argv) {
   const values = {};
@@ -224,7 +225,7 @@ async function evaluate(client, expression) {
   return result.result?.value;
 }
 
-async function runChromeProbe({ chromePath, gateway, host, mappedHosts, route, token, probeKey, timeoutMs }) {
+export async function runChromeProbe({ chromePath, gateway, host, mappedHosts, route, token, probeKey, timeoutMs }) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rhospital-release-smoke-'));
   const debugFile = path.join(userDataDir, 'DevToolsActivePort');
   const hostRules = [
@@ -255,8 +256,12 @@ async function runChromeProbe({ chromePath, gateway, host, mappedHosts, route, t
     await client.open();
 
     const responses = new Map();
+    const requestUrls = new Map();
     const failures = [];
     const runtimeErrors = [];
+    client.on('Network.requestWillBeSent', params => {
+      requestUrls.set(params.requestId, params.request?.url || '');
+    });
     client.on('Network.responseReceived', params => {
       const response = params.response || {};
       responses.set(params.requestId, {
@@ -273,24 +278,41 @@ async function runChromeProbe({ chromePath, gateway, host, mappedHosts, route, t
     });
     client.on('Network.loadingFailed', params => failures.push({
       requestId: params.requestId,
+      url: requestUrls.get(params.requestId) || '',
       errorText: params.errorText,
       canceled: params.canceled === true
     }));
-    client.on('Runtime.exceptionThrown', params => runtimeErrors.push(
-      params.exceptionDetails?.exception?.description || params.exceptionDetails?.text || 'runtime exception'));
+    client.on('Runtime.exceptionThrown', params => runtimeErrors.push({
+      source: 'runtime-exception',
+      message: params.exceptionDetails?.exception?.description || params.exceptionDetails?.text || 'runtime exception',
+      url: params.exceptionDetails?.url || params.exceptionDetails?.stackTrace?.callFrames?.[0]?.url || ''
+    }));
     client.on('Runtime.consoleAPICalled', params => {
       if (params.type !== 'error') return;
-      runtimeErrors.push((params.args || []).map(arg => arg.value || arg.description || '').join(' '));
+      runtimeErrors.push({
+        source: 'console',
+        message: (params.args || []).map(arg => arg.value || arg.description || '').join(' '),
+        url: params.stackTrace?.callFrames?.[0]?.url || ''
+      });
     });
     client.on('Log.entryAdded', params => {
-      if (params.entry?.level === 'error') runtimeErrors.push(params.entry.text || 'browser log error');
+      if (params.entry?.level === 'error') runtimeErrors.push({
+        source: 'browser-log',
+        message: params.entry.text || 'browser log error',
+        url: params.entry.url || ''
+      });
     });
     client.on('Fetch.requestPaused', async params => {
       try {
         const nextUrl = withProbeQuery(params.request.url, probeKey);
         await client.send('Fetch.continueRequest', { requestId: params.requestId, url: nextUrl });
       } catch (error) {
-        failures.push({ requestId: params.requestId, errorText: error.message, canceled: false });
+        failures.push({
+          requestId: params.requestId,
+          url: params.request?.url || '',
+          errorText: error.message,
+          canceled: false
+        });
         await client.send('Fetch.failRequest', { requestId: params.requestId, errorReason: 'Failed' });
       }
     });
@@ -367,6 +389,9 @@ export function summarizeProbe(result) {
     cacheStatuses[cacheStatus || 'MISSING'] = (cacheStatuses[cacheStatus || 'MISSING'] || 0) + 1;
     if (cacheStatus === 'MISS') missBytes += Number(response.encodedDataLength || 0);
   }
+  const networkFailures = result.failures.filter(entry => !entry.canceled);
+  const actionableNetworkFailures = networkFailures.filter(entry => !isIgnoredTelemetryEntry(entry));
+  const actionableRuntimeErrors = result.runtimeErrors.filter(entry => !isIgnoredTelemetryEntry(entry));
   return {
     gateway: result.gateway,
     host: result.host,
@@ -380,8 +405,46 @@ export function summarizeProbe(result) {
     missingCacheHeader,
     cacheStatuses,
     missBytes,
-    networkFailureCount: result.failures.filter(entry => !entry.canceled).length,
-    runtimeErrorCount: result.runtimeErrors.length
+    networkFailureCount: actionableNetworkFailures.length,
+    runtimeErrorCount: actionableRuntimeErrors.length,
+    ignoredTelemetryFailureCount: networkFailures.length - actionableNetworkFailures.length,
+    ignoredTelemetryRuntimeErrorCount: result.runtimeErrors.length - actionableRuntimeErrors.length
+  };
+}
+
+export function isIgnoredTelemetryEntry(entry) {
+  const url = typeof entry === 'string' ? '' : entry?.url || '';
+  const message = typeof entry === 'string' ? entry : entry?.message || entry?.errorText || '';
+  if (hasIgnoredTelemetryHost(url)) return true;
+  const referencedUrls = String(message).match(/https?:\/\/[^\s)'\"]+/g) || [];
+  return referencedUrls.some(hasIgnoredTelemetryHost);
+}
+
+function hasIgnoredTelemetryHost(value) {
+  try {
+    return IGNORED_TELEMETRY_HOSTS.has(new URL(value).hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+}
+
+export function probeFailureEvidence(result, limit = 10) {
+  const failedResponses = result.responses.filter(entry => Number(entry.status) >= 400);
+  const networkFailures = result.failures.filter(entry => !entry.canceled);
+  return {
+    gateway: result.gateway,
+    host: result.host,
+    route: result.route,
+    state: result.state,
+    failures: networkFailures.filter(entry => !isIgnoredTelemetryEntry(entry)).slice(0, limit),
+    runtimeErrors: result.runtimeErrors.filter(entry => !isIgnoredTelemetryEntry(entry)).slice(0, limit),
+    ignoredTelemetryFailures: networkFailures.filter(isIgnoredTelemetryEntry).slice(0, limit),
+    ignoredTelemetryRuntimeErrors: result.runtimeErrors.filter(isIgnoredTelemetryEntry).slice(0, limit),
+    failedResponses: failedResponses.slice(0, limit).map(entry => ({
+      url: entry.url,
+      status: entry.status,
+      mimeType: entry.mimeType
+    }))
   };
 }
 
@@ -422,9 +485,13 @@ async function main() {
   const receipts = [];
   for (const gateway of gateways) {
     const probeKey = `${appTag}-${gateway.name}`;
-    const cold = summarizeProbe(await runChromeProbe({
+    const coldResult = await runChromeProbe({
       chromePath, gateway, host: gameHost, mappedHosts, route: '/run/newGame', token, probeKey, timeoutMs
-    }));
+    });
+    const cold = summarizeProbe(coldResult);
+    if (!cold.launched || cold.badResponseCount > 0 || cold.networkFailureCount > 0 || cold.runtimeErrorCount > 0) {
+      console.error(`game_static_delivery_evidence=${JSON.stringify(probeFailureEvidence(coldResult))}`);
+    }
     assertProbe(cold, { warm: false, steam: false, originBudgetBytes });
     receipts.push({ pass: 'cold', ...cold });
 
