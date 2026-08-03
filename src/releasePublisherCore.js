@@ -45,6 +45,7 @@ const KNOWN_RELEASE_CHECKS = {
     'apply-database-migrations',
     'pre-deploy-checklist',
     'verify-game-static-assets-predeploy',
+    'commit-game-cutover',
     'final-runtime-check',
     'verify-game-static-delivery',
     'verify-tradepool-release'
@@ -565,9 +566,27 @@ function createPlan(projectRoot, request, env = process.env) {
       executable: true
     }));
     steps.push(releaseStep({
+      key: 'commit-game-cutover',
+      title: '提交新版本接管状态',
+      summary: '等待目标版本全部健康且旧版本运行任务归零，记录不可逆切换提交点',
+      command: remoteSshCommand(remoteImageTarget,
+        remoteBashScriptCommand(finalRuntimeCheckCommand(
+          config.stackName,
+          config.containerName,
+          imageTag,
+          appTag,
+          {requireUpdateCompleted: false, successMarker: 'game_cutover_commit=PASS'}
+        ))),
+      validation: `服务镜像和 IMAGE_TAG 必须为 ${imageTag}，目标副本全部健康且旧版本运行任务为零；完成后禁止自动回退`,
+      actionType: 'remote-check',
+      executable: true,
+      cutoverCommit: true,
+      timeoutSeconds: 1860
+    }));
+    steps.push(releaseStep({
       key: 'final-runtime-check',
       title: '最终运行校验',
-      summary: '等待 Swarm 滚动完成，确认镜像、运行版本、健康副本和旧任务全部收敛',
+      summary: '切换提交后继续等待 Swarm 观察期完成，并再次确认目标版本运行状态',
       command: remoteSshCommand(remoteImageTarget,
         remoteBashScriptCommand(finalRuntimeCheckCommand(config.stackName, config.containerName, imageTag, appTag))),
       validation: `服务镜像和 IMAGE_TAG 必须为 ${imageTag}，Swarm 更新完成且只有目标版本健康副本运行`,
@@ -1012,6 +1031,7 @@ function releaseStep({
   actionType = 'local-check',
   executable = false,
   finalCheck = false,
+  cutoverCommit = false,
   timeoutSeconds = 0,
   rehearsal = false
 }) {
@@ -1026,6 +1046,7 @@ function releaseStep({
     actionType,
     executable,
     finalCheck,
+    cutoverCommit,
     timeoutSeconds,
     rehearsal,
     status: 'pending'
@@ -1089,6 +1110,8 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
   const stepTiming = {};
   let executionStatus = 'RUNNING';
   let cutoverStarted = false;
+  let cutoverCommitted = false;
+  let cutoverCommittedAt = '';
   const updateStep = (stepKey, status, output) => {
     const activeStep = runtimePlan.steps.find(step => step.key === stepKey);
     const elapsedMs = stepTiming[stepKey] ? stepTiming[stepKey].elapsedMs : 0;
@@ -1103,6 +1126,8 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
       stepTimeoutSeconds: timeoutSeconds,
       stepRemainingSeconds: timeoutSeconds > 0 ? Math.max(0, timeoutSeconds - Math.floor((Number(elapsedMs) || 0) / 1000)) : null,
       heartbeatAt: new Date().toISOString(),
+      cutoverCommitted,
+      cutoverCommittedAt,
       status: executionStatus
     });
   };
@@ -1238,6 +1263,12 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
           }, signal, step.timeoutSeconds);
         }
         assertNotCancelled();
+        if (step.cutoverCommit) {
+          cutoverCommitted = true;
+          cutoverCommittedAt = new Date().toISOString();
+          pushStepLog(step.key,
+            `[COMMITTED] 新版本已健康接管且旧版本运行任务为零，自动回退永久禁用，时间 ${cutoverCommittedAt}`);
+        }
         completedStepKeys.push(step.key);
         const durationMs = finishStepTimer(step.key, stepTiming);
         pushStepLog(step.key, `[DONE] ${step.title}，用时 ${formatDurationMs(durationMs)}`);
@@ -1256,8 +1287,26 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
     pushStepLog(failedStepKey, `${error.name === 'CancellationError' ? 'CANCELLED' : 'ERROR'}: ${error.message}`);
     runtimePlan = markStepStatus(runtimePlan, completedStepKeys, failedStepKey,
       error.name === 'CancellationError' ? 'cancelled' : 'failed', stepLogs, stepTiming);
+    if (plan.releaseTarget === 'game' && cutoverCommitted) {
+      pushStepLog(failedStepKey,
+        'RECOVERY_REQUIRED: 新版本切换已经提交，后续失败只保留证据和目标版本，禁止执行自动回退');
+      runtimePlan = markStepStatus(runtimePlan, completedStepKeys, failedStepKey,
+        error.name === 'CancellationError' ? 'cancelled' : 'failed', stepLogs, stepTiming);
+      const committedLogs = logs.slice();
+      appendReleaseHistory(projectRoot,
+        buildHistoryEntry('RECOVERY_REQUIRED', runtimePlan, committedLogs, completedStepKeys), env);
+      return {
+        status: 'RECOVERY_REQUIRED',
+        plan: runtimePlan,
+        logs: committedLogs,
+        completedStepKeys,
+        cutoverCommitted,
+        cutoverCommittedAt
+      };
+    }
     const shouldEvaluateRecovery = plan.releaseTarget === 'game'
       && cutoverStarted
+      && !cutoverCommitted
       && !completedStepKeys.includes('verify-tradepool-release');
     if (shouldEvaluateRecovery) {
       const rollbackDecisionStep = plan.steps.find(step => step.key === 'game-rollback-decision');
@@ -1366,7 +1415,14 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
   }
   const markedPlan = markCompletedSteps(plan, completedStepKeys, 'done', stepLogs, stepTiming);
   appendReleaseHistory(projectRoot, buildHistoryEntry('EXECUTED', markedPlan, logs, completedStepKeys), env);
-  return {status: 'EXECUTED', plan: markedPlan, logs, completedStepKeys};
+  return {
+    status: 'EXECUTED',
+    plan: markedPlan,
+    logs,
+    completedStepKeys,
+    cutoverCommitted,
+    cutoverCommittedAt
+  };
 }
 
 function historyFile(env = process.env) {
@@ -2237,17 +2293,22 @@ function isHeldHealthyGameTargetRelease(entry) {
   }
   const step = key => entry.stepSummary.find(item => item && item.key === key);
   const deploy = step('deploy-stack');
+  const cutoverCommit = step('commit-game-cutover');
   const finalRuntime = step('final-runtime-check');
   const rollbackDecision = step('game-rollback-decision');
   const rollbackCommand = step('game-rollback-command');
   const decisionEvidence = rollbackDecision && Array.isArray(rollbackDecision.logs)
     ? rollbackDecision.logs.join('\n')
     : '';
-  return deploy && deploy.status === 'done'
+  const committedTarget = deploy && deploy.status === 'done'
+    && cutoverCommit && cutoverCommit.status === 'done'
+    && (!rollbackCommand || rollbackCommand.status !== 'done');
+  const legacyHeldTarget = deploy && deploy.status === 'done'
     && finalRuntime && finalRuntime.status === 'done'
     && rollbackDecision && rollbackDecision.status === 'done'
     && (!rollbackCommand || rollbackCommand.status !== 'done')
     && decisionEvidence.includes('automatic_rollback_decision=HOLD_TARGET');
+  return committedTarget || legacyHeldTarget;
 }
 
 function releaseDirection(projectRoot, baselineCommit, targetCommit, gitRunner) {
@@ -3167,6 +3228,7 @@ function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName
 
 function gameComposeSsoContractCommands() {
   return [
+    `test "$(sed -n '/^[[:space:]]*update_config:[[:space:]]*$/,/^[[:space:]]*rollback_config:[[:space:]]*$/p' docker-compose.yml | sed -n 's/^[[:space:]]*failure_action:[[:space:]]*//p' | head -n 1)" = pause || { echo 'ERROR: update_config failure_action must be pause so Swarm cannot roll back a committed target'; exit 1; }`,
     `test "$(grep -Ec '^[[:space:]]*-[[:space:]]*FORUM_SSO_ENABLED=true[[:space:]]*$|^[[:space:]]*FORUM_SSO_ENABLED:[[:space:]]*"?true"?[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: FORUM_SSO_ENABLED=true is missing or duplicated'; exit 1; }`,
     `test "$(grep -Ec '^[[:space:]]*-[[:space:]]*FORUM_SSO_SECRET_FILE=/run/secrets/forum_sso_secret[[:space:]]*$|^[[:space:]]*FORUM_SSO_SECRET_FILE:[[:space:]]*"?/run/secrets/forum_sso_secret"?[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: FORUM_SSO_SECRET_FILE is missing or duplicated'; exit 1; }`,
     `test "$(grep -Ec '^[[:space:]]*forum_sso_secret:[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: forum_sso_secret declaration is missing or duplicated'; exit 1; }`
@@ -3216,8 +3278,13 @@ function gameImageValidationCommand(dockerTarget, imageTag, appTag, expectedCata
   ]);
 }
 
-function finalRuntimeCheckCommand(stackName, containerName, imageTag, appTag) {
+function finalRuntimeCheckCommand(stackName, containerName, imageTag, appTag, options = {}) {
   const serviceName = `${stackName}_${containerName}`;
+  const requireUpdateCompleted = options.requireUpdateCompleted !== false;
+  const successMarker = options.successMarker || 'rollout_validation=PASS';
+  const updateStateCondition = requireUpdateCompleted
+    ? ` && [ "$update_state" = completed ]`
+    : ` && { [ "$update_state" = updating ] || [ "$update_state" = completed ]; }`;
   return [
     `service_name=${shellToken(serviceName)}`,
     `expected_image=${shellToken(imageTag)}`,
@@ -3263,7 +3330,7 @@ function finalRuntimeCheckCommand(stackName, containerName, imageTag, appTag) {
     `  image_matches=false`,
     `  case "$service_image" in "$expected_image"|"$expected_image"@*) image_matches=true ;; esac`,
     `  echo "rollout_state=$update_state image=$service_image version=$service_version sso=$service_sso_enabled sso_secret_file=$service_sso_secret_file sso_secret=$service_sso_secret expected_replicas=$expected_replicas active_target=$active_target_count active_other=$active_other_count healthy_target=$healthy_target_count"`,
-    `  if [ "$image_matches" = true ] && [ "$service_version" = "$expected_version" ] && [ "$service_sso_enabled" = true ] && [ "$service_sso_secret_file" = /run/secrets/forum_sso_secret ] && [ "$service_sso_secret" = forum_sso_secret ] && [ "$update_state" = completed ] && [ "$active_target_count" -eq "$expected_replicas" ] && [ "$healthy_target_count" -eq "$expected_replicas" ] && [ "$active_other_count" -eq 0 ]; then`,
+    `  if [ "$image_matches" = true ] && [ "$service_version" = "$expected_version" ] && [ "$service_sso_enabled" = true ] && [ "$service_sso_secret_file" = /run/secrets/forum_sso_secret ] && [ "$service_sso_secret" = forum_sso_secret ]${updateStateCondition} && [ "$active_target_count" -eq "$expected_replicas" ] && [ "$healthy_target_count" -eq "$expected_replicas" ] && [ "$active_other_count" -eq 0 ]; then`,
     `    break`,
     `  fi`,
     `  case "$update_state" in paused|rollback_started|rollback_paused|rollback_completed) echo "ERROR: Swarm rollout ended in $update_state"; exit 1 ;; esac`,
@@ -3272,7 +3339,7 @@ function finalRuntimeCheckCommand(stackName, containerName, imageTag, appTag) {
     `done`,
     `docker stack services ${shellToken(stackName)}`,
     `docker service ps "$service_name" --no-trunc`,
-    `echo rollout_validation=PASS`
+    `echo ${successMarker}`
   ];
 }
 

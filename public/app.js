@@ -76,6 +76,7 @@
   let historyPageCount = 1;
   let activeJobTimer = null;
   let activeJobId = '';
+  let activeJobCutoverRefreshed = false;
   let appTagEdited = false;
 
   async function requestJson(url, options) {
@@ -694,6 +695,23 @@
     }
   }
 
+  async function refreshProductionImageOnly() {
+    const config = latestConfig || {};
+    const params = new URLSearchParams({
+      releaseTarget: releaseTarget.value,
+      remoteSshTarget: remoteSshTarget.value.trim() || config.remoteSshTarget || config.serverName || '',
+      remoteComposeDir: remoteComposeDir.value.trim() || config.remoteComposeDir || ''
+    });
+    const remote = await requestJson(`/api/remote-tag?${params.toString()}`);
+    latestConfig = {
+      ...config,
+      remoteOnlineResolved: remote.resolved,
+      remoteOnlineImage: remote.imageTag,
+      remoteOnlineNote: remote.note || remote.error || ''
+    };
+    renderProductionImage(latestConfig);
+  }
+
   async function loadRemoteTagValue(config) {
     const params = new URLSearchParams({
       releaseTarget: releaseTarget.value,
@@ -838,6 +856,7 @@
       body: JSON.stringify(payload())
     });
     activeJobId = job.id;
+    activeJobCutoverRefreshed = false;
     setStatus(`执行任务已创建: ${job.id}`, '');
     renderJob(job);
     pollJob(job.id);
@@ -846,6 +865,13 @@
   async function pollJob(jobId) {
     const job = await requestJson(`/api/jobs/${encodeURIComponent(jobId)}`);
     renderJob(job);
+    if (job.cutoverCommitted === true && !activeJobCutoverRefreshed) {
+      activeJobCutoverRefreshed = true;
+      refreshProductionImageOnly().catch(error => {
+        activeJobCutoverRefreshed = false;
+        setStatus(`新版本已生效，生产镜像读取失败：${error.message}`, 'error');
+      });
+    }
     if (isActiveJobStatus(job.status)) {
       activeJobTimer = setTimeout(() => {
         pollJob(jobId).catch(error => setStatus(error.message, 'error'));
@@ -856,6 +882,7 @@
     activeJobId = '';
     cancelBtn.disabled = true;
     await loadHistory();
+    await refreshProductionImageOnly().catch(() => null);
     setStatus(`执行状态: ${job.status}`, terminalStatusKind(job.status));
   }
 
@@ -874,7 +901,11 @@
         ? `，距超时约 ${formatDuration(remaining * 1000)}`
         : '，本步未设置固定超时';
       const heartbeatText = job.heartbeatAt ? `，心跳 ${formatDateTime(job.heartbeatAt)}` : '';
-      setStatus(`${job.status}: ${job.currentStepTitle || job.currentStepKey || '等待执行'}，已运行 ${formatDuration(elapsed * 1000)}${timeoutText}${heartbeatText}`, '');
+      const phase = job.cutoverCommitted === true
+        ? '新版本已生效，安全观察中'
+        : job.status;
+      setStatus(`${phase}: ${job.currentStepTitle || job.currentStepKey || '等待执行'}，已运行 ${formatDuration(elapsed * 1000)}${timeoutText}${heartbeatText}`,
+        job.cutoverCommitted === true ? 'success' : '');
     } else {
       setStatus(`执行状态: ${job.status}`, terminalStatusKind(job.status));
     }

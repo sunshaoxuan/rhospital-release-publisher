@@ -272,6 +272,7 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(plan.steps.some(step => step.key === 'read-remote-compose'
     && decodedRemoteScript(step.command).includes(`cd ${DEFAULT_REMOTE_COMPOSE_DIR}`)
     && decodedRemoteScript(step.command).includes('IMAGE_TAG')
+    && decodedRemoteScript(step.command).includes('update_config failure_action must be pause')
     && decodedRemoteScript(step.command).includes('FORUM_SSO_ENABLED=true is missing or duplicated')
     && decodedRemoteScript(step.command).includes('FORUM_SSO_SECRET_FILE is missing or duplicated')));
   assert.ok(plan.steps.some(step => step.key === 'game-database-preflight'
@@ -307,6 +308,13 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.validationCommand).includes('IMAGE_TAG=2026070702')));
   assert.ok(plan.steps.some(step => step.key === 'deploy-stack'
     && decodedRemoteScript(step.validationCommand).includes('docker stack services hospital_stack')));
+  assert.ok(plan.steps.some(step => step.key === 'commit-game-cutover'
+    && step.cutoverCommit === true
+    && step.timeoutSeconds === 1860
+    && step.validation.includes('完成后禁止自动回退')
+    && decodedRemoteScript(step.command).includes('game_cutover_commit=PASS')
+    && decodedRemoteScript(step.command).includes('active_other_count')
+    && decodedRemoteScript(step.command).includes('[ "$update_state" = updating ] || [ "$update_state" = completed ]')));
   assert.ok(plan.steps.some(step => step.key === 'final-runtime-check'
     && step.finalCheck
     && step.timeoutSeconds === 1860
@@ -324,6 +332,11 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('service_sso_secret=')
     && decodedRemoteScript(step.command).includes('active_other_count')
     && decodedRemoteScript(step.command).includes('rollout_validation=PASS')));
+  const deployIndex = plan.steps.findIndex(step => step.key === 'deploy-stack');
+  const cutoverCommitIndex = plan.steps.findIndex(step => step.key === 'commit-game-cutover');
+  const finalRuntimeIndex = plan.steps.findIndex(step => step.key === 'final-runtime-check');
+  assert.ok(deployIndex < cutoverCommitIndex && cutoverCommitIndex < finalRuntimeIndex,
+    'cutover commit must be recorded after deploy and before extended runtime observation');
   assert.ok(plan.steps.some(step => step.key === 'verify-game-static-delivery'
     && step.finalCheck
     && step.timeoutSeconds === 2100
@@ -422,6 +435,7 @@ test('creates dry run command plan without production execution enabled', () => 
   assertStepType(plan, 'backup-game-release', 'production', true);
   assertStepType(plan, 'update-remote-compose', 'production', true);
   assertStepType(plan, 'deploy-stack', 'production', true);
+  assertStepType(plan, 'commit-game-cutover', 'remote-check', false);
   assertStepType(plan, 'final-runtime-check', 'remote-check', false);
   assertStepType(plan, 'verify-game-static-delivery', 'remote-check', false);
   assertStepType(plan, 'verify-tradepool-release', 'remote-check', false);
@@ -1511,7 +1525,7 @@ test('execute errors are written to history with partial progress', async () => 
   assert.equal(runCommand.commands.length, 1);
 });
 
-test('healthy target evidence suppresses automatic rollback after post-deploy verification failure', async () => {
+test('committed target suppresses automatic rollback after post-deploy verification failure', async () => {
   const root = tempProject(sampleXml);
   const historyPath = path.join(root, 'history.json');
   const runCommand = recoveryDecisionTestRunner('HOLD_TARGET');
@@ -1528,20 +1542,22 @@ test('healthy target evidence suppresses automatic rollback after post-deploy ve
   }, {runCommand});
 
   assert.equal(result.status, 'RECOVERY_REQUIRED');
-  assert.match(result.logs.join('\n'), /自动回滚已禁止/);
+  assert.equal(result.cutoverCommitted, true);
+  assert.match(result.logs.join('\n'), /新版本切换已经提交/);
   assert.equal(runCommand.rollbackRuns, 0);
-  assert.equal(runCommand.decisionRuns, 1);
+  assert.equal(runCommand.decisionRuns, 0);
   const history = readReleaseHistory(root, 1, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath})[0];
   assert.equal(history.status, 'RECOVERY_REQUIRED');
+  assert.equal(history.stepSummary.find(step => step.key === 'commit-game-cutover').status, 'done');
   assert.equal(history.stepSummary.find(step => step.key === 'verify-tradepool-release').status, 'failed');
-  assert.equal(history.stepSummary.find(step => step.key === 'game-rollback-decision').status, 'done');
+  assert.equal(history.stepSummary.find(step => step.key === 'game-rollback-decision').status, 'pending');
   assert.equal(history.stepSummary.find(step => step.key === 'game-rollback-command').status, 'pending');
 });
 
-test('confirmed unsafe target evidence permits automatic rollback', async () => {
+test('confirmed unsafe target evidence before cutover commit permits automatic rollback', async () => {
   const root = tempProject(sampleXml);
   const historyPath = path.join(root, 'history.json');
-  const runCommand = recoveryDecisionTestRunner('ROLLBACK_CONFIRMED');
+  const runCommand = recoveryDecisionTestRunner('ROLLBACK_CONFIRMED', {failAt: 'cutover'});
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
@@ -1555,14 +1571,15 @@ test('confirmed unsafe target evidence permits automatic rollback', async () => 
   }, {runCommand});
 
   assert.equal(result.status, 'ROLLED_BACK');
+  assert.equal(result.cutoverCommitted, undefined);
   assert.equal(runCommand.rollbackRuns, 1);
   assert.equal(runCommand.decisionRuns, 1);
 });
 
-test('rollback decision check failure preserves the target and blocks automatic rollback', async () => {
+test('rollback decision check failure before cutover commit preserves the target', async () => {
   const root = tempProject(sampleXml);
   const historyPath = path.join(root, 'history.json');
-  const runCommand = recoveryDecisionTestRunner('CHECK_ERROR');
+  const runCommand = recoveryDecisionTestRunner('CHECK_ERROR', {failAt: 'cutover'});
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
@@ -1630,7 +1647,7 @@ test('execute can be cancelled before running commands', async () => {
   assert.equal(history[0].status, 'CANCELLED');
 });
 
-test('runtime source exposes automatic recovery and visible active job heartbeat states', () => {
+test('runtime source exposes irreversible cutover and visible active job heartbeat states', () => {
   const core = fs.readFileSync(path.join(__dirname, '..', 'src', 'releasePublisherCore.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
@@ -1638,10 +1655,16 @@ test('runtime source exposes automatic recovery and visible active job heartbeat
   assert.match(core, /status: 'ROLLED_BACK'/);
   assert.match(core, /status: 'RECOVERY_REQUIRED'/);
   assert.match(core, /automatic_rollback_validation=PASS/);
+  assert.match(core, /game_cutover_commit=PASS/);
+  assert.match(core, /cutoverCommittedAt/);
+  assert.match(core, /新版本切换已经提交，后续失败只保留证据和目标版本/);
   assert.match(core, /stepRemainingSeconds/);
   assert.match(app, /value === 'RECOVERING'/);
+  assert.match(app, /新版本已生效，安全观察中/);
+  assert.match(app, /refreshProductionImageOnly/);
   assert.match(app, /距超时约/);
   assert.match(server, /'ROLLED_BACK', 'RECOVERY_REQUIRED'/);
+  assert.match(server, /job\.cutoverCommitted === true/);
 });
 
 test('release history supports pagination and deletion', () => {
@@ -1746,7 +1769,7 @@ test('detects deployable target changes and blocks unchanged or rollback release
   assert.equal(assertReleaseTargetChanged(rollback, 'forum', 'reuse'), true);
 });
 
-test('uses a healthy held game target as the next production baseline', () => {
+test('uses an irreversible committed game target as the next production baseline', () => {
   const root = tempGitProject();
   const branch = runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
   const executedBaseline = runGit(root, ['rev-parse', 'HEAD']).trim();
@@ -1768,12 +1791,9 @@ test('uses a healthy held game target as the next production baseline', () => {
       includeStackDeploy: true,
       stepSummary: [
         {key: 'deploy-stack', status: 'done', logs: []},
-        {key: 'final-runtime-check', status: 'done', logs: []},
-        {
-          key: 'game-rollback-decision',
-          status: 'done',
-          logs: ['automatic_rollback_decision=HOLD_TARGET']
-        },
+        {key: 'commit-game-cutover', status: 'done', logs: ['game_cutover_commit=PASS']},
+        {key: 'final-runtime-check', status: 'failed', logs: ['post-commit observation failed']},
+        {key: 'game-rollback-decision', status: 'pending', logs: []},
         {key: 'game-rollback-command', status: 'pending', logs: []}
       ]
     },
@@ -1935,6 +1955,7 @@ test('plan loading and image labels distinguish target from production compose',
   assert.match(app, /remoteOnlineResolved: remote.resolved/);
   assert.match(app, /remoteOnlineResolved: false/);
   assert.match(app, /renderProductionImage/);
+  assert.match(app, /async function refreshProductionImageOnly/);
   assert.match(app, /setStaticValue/);
   assert.match(css, /loading-spinner/);
   assert.match(css, /animation: refresh-spin 0.8s linear infinite/);
@@ -2100,12 +2121,15 @@ function testCommandRunner(options = {}) {
   return runner;
 }
 
-function recoveryDecisionTestRunner(decision) {
+function recoveryDecisionTestRunner(decision, options = {}) {
   const commands = [];
   const runner = async (cwd, command, env, onChunk) => {
     commands.push(command);
     const script = decodedScriptTree(command);
-    if (script.includes('tradepool_release_validation=PASS')) {
+    if (options.failAt === 'cutover' && script.includes('game_cutover_commit=PASS')) {
+      throw new Error('simulated failure before cutover commit');
+    }
+    if (options.failAt !== 'cutover' && script.includes('tradepool_release_validation=PASS')) {
       throw new Error('simulated post-deploy verification failure');
     }
     let output = 'test_command=PASS\n';

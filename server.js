@@ -500,7 +500,7 @@ function appendInterruptedJobHistory(job) {
     return;
   }
   appendReleaseHistory(projectRoot, buildHistoryEntry(
-    'INTERRUPTED',
+    job.status === 'RECOVERY_REQUIRED' ? 'RECOVERY_REQUIRED' : 'INTERRUPTED',
     job.plan,
     job.logs || [],
     job.completedStepKeys || []
@@ -508,13 +508,18 @@ function appendInterruptedJobHistory(job) {
 }
 
 function markInterruptedJob(job, reason) {
-  const logs = (job.logs || []).concat(`INTERRUPTED: ${reason}`);
+  const committed = job.cutoverCommitted === true;
+  const terminalStatus = committed ? 'RECOVERY_REQUIRED' : 'INTERRUPTED';
+  const message = committed
+    ? `RECOVERY_REQUIRED: ${reason}；新版本切换已经提交，保留目标版本并禁止自动回退`
+    : `INTERRUPTED: ${reason}`;
+  const logs = (job.logs || []).concat(message);
   const plan = job.plan && job.currentStepKey
-    ? markJobPlanStep(job.plan, job.currentStepKey, 'interrupted', `INTERRUPTED: ${reason}`)
+    ? markJobPlanStep(job.plan, job.currentStepKey, committed ? 'failed' : 'interrupted', message)
     : job.plan;
   return {
     ...job,
-    status: 'INTERRUPTED',
+    status: terminalStatus,
     updatedAt: new Date().toISOString(),
     logs,
     plan

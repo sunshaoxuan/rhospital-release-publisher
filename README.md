@@ -476,7 +476,7 @@ cd /opt/1panel/docker/compose/hospital-stack
 docker stack deploy -c docker-compose.yml hospital_stack
 ```
 
-热发布使用 `start-first` 时，新旧任务会在健康观察期内短暂并存。发布器会持续轮询 `UpdateStatus`、目标镜像、服务与容器 `IMAGE_TAG`、SSO 开关、Secret、健康副本数和仍处于运行目标态的旧镜像任务。只有更新状态为 `completed`、目标副本全部通过版本与 SSO 契约且旧版本运行任务为零时，最终节点才会完成。默认等待上限为 1800 秒，可在远端通过 `RELEASE_PUBLISHER_ROLLOUT_TIMEOUT_SECONDS` 调整。自动恢复也使用 1800 秒默认上限，可通过 `RELEASE_PUBLISHER_ROLLBACK_TIMEOUT_SECONDS` 调整。该预算覆盖 8 分钟健康启动期、12 分钟 Swarm 监控窗口及任务收敛余量。
+热发布使用 `start-first` 时，新旧任务会在健康观察期内短暂并存。发布器先持续核对目标镜像、服务与容器 `IMAGE_TAG`、SSO 开关、Secret、健康副本数和旧镜像运行任务；目标副本全部健康且旧版本运行任务为零时写入不可逆的 `game_cutover_commit=PASS`，页面立即显示“新版本已生效，安全观察中”并刷新生产镜像。提交点之前允许发布器恢复旧版本，提交点之后的取消、服务重启、Swarm 观察或附加验收失败只保留目标版本并进入 `RECOVERY_REQUIRED`，不再运行回滚判断和命令。Swarm `update_config.failure_action` 必须为 `pause`，避免编排器绕过发布器提交点自动恢复旧版本。最终运行校验继续等待 `UpdateStatus=completed`。默认等待上限为 1800 秒，可在远端通过 `RELEASE_PUBLISHER_ROLLOUT_TIMEOUT_SECONDS` 调整；提交前自动恢复也使用 1800 秒默认上限，可通过 `RELEASE_PUBLISHER_ROLLBACK_TIMEOUT_SECONDS` 调整。该预算覆盖 8 分钟健康启动期、12 分钟 Swarm 监控窗口及任务收敛余量。
 
 ## 论坛发布
 
