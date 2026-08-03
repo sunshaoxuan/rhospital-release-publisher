@@ -12,6 +12,7 @@ const DEFAULT_GATEWAYS = [
 ];
 const DEFAULT_TIMEOUT_MS = 300000;
 const DEFAULT_ORIGIN_BUDGET_BYTES = 240 * 1024 * 1024;
+const MINIMUM_TOKEN_VALIDITY_MS = 2 * 60 * 60 * 1000;
 
 function parseArgs(argv) {
   const values = {};
@@ -74,6 +75,14 @@ function readToken(tokenFile) {
   const raw = fs.readFileSync(tokenFile, 'utf8').trim();
   const token = raw.startsWith('token=') ? raw.slice('token='.length).trim() : raw;
   if (!token) throw new Error('Authenticated smoke token file is empty');
+  const parts = token.split('.');
+  const expiry = parts.length === 3 ? Number(parts[1]) : Number.NaN;
+  if (!Number.isSafeInteger(expiry)) {
+    throw new Error('Authenticated smoke token format is invalid');
+  }
+  if (expiry - Date.now() < MINIMUM_TOKEN_VALIDITY_MS) {
+    throw new Error('Authenticated smoke token expires in less than two hours; rotate the controlled token file');
+  }
   return token;
 }
 

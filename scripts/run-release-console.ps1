@@ -16,6 +16,15 @@ $logFile = Join-Path $logDir 'release-console.log'
 $env:RELEASE_PUBLISHER_PORT = [string]$Port
 $env:RELEASE_PUBLISHER_HOST = $BindAddress
 $env:RHOSPITAL_PROJECT_ROOT = $ProjectRoot
+if ([string]::IsNullOrWhiteSpace($env:RHOSPITAL_RELEASE_AUTH_TOKEN_FILE)) {
+  $registeredAuthTokenFile = [Environment]::GetEnvironmentVariable('RHOSPITAL_RELEASE_AUTH_TOKEN_FILE', 'User')
+  if ([string]::IsNullOrWhiteSpace($registeredAuthTokenFile)) {
+    $registeredAuthTokenFile = [Environment]::GetEnvironmentVariable('RHOSPITAL_RELEASE_AUTH_TOKEN_FILE', 'Machine')
+  }
+  if (-not [string]::IsNullOrWhiteSpace($registeredAuthTokenFile)) {
+    $env:RHOSPITAL_RELEASE_AUTH_TOKEN_FILE = $registeredAuthTokenFile
+  }
+}
 
 Set-Location $repo
 while ($true) {

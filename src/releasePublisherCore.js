@@ -270,15 +270,6 @@ function createPlan(projectRoot, request, env = process.env) {
       executable: true
     }),
     releaseStep({
-      key: 'test-game-backend',
-      title: '执行游戏后端测试',
-      summary: '在制作镜像前运行完整 Maven 测试套件，阻止带失败测试的提交进入镜像',
-      command: '.\\mvnw.cmd -q test',
-      validation: '完整 Maven 测试套件必须通过',
-      actionType: 'local-check',
-      executable: true
-    }),
-    releaseStep({
       key: 'validate-release-input',
       title: '读取配置并校验 TAG',
       summary: '确认本地发布配置、镜像 TAG 和 APP_TAG 使用同一个版本号',
@@ -292,6 +283,15 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '在所有生产动作前确认登录令牌文件、Chrome、双前置地址和目标域名可用于发布后真实加载验收',
       command: gameStaticDeliveryPrerequisiteCheckCommand(appTag),
       validation: '必须输出 game_static_delivery_prerequisites=PASS，令牌内容不得写入命令、日志或发布历史',
+      actionType: 'local-check',
+      executable: true
+    }),
+    releaseStep({
+      key: 'test-game-backend',
+      title: '执行游戏后端测试',
+      summary: '在制作镜像前运行完整 Maven 测试套件，阻止带失败测试的提交进入镜像',
+      command: '.\\mvnw.cmd -q test',
+      validation: '完整 Maven 测试套件必须通过',
       actionType: 'local-check',
       executable: true
     }),

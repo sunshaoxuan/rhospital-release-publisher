@@ -337,9 +337,12 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.command.includes('--check-prerequisites')
     && step.validation.includes('game_static_delivery_prerequisites=PASS')));
   const prerequisiteIndex = plan.steps.findIndex(step => step.key === 'validate-game-static-delivery-prerequisites');
+  const backendTestIndex = plan.steps.findIndex(step => step.key === 'test-game-backend');
   const firstProductionIndex = plan.steps.findIndex(step => step.productionAction === true);
   assert.ok(prerequisiteIndex >= 0 && prerequisiteIndex < firstProductionIndex,
     'static delivery prerequisites must run before every production action');
+  assert.ok(prerequisiteIndex < backendTestIndex,
+    'static delivery prerequisites must run before the full backend test suite');
   assert.ok(plan.steps.some(step => step.key === 'build-game-static-assets'
     && step.command.includes('--target frontend-assets')
     && step.validationCommand.includes('--mode validate')
@@ -1969,6 +1972,8 @@ test('native Windows service runs the release console without an interactive win
   const packageJson = fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8');
 
   assert.match(runner, /while \(\$true\)/);
+  assert.match(runner, /GetEnvironmentVariable\('RHOSPITAL_RELEASE_AUTH_TOKEN_FILE', 'User'\)/);
+  assert.match(runner, /GetEnvironmentVariable\('RHOSPITAL_RELEASE_AUTH_TOKEN_FILE', 'Machine'\)/);
   assert.match(runner, /release console exited with code \$exitCode; restarting in \$RestartDelaySeconds seconds/);
   assert.match(builder, /\/target:winexe/);
   assert.match(installer, /New-Service/);

@@ -35,6 +35,10 @@ function passingResult(overrides = {}) {
   };
 }
 
+function smokeToken(validityMs = 24 * 60 * 60 * 1000) {
+  return `MTE3OQ.${Date.now() + validityMs}.controlled-signature`;
+}
+
 test('summarizes successful hashed module delivery and cache status', async () => {
   const { summarizeProbe } = await verifier();
   const summary = summarizeProbe(passingResult());
@@ -75,7 +79,8 @@ test('prerequisite check validates token, Chrome, gateways and hosts without net
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rhospital-static-prerequisites-'));
   t.after(() => fs.rmSync(root, {recursive: true, force: true}));
   const tokenFile = path.join(root, 'smoke-token.txt');
-  fs.writeFileSync(tokenFile, 'token=controlled-secret\n', 'utf8');
+  const controlledToken = smokeToken();
+  fs.writeFileSync(tokenFile, `token=${controlledToken}\n`, 'utf8');
 
   const result = resolveStaticDeliveryPrerequisites({
     'app-tag': '20260803',
@@ -88,7 +93,7 @@ test('prerequisite check validates token, Chrome, gateways and hosts without net
   }, {});
 
   assert.equal(result.appTag, '20260803');
-  assert.equal(result.token, 'controlled-secret');
+  assert.equal(result.token, controlledToken);
   assert.equal(result.chromePath, process.execPath);
   assert.deepEqual(result.gateways.map(gateway => gateway.ip), ['192.0.2.45', '192.0.2.64']);
   assert.equal(result.gameHost, 'game.example.test');
@@ -100,7 +105,7 @@ test('prerequisite check rejects invalid gateway addresses and numeric limits', 
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rhospital-static-prerequisites-invalid-'));
   t.after(() => fs.rmSync(root, {recursive: true, force: true}));
   const tokenFile = path.join(root, 'smoke-token.txt');
-  fs.writeFileSync(tokenFile, 'controlled-secret\n', 'utf8');
+  fs.writeFileSync(tokenFile, `${smokeToken()}\n`, 'utf8');
   const base = {'app-tag': '20260803', 'auth-token-file': tokenFile, chrome: process.execPath};
 
   assert.throws(() => resolveStaticDeliveryPrerequisites({...base, 'riven-ip': 'not-an-ip'}, {}),
@@ -109,11 +114,25 @@ test('prerequisite check rejects invalid gateway addresses and numeric limits', 
     /Browser timeout must be greater than zero/);
 });
 
+test('prerequisite check rejects malformed and expiring smoke tokens', async t => {
+  const {resolveStaticDeliveryPrerequisites} = await verifier();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rhospital-static-prerequisites-token-'));
+  t.after(() => fs.rmSync(root, {recursive: true, force: true}));
+  const tokenFile = path.join(root, 'smoke-token.txt');
+  const base = {'app-tag': '20260804', 'auth-token-file': tokenFile, chrome: process.execPath};
+
+  fs.writeFileSync(tokenFile, 'not-an-application-token\n', 'utf8');
+  assert.throws(() => resolveStaticDeliveryPrerequisites(base, {}), /token format is invalid/);
+
+  fs.writeFileSync(tokenFile, `${smokeToken(30 * 60 * 1000)}\n`, 'utf8');
+  assert.throws(() => resolveStaticDeliveryPrerequisites(base, {}), /expires in less than two hours/);
+});
+
 test('prerequisite CLI reports readiness without exposing the token', t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rhospital-static-prerequisites-cli-'));
   t.after(() => fs.rmSync(root, {recursive: true, force: true}));
   const tokenFile = path.join(root, 'smoke-token.txt');
-  const controlledToken = 'controlled-secret-must-not-be-logged';
+  const controlledToken = smokeToken();
   fs.writeFileSync(tokenFile, `${controlledToken}\n`, 'utf8');
   const script = path.resolve(__dirname, '..', 'scripts', 'verify-game-static-delivery.mjs');
   const result = spawnSync(process.execPath, [
