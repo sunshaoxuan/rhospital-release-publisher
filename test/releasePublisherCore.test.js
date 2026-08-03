@@ -1738,6 +1738,103 @@ test('detects deployable target changes and blocks unchanged or rollback release
   assert.equal(assertReleaseTargetChanged(rollback, 'forum', 'reuse'), true);
 });
 
+test('uses a healthy held game target as the next production baseline', () => {
+  const root = tempGitProject();
+  const branch = runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+  const executedBaseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const historyPath = path.join(root, 'history.json');
+
+  fs.mkdirSync(path.join(root, 'src', 'main'), {recursive: true});
+  fs.writeFileSync(path.join(root, 'src', 'main', 'deployed.txt'), 'deployed\n', 'utf8');
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'held target']);
+  const heldCommit = runGit(root, ['rev-parse', 'HEAD']).trim();
+
+  fs.writeFileSync(historyPath, `${JSON.stringify([
+    {
+      status: 'RECOVERY_REQUIRED',
+      releaseTarget: 'game',
+      releaseCommit: heldCommit,
+      appTag: '20260803',
+      imageTag: 'hospital-backend:20260803',
+      includeStackDeploy: true,
+      stepSummary: [
+        {key: 'deploy-stack', status: 'done', logs: []},
+        {key: 'final-runtime-check', status: 'done', logs: []},
+        {
+          key: 'game-rollback-decision',
+          status: 'done',
+          logs: ['automatic_rollback_decision=HOLD_TARGET']
+        },
+        {key: 'game-rollback-command', status: 'pending', logs: []}
+      ]
+    },
+    {
+      status: 'EXECUTED',
+      releaseTarget: 'game',
+      releaseCommit: executedBaseline,
+      appTag: '20260731',
+      imageTag: 'hospital-backend:20260731',
+      includeStackDeploy: true
+    }
+  ], null, 2)}\n`, 'utf8');
+
+  fs.writeFileSync(path.join(root, 'src', 'main', 'next.txt'), 'next\n', 'utf8');
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'next target']);
+
+  const analysis = analyzeReleaseChanges(root, {
+    gitBranch: branch,
+    gitCommit: 'latest'
+  }, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
+  assert.equal(analysis.targets.game.baselineCommit, heldCommit);
+  assert.equal(analysis.targets.game.baselineTag, '20260803');
+  assert.deepEqual(analysis.targets.game.changedPaths, ['src/main/next.txt']);
+});
+
+test('does not trust a recovery-required game target without explicit hold evidence', () => {
+  const root = tempGitProject();
+  const branch = runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+  const executedBaseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const historyPath = path.join(root, 'history.json');
+  fs.mkdirSync(path.join(root, 'src', 'main'), {recursive: true});
+  fs.writeFileSync(path.join(root, 'src', 'main', 'uncertain.txt'), 'uncertain\n', 'utf8');
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'uncertain target']);
+  const uncertainCommit = runGit(root, ['rev-parse', 'HEAD']).trim();
+  fs.writeFileSync(historyPath, `${JSON.stringify([
+    {
+      status: 'RECOVERY_REQUIRED',
+      releaseTarget: 'game',
+      releaseCommit: uncertainCommit,
+      appTag: '20260803',
+      imageTag: 'hospital-backend:20260803',
+      includeStackDeploy: true,
+      stepSummary: [
+        {key: 'deploy-stack', status: 'done', logs: []},
+        {key: 'final-runtime-check', status: 'done', logs: []},
+        {key: 'game-rollback-decision', status: 'failed', logs: ['decision check failed']},
+        {key: 'game-rollback-command', status: 'pending', logs: []}
+      ]
+    },
+    {
+      status: 'EXECUTED',
+      releaseTarget: 'game',
+      releaseCommit: executedBaseline,
+      appTag: '20260731',
+      imageTag: 'hospital-backend:20260731',
+      includeStackDeploy: true
+    }
+  ], null, 2)}\n`, 'utf8');
+
+  const analysis = analyzeReleaseChanges(root, {
+    gitBranch: branch,
+    gitCommit: 'latest'
+  }, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
+  assert.equal(analysis.targets.game.baselineCommit, executedBaseline);
+  assert.deepEqual(analysis.targets.game.changedPaths, ['src/main/uncertain.txt']);
+});
+
 test('lists branches and commits from a git project', () => {
   const root = tempGitProject();
   runGit(root, ['checkout', '-b', 'release/demo']);
@@ -1837,10 +1934,17 @@ test('plan loading and image labels distinguish target from production compose',
 
 test('successful plan regeneration clears an earlier error status', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
 
   assert.match(app, /async function plan\(\) \{\s*setStatus\('正在生成发布流程', ''\);/);
   assert.match(app, /renderPlan\(result\);\s*setStatus\('发布流程已生成', 'success'\);\s*return result;/);
   assert.match(app, /catch \(error\) \{[\s\S]*setStaticValue\(fields\.targetImageFlow, '发布流程生成失败', true\);/);
+  assert.match(app, /function renderPlanError\(message\)/);
+  assert.match(app, /state\.textContent = '已停止，尚未执行发布动作';/);
+  assert.match(app, /setStaticValue\(fields\.productionImageFlow, '计划失败，暂未读取'\);/);
+  assert.match(app, /renderPlanError\(error\.message\);/);
+  assert.match(css, /\.pipeline-error\s*\{[\s\S]*grid-column:\s*1 \/ -1;[\s\S]*min-height:\s*116px;/);
+  assert.match(css, /\.pipeline-error \.flow-copy p\s*\{[\s\S]*overflow-wrap:\s*anywhere;/);
 });
 
 test('commit selector includes a refresh control wired to the git refresh endpoint', () => {

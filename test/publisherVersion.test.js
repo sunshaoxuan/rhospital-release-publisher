@@ -139,7 +139,7 @@ test('idle publisher process exits after a clean runtime commit', {timeout: 2000
     if (child && child.exitCode === null) {
       child.kill();
     }
-    fs.rmSync(root, {recursive: true, force: true});
+    removeTempTree(root);
   }
 });
 
@@ -192,7 +192,7 @@ test('restart drain rejects a release request that finishes after the repository
     if (child && child.exitCode === null) {
       child.kill();
     }
-    fs.rmSync(root, {recursive: true, force: true});
+    removeTempTree(root);
   }
 });
 
@@ -316,9 +316,13 @@ function openSlowJsonPost(port, pathname) {
       request.end('}');
     },
     abort() {
-      if (!request.destroyed) request.destroy();
+      if (!request.destroyed && !request.writableEnded) request.destroy();
     }
   };
+}
+
+function removeTempTree(root) {
+  fs.rmSync(root, {recursive: true, force: true, maxRetries: 20, retryDelay: 100});
 }
 
 function delay(milliseconds) {

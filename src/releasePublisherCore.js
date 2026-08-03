@@ -2207,7 +2207,7 @@ function assertReleaseTargetChanged(analysis, releaseTarget, forumImageMode = 'b
 }
 
 function isSuccessfulTargetRelease(entry, target) {
-  if (!entry || entry.status !== 'EXECUTED' || !entry.releaseCommit || entry.includeStackDeploy === false) {
+  if (!entry || !entry.releaseCommit || entry.includeStackDeploy === false) {
     return false;
   }
   const inferredTarget = entry.releaseTarget === 'forum'
@@ -2217,8 +2217,35 @@ function isSuccessfulTargetRelease(entry, target) {
   if (inferredTarget !== target) {
     return false;
   }
+  const executed = entry.status === 'EXECUTED';
+  const heldHealthyGameTarget = target === 'game' && isHeldHealthyGameTargetRelease(entry);
+  if (!executed && !heldHealthyGameTarget) {
+    return false;
+  }
+  if (heldHealthyGameTarget) {
+    return true;
+  }
   return !Array.isArray(entry.completedStepKeys)
     || entry.completedStepKeys.includes('final-runtime-check');
+}
+
+function isHeldHealthyGameTargetRelease(entry) {
+  if (!entry || entry.status !== 'RECOVERY_REQUIRED' || !Array.isArray(entry.stepSummary)) {
+    return false;
+  }
+  const step = key => entry.stepSummary.find(item => item && item.key === key);
+  const deploy = step('deploy-stack');
+  const finalRuntime = step('final-runtime-check');
+  const rollbackDecision = step('game-rollback-decision');
+  const rollbackCommand = step('game-rollback-command');
+  const decisionEvidence = rollbackDecision && Array.isArray(rollbackDecision.logs)
+    ? rollbackDecision.logs.join('\n')
+    : '';
+  return deploy && deploy.status === 'done'
+    && finalRuntime && finalRuntime.status === 'done'
+    && rollbackDecision && rollbackDecision.status === 'done'
+    && (!rollbackCommand || rollbackCommand.status !== 'done')
+    && decisionEvidence.includes('automatic_rollback_decision=HOLD_TARGET');
 }
 
 function releaseDirection(projectRoot, baselineCommit, targetCommit, gitRunner) {

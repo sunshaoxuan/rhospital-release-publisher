@@ -139,6 +139,27 @@
     pipeline.setAttribute('aria-busy', 'true');
   }
 
+  function renderPlanError(message) {
+    pipeline.replaceChildren();
+    pipeline.setAttribute('aria-busy', 'false');
+    const node = document.createElement('article');
+    node.className = 'flow-node failed pipeline-error';
+    const mark = document.createElement('div');
+    mark.className = 'flow-mark';
+    mark.textContent = '!';
+    const copy = document.createElement('div');
+    copy.className = 'flow-copy';
+    const title = document.createElement('h3');
+    title.textContent = '发布流程生成失败';
+    const detail = document.createElement('p');
+    detail.textContent = message || '没有返回具体失败原因';
+    const state = document.createElement('span');
+    state.textContent = '已停止，尚未执行发布动作';
+    copy.append(title, detail, state);
+    node.append(mark, copy);
+    pipeline.appendChild(node);
+  }
+
   function renderProductionImage(config) {
     if (config.remoteOnlineResolved === true && config.remoteOnlineImage) {
       setStaticValue(fields.productionImageFlow, config.remoteOnlineImage);
@@ -796,7 +817,11 @@
     } catch (error) {
       setStaticValue(fields.targetImageFlow, '发布流程生成失败', true);
       setStaticValue(fields.targetImage, '发布流程生成失败', true);
-      pipeline.setAttribute('aria-busy', 'false');
+      if (fields.productionImageFlow.classList.contains('is-loading')) {
+        setStaticValue(fields.productionImageFlow, '计划失败，暂未读取');
+      }
+      renderPlanError(error.message);
+      setStatus(`发布流程生成失败：${error.message}`, 'error');
       throw error;
     }
   }
