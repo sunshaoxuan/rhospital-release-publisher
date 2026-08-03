@@ -1,4 +1,7 @@
 {
+  "gameStaticDelivery": {
+    "authTokenFile": "C:\\ProgramData\\RHospital\\secrets\\game-smoke-token.txt"
+  },
   "dockerServers": {
     "SSH178": {
       "host": "178.239.117.99",

@@ -233,7 +233,7 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'validate-game-static-delivery-prerequisites',
       title: '校验登录验收运行条件',
       summary: '在代码切换、耗时测试和所有生产动作前确认登录令牌文件、Chrome、双前置地址和目标域名可用于发布后真实加载验收',
-      command: gameStaticDeliveryPrerequisiteCheckCommand(appTag),
+      command: gameStaticDeliveryPrerequisiteCheckCommand(appTag, env),
       validation: '必须输出 game_static_delivery_prerequisites=PASS，令牌内容不得写入命令、日志或发布历史',
       actionType: 'local-check',
       executable: true
@@ -580,7 +580,7 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'verify-game-static-delivery',
       title: '验证双前置游戏静态资源交付',
       summary: '使用安全令牌启动真实 Chrome，分别直连 Riven 与 VMISS，执行冷缓存、热缓存和 Steam 登录后完整加载验收',
-      command: gameStaticDeliveryCheckCommand(appTag),
+      command: gameStaticDeliveryCheckCommand(appTag, env),
       validation: '两台前置均须加载到 FirstFloor，全部 /assets/ 和 Steam ES 模块零 4xx/5xx、零浏览器错误、响应包含 X-Cache，热缓存无 MISS，单节点冷缓存源站字节不超过预算',
       actionType: 'remote-check',
       executable: true,
@@ -669,13 +669,15 @@ function createPlan(projectRoot, request, env = process.env) {
   };
 }
 
-function gameStaticDeliveryCheckCommand(appTag) {
+function gameStaticDeliveryCheckCommand(appTag, env = process.env) {
   const scriptPath = path.resolve(__dirname, '..', 'scripts', 'verify-game-static-delivery.mjs');
-  return `node ${shellToken(scriptPath)} --app-tag ${shellToken(appTag)}`;
+  const authTokenFile = resolveGameStaticDeliveryAuthTokenFile(env);
+  const authTokenArgument = authTokenFile ? ` --auth-token-file ${shellToken(authTokenFile)}` : '';
+  return `node ${shellToken(scriptPath)} --app-tag ${shellToken(appTag)}${authTokenArgument}`;
 }
 
-function gameStaticDeliveryPrerequisiteCheckCommand(appTag) {
-  return `${gameStaticDeliveryCheckCommand(appTag)} --check-prerequisites`;
+function gameStaticDeliveryPrerequisiteCheckCommand(appTag, env = process.env) {
+  return `${gameStaticDeliveryCheckCommand(appTag, env)} --check-prerequisites`;
 }
 
 function gameStaticAssetRehearsalCommand(imageTag, appTag, rehearsalConfigPath, productionConfigPath, dockerTarget, dockerfile) {
@@ -2541,6 +2543,20 @@ function publisherConfigPath(env = process.env) {
   return env.RELEASE_PUBLISHER_CONFIG
     ? path.resolve(env.RELEASE_PUBLISHER_CONFIG)
     : path.resolve(__dirname, '..', DEFAULT_PUBLISHER_CONFIG);
+}
+
+function resolveGameStaticDeliveryAuthTokenFile(env = process.env) {
+  const environmentPath = String(env.RHOSPITAL_RELEASE_AUTH_TOKEN_FILE || '').trim();
+  if (environmentPath) return path.resolve(environmentPath);
+  const configPath = publisherConfigPath(env);
+  if (!fs.existsSync(configPath)) return '';
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const configuredPath = String(config.gameStaticDelivery?.authTokenFile || '').trim();
+    return configuredPath ? path.resolve(configuredPath) : '';
+  } catch {
+    return '';
+  }
 }
 
 function gatewayStaticConfigPath(env = process.env) {
