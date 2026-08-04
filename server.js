@@ -511,7 +511,7 @@ function markInterruptedJob(job, reason) {
   const committed = job.cutoverCommitted === true;
   const terminalStatus = committed ? 'RECOVERY_REQUIRED' : 'INTERRUPTED';
   const message = committed
-    ? `RECOVERY_REQUIRED: ${reason}；新版本切换已经提交，保留目标版本并禁止自动回退`
+    ? `RECOVERY_REQUIRED: ${reason}；新版本处于观察期，保留目标版本并等待全链路致命故障复核`
     : `INTERRUPTED: ${reason}`;
   const logs = (job.logs || []).concat(message);
   const plan = job.plan && job.currentStepKey

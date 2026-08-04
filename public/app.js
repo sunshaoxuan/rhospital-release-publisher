@@ -327,9 +327,10 @@
     renderChangeAnalysis(plan.changeAnalysis);
     setStaticValue(fields.targetImage, plan.imageTag);
     setStaticValue(fields.targetImageFlow, plan.imageTag);
-    renderPipeline(plan.steps);
+    const visibleSteps = plan.steps.filter(step => !step.recoveryOnly || step.status !== 'pending');
+    renderPipeline(buildPipelinePhases(visibleSteps));
     steps.innerHTML = '';
-    for (const [index, step] of plan.steps.entries()) {
+    for (const [index, step] of visibleSteps.entries()) {
       const status = step.status || 'pending';
       const done = status === 'done' || status === 'dry-run-checked';
       const item = document.createElement('article');
@@ -381,6 +382,72 @@
     }
   }
 
+  function buildPipelinePhases(planSteps) {
+    const phaseDefinitions = [
+      { key: 'source', title: '准备发布源', members: [
+        'git-status-before-update', 'validate-release-input', 'validate-game-static-delivery-prerequisites',
+        'git-fetch', 'git-update', 'capture-release-commit', 'validate-release-impact-checklist',
+        'validate-game-sso-source', 'save-run-config', 'validate-forum-source'
+      ] },
+      { key: 'build', title: '批量测试与构建', members: [
+        'test-game-backend', 'build-image', 'build-game-static-assets', 'validate-game-image',
+        'validate-forum-image'
+      ] },
+      { key: 'delivery', title: '交付镜像与连接校验', members: [
+        'publish-image', 'resolve-ssh-target', 'read-remote-compose'
+      ] },
+      { key: 'static', title: '批量预置前置资源', members: [
+        'rehearse-game-static-assets', 'stage-game-static-assets', 'verify-game-static-assets-predeploy'
+      ] },
+      { key: 'data', title: '数据安全与迁移', members: [
+        'game-database-preflight', 'backup-game-release', 'apply-database-migrations',
+        'pre-deploy-checklist', 'forum-preflight'
+      ] },
+      { key: 'switch', title: '切换生产版本', members: [
+        'update-remote-compose', 'deploy-stack', 'deploy-forum-compose'
+      ] },
+      { key: 'observe', title: '全链路观察', members: [
+        'commit-game-cutover', 'final-runtime-check', 'verify-game-static-delivery',
+        'verify-tradepool-release'
+      ] },
+      { key: 'recovery', title: '致命故障恢复', members: [
+        'game-rollback-decision', 'game-fatal-rollback-decision', 'game-rollback-command',
+        'forum-rollback-command'
+      ] }
+    ];
+    const byKey = new Map(planSteps.map(step => [step.key, step]));
+    const assigned = new Set();
+    const phases = [];
+    for (const definition of phaseDefinitions) {
+      const members = definition.members.map(key => byKey.get(key)).filter(Boolean);
+      if (!members.length) continue;
+      members.forEach(step => assigned.add(step.key));
+      const statuses = members.map(step => step.status || 'pending');
+      const failed = statuses.find(status => ['failed', 'cancelled', 'interrupted'].includes(status));
+      const status = failed || (statuses.includes('running') ? 'running'
+        : statuses.every(value => value === 'done' || value === 'dry-run-checked')
+          ? (statuses.includes('dry-run-checked') ? 'dry-run-checked' : 'done')
+          : 'pending');
+      const durationValues = members.map(step => Number(step.durationMs)).filter(Number.isFinite);
+      const elapsedValues = members.map(step => Number(step.elapsedMs)).filter(Number.isFinite);
+      phases.push({
+        key: `phase-${definition.key}`,
+        title: definition.title,
+        validation: `${members.length} 项检查，详情与原始日志保留在下方`,
+        status,
+        durationMs: durationValues.length === members.length
+          ? durationValues.reduce((sum, value) => sum + value, 0)
+          : undefined,
+        elapsedMs: elapsedValues.reduce((sum, value) => sum + value, 0),
+        finalCheck: definition.key === 'observe'
+      });
+    }
+    for (const step of planSteps) {
+      if (!assigned.has(step.key)) phases.push(step);
+    }
+    return phases;
+  }
+
   function renderChangeAnalysis(analysis) {
     if (!analysis || !analysis.targets) {
       fields.changeAnalysis.textContent = '等待 Git 基线';
@@ -424,7 +491,8 @@
     window.__releaseConsoleLastFlowRenderedAt = performance.now() - bootStartedAt;
     pipeline.innerHTML = '';
     pipeline.setAttribute('aria-busy', 'false');
-    for (const [index, step] of planSteps.entries()) {
+    const visibleSteps = planSteps.filter(step => !step.recoveryOnly || step.status !== 'pending');
+    for (const [index, step] of visibleSteps.entries()) {
       const status = step.status || 'pending';
       const done = status === 'done' || status === 'dry-run-checked';
       const node = document.createElement('article');

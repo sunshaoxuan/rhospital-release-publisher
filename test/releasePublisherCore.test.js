@@ -235,12 +235,11 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.command.includes('ForumSsoController.java')
     && step.command.includes('ForumSsoDatabaseUpgradeService.java')));
   assert.ok(plan.steps.some(step => step.key === 'test-game-backend'
-    && step.command === '.\\mvnw.cmd -q test'));
-  assert.ok(plan.steps.some(step => step.key === 'compile-artifact'
     && step.command.includes('docker build --target build')
     && !step.command.includes('-H')
     && !step.command.includes('--context')
     && step.command.includes('hospital-backend:2026070702-buildcheck')));
+  assert.ok(!plan.steps.some(step => step.key === 'compile-artifact'));
   assert.ok(plan.steps.some(step => step.key === 'build-image'
     && step.command.includes('docker build')
     && !step.command.includes('-H')
@@ -298,7 +297,7 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(plan.steps.some(step => step.key === 'deploy-stack'
     && decodedRemoteScript(step.command).includes('docker stack deploy -c docker-compose.yml hospital_stack')));
   assert.ok(plan.steps.every(step => step.summary && step.validation && step.status === 'pending'));
-  assert.ok(plan.steps.some(step => step.key === 'compile-artifact'
+  assert.ok(plan.steps.some(step => step.key === 'test-game-backend'
     && step.validationCommand.includes('docker image inspect hospital-backend:2026070702-buildcheck')));
   assert.ok(plan.steps.some(step => step.key === 'publish-image'
     && step.validationCommand.includes('docker image inspect hospital-backend:2026070702')));
@@ -311,8 +310,8 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(plan.steps.some(step => step.key === 'commit-game-cutover'
     && step.cutoverCommit === true
     && step.timeoutSeconds === 1860
-    && step.validation.includes('完成后禁止自动回退')
-    && decodedRemoteScript(step.command).includes('game_cutover_commit=PASS')
+    && step.validation.includes('全链路致命故障触发回退')
+    && decodedRemoteScript(step.command).includes('game_cutover_observation=PASS')
     && decodedRemoteScript(step.command).includes('active_other_count')
     && decodedRemoteScript(step.command).includes('[ "$update_state" = updating ] || [ "$update_state" = completed ]')));
   assert.ok(plan.steps.some(step => step.key === 'final-runtime-check'
@@ -418,11 +417,10 @@ test('creates dry run command plan without production execution enabled', () => 
   assertStepType(plan, 'git-update', 'local-code', false);
   assertStepType(plan, 'validate-game-sso-source', 'local-check', false);
   assertStepType(plan, 'pre-deploy-checklist', 'remote-check', false);
-  assertStepType(plan, 'test-game-backend', 'local-check', false);
+  assertStepType(plan, 'test-game-backend', 'build', false);
   assertStepType(plan, 'validate-release-input', 'local-check', false);
   assertStepType(plan, 'validate-game-static-delivery-prerequisites', 'local-check', false);
   assertStepType(plan, 'save-run-config', 'local-config', false);
-  assertStepType(plan, 'compile-artifact', 'build', false);
   assertStepType(plan, 'build-image', 'build', false);
   assertStepType(plan, 'build-game-static-assets', 'build', false);
   assertStepType(plan, 'validate-game-image', 'build', false);
@@ -440,6 +438,10 @@ test('creates dry run command plan without production execution enabled', () => 
   assertStepType(plan, 'verify-game-static-delivery', 'remote-check', false);
   assertStepType(plan, 'verify-tradepool-release', 'remote-check', false);
   assertStepType(plan, 'game-rollback-decision', 'remote-check', false);
+  assertStepType(plan, 'game-fatal-rollback-decision', 'remote-check', false);
+  assert.ok(plan.steps.find(step => step.key === 'game-fatal-rollback-decision').recoveryOnly);
+  assert.ok(plan.steps.find(step => step.key === 'game-fatal-rollback-decision').command
+    .includes('evaluate-game-fatal-rollback.mjs'));
 });
 
 test('backs up and applies changed database migrations before switching the production image', () => {
@@ -1295,7 +1297,9 @@ test('execute dry run marks every pipeline step checked without mutating files o
 
   assert.equal(result.status, 'DRY_RUN');
   assert.ok(result.completedStepKeys.length >= 1);
-  assert.ok(result.plan.steps.every(step => step.status === 'dry-run-checked'));
+  assert.ok(result.plan.steps.every(step => step.recoveryOnly
+    ? step.status === 'pending'
+    : step.status === 'dry-run-checked'));
   assert.equal(fs.readFileSync(configPath, 'utf8'), sampleXml);
   const history = readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
   assert.equal(history.length, 0);
@@ -1347,7 +1351,7 @@ test('remote rehearsal dry run runs only the isolated rehearsal command', async 
   assert.equal(rehearsalStep.actionType, 'rehearsal');
   assert.match(runCommand.commands[0], /--mode rehearse/);
   assert.match(runCommand.commands[0], /--production-config/);
-  assert.ok(result.plan.steps.filter(step => step.key !== 'rehearse-game-static-assets')
+  assert.ok(result.plan.steps.filter(step => step.key !== 'rehearse-game-static-assets' && !step.recoveryOnly)
     .every(step => step.status === 'dry-run-checked'));
   assert.equal(readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath}).length, 0);
 
@@ -1525,7 +1529,7 @@ test('execute errors are written to history with partial progress', async () => 
   assert.equal(runCommand.commands.length, 1);
 });
 
-test('committed target suppresses automatic rollback after post-deploy verification failure', async () => {
+test('observing target holds when the fatal full-chain threshold is not met', async () => {
   const root = tempProject(sampleXml);
   const historyPath = path.join(root, 'history.json');
   const runCommand = recoveryDecisionTestRunner('HOLD_TARGET');
@@ -1543,15 +1547,38 @@ test('committed target suppresses automatic rollback after post-deploy verificat
 
   assert.equal(result.status, 'RECOVERY_REQUIRED');
   assert.equal(result.cutoverCommitted, true);
-  assert.match(result.logs.join('\n'), /新版本切换已经提交/);
+  assert.match(result.logs.join('\n'), /全链路致命故障阈值未满足/);
   assert.equal(runCommand.rollbackRuns, 0);
   assert.equal(runCommand.decisionRuns, 0);
+  assert.equal(runCommand.fatalDecisionRuns, 1);
   const history = readReleaseHistory(root, 1, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath})[0];
   assert.equal(history.status, 'RECOVERY_REQUIRED');
   assert.equal(history.stepSummary.find(step => step.key === 'commit-game-cutover').status, 'done');
   assert.equal(history.stepSummary.find(step => step.key === 'verify-tradepool-release').status, 'failed');
   assert.equal(history.stepSummary.find(step => step.key === 'game-rollback-decision').status, 'pending');
+  assert.equal(history.stepSummary.find(step => step.key === 'game-fatal-rollback-decision').status, 'done');
   assert.equal(history.stepSummary.find(step => step.key === 'game-rollback-command').status, 'pending');
+});
+
+test('three-round fatal full-chain evidence after cutover permits automatic rollback', async () => {
+  const root = tempProject(sampleXml);
+  const historyPath = path.join(root, 'history.json');
+  const runCommand = recoveryDecisionTestRunner('ROLLBACK_CONFIRMED');
+  const result = await executePlan(root, {
+    appTag: '2026070702',
+    dryRun: false,
+    dockerContext: 'SSH178',
+    includeStackDeploy: true
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  }, {runCommand});
+
+  assert.equal(result.status, 'ROLLED_BACK');
+  assert.equal(runCommand.fatalDecisionRuns, 1);
+  assert.equal(runCommand.rollbackRuns, 1);
 });
 
 test('confirmed unsafe target evidence before cutover commit permits automatic rollback', async () => {
@@ -1647,7 +1674,7 @@ test('execute can be cancelled before running commands', async () => {
   assert.equal(history[0].status, 'CANCELLED');
 });
 
-test('runtime source exposes irreversible cutover and visible active job heartbeat states', () => {
+test('runtime source exposes fatal-gated observation and visible active job heartbeat states', () => {
   const core = fs.readFileSync(path.join(__dirname, '..', 'src', 'releasePublisherCore.js'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
@@ -1655,16 +1682,24 @@ test('runtime source exposes irreversible cutover and visible active job heartbe
   assert.match(core, /status: 'ROLLED_BACK'/);
   assert.match(core, /status: 'RECOVERY_REQUIRED'/);
   assert.match(core, /automatic_rollback_validation=PASS/);
-  assert.match(core, /game_cutover_commit=PASS/);
+  assert.match(core, /game_cutover_observation=PASS/);
   assert.match(core, /cutoverCommittedAt/);
-  assert.match(core, /新版本切换已经提交，后续失败只保留证据和目标版本/);
+  assert.match(core, /全链路致命故障阈值未满足/);
+  assert.match(core, /fatal_rollback_decision/);
   assert.match(core, /stepRemainingSeconds/);
   assert.match(app, /value === 'RECOVERING'/);
   assert.match(app, /新版本已生效，安全观察中/);
   assert.match(app, /refreshProductionImageOnly/);
+  assert.match(app, /buildPipelinePhases/);
+  assert.match(app, /准备发布源/);
+  assert.match(app, /批量测试与构建/);
+  assert.match(app, /全链路观察/);
+  assert.match(app, /致命故障恢复/);
+  assert.match(app, /step\.recoveryOnly/);
   assert.match(app, /距超时约/);
   assert.match(server, /'ROLLED_BACK', 'RECOVERY_REQUIRED'/);
   assert.match(server, /job\.cutoverCommitted === true/);
+  assert.match(server, /等待全链路致命故障复核/);
 });
 
 test('release history supports pagination and deletion', () => {
@@ -1769,7 +1804,7 @@ test('detects deployable target changes and blocks unchanged or rollback release
   assert.equal(assertReleaseTargetChanged(rollback, 'forum', 'reuse'), true);
 });
 
-test('uses an irreversible committed game target as the next production baseline', () => {
+test('uses an observing committed game target as the next production baseline', () => {
   const root = tempGitProject();
   const branch = runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
   const executedBaseline = runGit(root, ['rev-parse', 'HEAD']).trim();
@@ -2126,7 +2161,7 @@ function recoveryDecisionTestRunner(decision, options = {}) {
   const runner = async (cwd, command, env, onChunk) => {
     commands.push(command);
     const script = decodedScriptTree(command);
-    if (options.failAt === 'cutover' && script.includes('game_cutover_commit=PASS')) {
+    if (options.failAt === 'cutover' && script.includes('game_cutover_observation=PASS')) {
       throw new Error('simulated failure before cutover commit');
     }
     if (options.failAt !== 'cutover' && script.includes('tradepool_release_validation=PASS')) {
@@ -2139,6 +2174,12 @@ function recoveryDecisionTestRunner(decision, options = {}) {
         throw new Error('simulated rollback decision check failure');
       }
       output = `automatic_rollback_decision=${decision}\n`;
+    } else if (command.includes('evaluate-game-fatal-rollback.mjs')) {
+      runner.fatalDecisionRuns += 1;
+      if (decision === 'CHECK_ERROR') {
+        throw new Error('simulated fatal rollback decision check failure');
+      }
+      output = `fatal_rollback_decision=${decision}\n`;
     } else if (script.includes('automatic_rollback_validation=PASS')) {
       runner.rollbackRuns += 1;
       output = 'automatic_rollback_validation=PASS\n';
@@ -2151,6 +2192,7 @@ function recoveryDecisionTestRunner(decision, options = {}) {
   };
   runner.commands = commands;
   runner.decisionRuns = 0;
+  runner.fatalDecisionRuns = 0;
   runner.rollbackRuns = 0;
   return runner;
 }

@@ -48,7 +48,8 @@ const KNOWN_RELEASE_CHECKS = {
     'commit-game-cutover',
     'final-runtime-check',
     'verify-game-static-delivery',
-    'verify-tradepool-release'
+    'verify-tradepool-release',
+    'game-fatal-rollback-decision'
   ]),
   forum: new Set([
     'validate-forum-source',
@@ -289,25 +290,8 @@ function createPlan(projectRoot, request, env = process.env) {
     }),
     releaseStep({
       key: 'test-game-backend',
-      title: '执行游戏后端测试',
-      summary: '在制作镜像前运行完整 Maven 测试套件，阻止带失败测试的提交进入镜像',
-      command: '.\\mvnw.cmd -q test',
-      validation: '完整 Maven 测试套件必须通过',
-      actionType: 'local-check',
-      executable: true
-    }),
-    releaseStep({
-      key: 'save-run-config',
-      title: '更新本地发布配置',
-      summary: '把 imageTag 和 APP_TAG 同步替换为本次发版 TAG',
-      command: `${config.runConfigPath}: imageTag=${imageTag}, APP_TAG=${appTag}`,
-      validation: `确认 ${config.runConfigPath} 中同时包含 ${imageTag} 和 APP_TAG=${appTag}`,
-      actionType: 'local-config'
-    }),
-    releaseStep({
-      key: 'compile-artifact',
-      title: '编译应用产物',
-      summary: '在本机 Docker 执行 Maven 构建阶段，确认 Java 产物可以完成编译',
+      title: '批量测试并编译后端产物',
+      summary: '在同一个 Docker 构建阶段运行完整 Maven 测试并生成产物，后续镜像和静态资源复用该缓存',
       command: dockerCommand(dockerTarget, [
         'build',
         '--target', 'build',
@@ -326,6 +310,14 @@ function createPlan(projectRoot, request, env = process.env) {
       ]),
       actionType: 'build',
       executable: true
+    }),
+    releaseStep({
+      key: 'save-run-config',
+      title: '更新本地发布配置',
+      summary: '把 imageTag 和 APP_TAG 同步替换为本次发版 TAG',
+      command: `${config.runConfigPath}: imageTag=${imageTag}, APP_TAG=${appTag}`,
+      validation: `确认 ${config.runConfigPath} 中同时包含 ${imageTag} 和 APP_TAG=${appTag}`,
+      actionType: 'local-config'
     }),
     releaseStep({
       key: 'build-image',
@@ -567,17 +559,17 @@ function createPlan(projectRoot, request, env = process.env) {
     }));
     steps.push(releaseStep({
       key: 'commit-game-cutover',
-      title: '提交新版本接管状态',
-      summary: '等待目标版本全部健康且旧版本运行任务归零，记录不可逆切换提交点',
+      title: '进入新版本观察期',
+      summary: '等待目标版本全部健康且旧版本运行任务归零，开始全链路观察和致命故障判定',
       command: remoteSshCommand(remoteImageTarget,
         remoteBashScriptCommand(finalRuntimeCheckCommand(
           config.stackName,
           config.containerName,
           imageTag,
           appTag,
-          {requireUpdateCompleted: false, successMarker: 'game_cutover_commit=PASS'}
+          {requireUpdateCompleted: false, successMarker: 'game_cutover_observation=PASS'}
         ))),
-      validation: `服务镜像和 IMAGE_TAG 必须为 ${imageTag}，目标副本全部健康且旧版本运行任务为零；完成后禁止自动回退`,
+      validation: `服务镜像和 IMAGE_TAG 必须为 ${imageTag}，目标副本全部健康且旧版本运行任务为零；完成后仅允许全链路致命故障触发回退`,
       actionType: 'remote-check',
       executable: true,
       cutoverCommit: true,
@@ -627,7 +619,24 @@ function createPlan(projectRoot, request, env = process.env) {
         gameAutomaticRollbackDecisionCommand(config.stackName, config.containerName, imageTag, appTag)
       )),
       validation: '只有 automatic_rollback_decision=ROLLBACK_CONFIRMED 才允许执行自动回滚；HOLD_TARGET 和复核异常均保留现场',
-      actionType: 'remote-check'
+      actionType: 'remote-check',
+      recoveryOnly: true
+    }));
+    steps.push(releaseStep({
+      key: 'game-fatal-rollback-decision',
+      title: '复核全链路致命故障',
+      summary: '观察期失败后连续三轮检查双前置、发布器直连、生产主机本地认证业务心跳、数据库读写和目标服务状态',
+      command: gameFatalRollbackDecisionCommand(
+        remoteImageTarget,
+        config.stackName,
+        config.containerName,
+        imageTag,
+        appTag,
+        env),
+      validation: '只有双前置、发布器直连和生产主机本地业务心跳连续三轮全部失败且数据库读写正常，才允许自动回退；单点、未知原因、发布器网络异常和数据库故障均保留目标版本',
+      actionType: 'remote-check',
+      recoveryOnly: true,
+      timeoutSeconds: 420
     }));
     steps.push(releaseStep({
       key: 'game-rollback-command',
@@ -637,7 +646,8 @@ function createPlan(projectRoot, request, env = process.env) {
         gameAutomaticRollbackCommand(remoteComposeDir, config.stackName, config.containerName)
       )),
       validation: '自动恢复必须输出 automatic_rollback_validation=PASS；失败时任务进入 RECOVERY_REQUIRED 并保留现场',
-      actionType: 'local-check'
+      actionType: 'local-check',
+      recoveryOnly: true
     }));
   }
 
@@ -697,6 +707,35 @@ function gameStaticDeliveryCheckCommand(appTag, env = process.env) {
 
 function gameStaticDeliveryPrerequisiteCheckCommand(appTag, env = process.env) {
   return `${gameStaticDeliveryCheckCommand(appTag, env)} --check-prerequisites`;
+}
+
+function gameFatalRollbackDecisionCommand(remoteTarget, stackName, containerName, imageTag, appTag, env = process.env) {
+  const scriptPath = path.resolve(__dirname, '..', 'scripts', 'evaluate-game-fatal-rollback.mjs');
+  const authTokenFile = resolveGameStaticDeliveryAuthTokenFile(env);
+  const host = remoteTarget && remoteTarget.host ? remoteTarget.host : '';
+  const user = remoteTarget && remoteTarget.user ? remoteTarget.user : 'root';
+  const port = remoteTarget && remoteTarget.port ? remoteTarget.port : '22';
+  const keyPath = remoteTarget && remoteTarget.keyPath ? remoteTarget.keyPath : '';
+  if (!host || !keyPath || !authTokenFile) {
+    return `Write-Output ${shellToken('fatal_rollback_reason=missing_controlled_prerequisites')}; Write-Output ${shellToken('fatal_rollback_decision=HOLD_TARGET')}`;
+  }
+  return [
+    `node ${shellToken(scriptPath)}`,
+    `--app-tag ${shellToken(appTag)}`,
+    `--auth-token-file ${shellToken(authTokenFile)}`,
+    `--timeout-ms 30000`,
+    `--rounds 3`,
+    `--round-delay-ms 5000`,
+    `--remote-host ${shellToken(host)}`,
+    `--remote-user ${shellToken(user)}`,
+    `--remote-port ${shellToken(port)}`,
+    `--remote-key ${shellToken(keyPath)}`,
+    `--origin-host ${shellToken(host)}`,
+    `--origin-port 8190`,
+    `--service-name ${shellToken(gameServiceName(stackName, containerName))}`,
+    `--expected-image ${shellToken(imageTag)}`,
+    `--expected-version ${shellToken(appTag)}`
+  ].join(' ');
 }
 
 function gameStaticAssetRehearsalCommand(imageTag, appTag, rehearsalConfigPath, productionConfigPath, dockerTarget, dockerfile) {
@@ -1032,6 +1071,7 @@ function releaseStep({
   executable = false,
   finalCheck = false,
   cutoverCommit = false,
+  recoveryOnly = false,
   timeoutSeconds = 0,
   rehearsal = false
 }) {
@@ -1047,6 +1087,7 @@ function releaseStep({
     executable,
     finalCheck,
     cutoverCommit,
+    recoveryOnly,
     timeoutSeconds,
     rehearsal,
     status: 'pending'
@@ -1181,7 +1222,7 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
       }
     }
     const dryRunStepKeys = plan.steps
-      .filter(step => !step.rehearsal)
+      .filter(step => !step.rehearsal && !step.recoveryOnly)
       .map(step => step.key);
     completedStepKeys.push(...dryRunStepKeys);
     const dryRunStepLogs = {};
@@ -1208,6 +1249,9 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
   };
   try {
     for (const step of plan.steps) {
+      if (step.recoveryOnly) {
+        continue;
+      }
       assertNotCancelled();
       currentStepKey = step.key;
       startStepTimer(step.key, stepTiming);
@@ -1267,7 +1311,7 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
           cutoverCommitted = true;
           cutoverCommittedAt = new Date().toISOString();
           pushStepLog(step.key,
-            `[COMMITTED] 新版本已健康接管且旧版本运行任务为零，自动回退永久禁用，时间 ${cutoverCommittedAt}`);
+            `[OBSERVING] 新版本已健康接管且旧版本运行任务为零，只有全链路致命故障复核可以触发回退，时间 ${cutoverCommittedAt}`);
         }
         completedStepKeys.push(step.key);
         const durationMs = finishStepTimer(step.key, stepTiming);
@@ -1287,9 +1331,9 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
     pushStepLog(failedStepKey, `${error.name === 'CancellationError' ? 'CANCELLED' : 'ERROR'}: ${error.message}`);
     runtimePlan = markStepStatus(runtimePlan, completedStepKeys, failedStepKey,
       error.name === 'CancellationError' ? 'cancelled' : 'failed', stepLogs, stepTiming);
-    if (plan.releaseTarget === 'game' && cutoverCommitted) {
+    if (plan.releaseTarget === 'game' && cutoverCommitted && error.name === 'CancellationError') {
       pushStepLog(failedStepKey,
-        'RECOVERY_REQUIRED: 新版本切换已经提交，后续失败只保留证据和目标版本，禁止执行自动回退');
+        'RECOVERY_REQUIRED: 用户取消只停止观察，不构成致命故障证据，保留目标版本和现场');
       runtimePlan = markStepStatus(runtimePlan, completedStepKeys, failedStepKey,
         error.name === 'CancellationError' ? 'cancelled' : 'failed', stepLogs, stepTiming);
       const committedLogs = logs.slice();
@@ -1306,10 +1350,12 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
     }
     const shouldEvaluateRecovery = plan.releaseTarget === 'game'
       && cutoverStarted
-      && !cutoverCommitted
-      && !completedStepKeys.includes('verify-tradepool-release');
+      && (cutoverCommitted || !completedStepKeys.includes('verify-tradepool-release'));
     if (shouldEvaluateRecovery) {
-      const rollbackDecisionStep = plan.steps.find(step => step.key === 'game-rollback-decision');
+      const fatalEvaluation = cutoverCommitted;
+      const rollbackDecisionStep = plan.steps.find(step => step.key === (fatalEvaluation
+        ? 'game-fatal-rollback-decision'
+        : 'game-rollback-decision'));
       const rollbackStep = plan.steps.find(step => step.key === 'game-rollback-command');
       currentStepKey = rollbackDecisionStep.key;
       startStepTimer(rollbackDecisionStep.key, stepTiming);
@@ -1331,10 +1377,11 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
             pushStepLog(rollbackDecisionStep.key, `[RUNNING] 自动回滚复核已运行 ${elapsedSeconds} 秒`);
           }
           updateStep(rollbackDecisionStep.key, 'running');
-        }, null, 60);
-        rollbackConfirmed = String(decisionOutput).includes('automatic_rollback_decision=ROLLBACK_CONFIRMED');
+        }, null, rollbackDecisionStep.timeoutSeconds || 60);
+        const decisionPrefix = fatalEvaluation ? 'fatal_rollback_decision' : 'automatic_rollback_decision';
+        rollbackConfirmed = String(decisionOutput).includes(`${decisionPrefix}=ROLLBACK_CONFIRMED`);
         if (!rollbackConfirmed
-            && !String(decisionOutput).includes('automatic_rollback_decision=HOLD_TARGET')) {
+            && !String(decisionOutput).includes(`${decisionPrefix}=HOLD_TARGET`)) {
           throw new Error('自动回滚复核没有返回受支持的决策');
         }
         completedStepKeys.push(rollbackDecisionStep.key);
@@ -1353,17 +1400,33 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
         const heldLogs = logs.slice();
         appendReleaseHistory(projectRoot,
           buildHistoryEntry('RECOVERY_REQUIRED', runtimePlan, heldLogs, completedStepKeys), env);
-        return {status: 'RECOVERY_REQUIRED', plan: runtimePlan, logs: heldLogs, completedStepKeys};
+        return {
+          status: 'RECOVERY_REQUIRED',
+          plan: runtimePlan,
+          logs: heldLogs,
+          completedStepKeys,
+          cutoverCommitted,
+          cutoverCommittedAt
+        };
       }
       if (!rollbackConfirmed) {
         pushStepLog(rollbackDecisionStep.key,
-          'RECOVERY_REQUIRED: 目标版本仍满足最小健康条件，自动回滚已禁止，保留目标版本和失败现场供复核');
+          fatalEvaluation
+            ? 'RECOVERY_REQUIRED: 全链路致命故障阈值未满足，保留目标版本和失败现场供复核'
+            : 'RECOVERY_REQUIRED: 目标版本仍满足切换前最小健康条件，保留目标版本和失败现场供复核');
         runtimePlan = markStepStatus(runtimePlan, completedStepKeys, rollbackDecisionStep.key,
           'done', stepLogs, stepTiming);
         const heldLogs = logs.slice();
         appendReleaseHistory(projectRoot,
           buildHistoryEntry('RECOVERY_REQUIRED', runtimePlan, heldLogs, completedStepKeys), env);
-        return {status: 'RECOVERY_REQUIRED', plan: runtimePlan, logs: heldLogs, completedStepKeys};
+        return {
+          status: 'RECOVERY_REQUIRED',
+          plan: runtimePlan,
+          logs: heldLogs,
+          completedStepKeys,
+          cutoverCommitted,
+          cutoverCommittedAt
+        };
       }
       currentStepKey = rollbackStep.key;
       executionStatus = 'RECOVERING';

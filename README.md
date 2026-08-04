@@ -476,7 +476,9 @@ cd /opt/1panel/docker/compose/hospital-stack
 docker stack deploy -c docker-compose.yml hospital_stack
 ```
 
-热发布使用 `start-first` 时，新旧任务会在健康观察期内短暂并存。发布器先持续核对目标镜像、服务与容器 `IMAGE_TAG`、SSO 开关、Secret、健康副本数和旧镜像运行任务；目标副本全部健康且旧版本运行任务为零时写入不可逆的 `game_cutover_commit=PASS`，页面立即显示“新版本已生效，安全观察中”并刷新生产镜像。提交点之前允许发布器恢复旧版本，提交点之后的取消、服务重启、Swarm 观察或附加验收失败只保留目标版本并进入 `RECOVERY_REQUIRED`，不再运行回滚判断和命令。Swarm `update_config.failure_action` 必须为 `pause`，避免编排器绕过发布器提交点自动恢复旧版本。最终运行校验继续等待 `UpdateStatus=completed`。默认等待上限为 1800 秒，可在远端通过 `RELEASE_PUBLISHER_ROLLOUT_TIMEOUT_SECONDS` 调整；提交前自动恢复也使用 1800 秒默认上限，可通过 `RELEASE_PUBLISHER_ROLLBACK_TIMEOUT_SECONDS` 调整。该预算覆盖 8 分钟健康启动期、12 分钟 Swarm 监控窗口及任务收敛余量。
+热发布使用 `start-first` 时，新旧任务会在健康观察期内短暂并存。发布器持续核对目标镜像、服务与容器 `IMAGE_TAG`、SSO 开关、Secret、健康副本数和旧镜像运行任务；目标副本全部健康且旧版本运行任务为零时输出 `game_cutover_observation=PASS`，页面立即显示“新版本已生效，安全观察中”并刷新生产镜像。此时仍允许基于致命故障证据回退。普通失败会连续三轮检查Riven、VMISS、发布器直连生产入口、生产主机本地认证业务心跳以及数据库读写探针；只有全部业务心跳失败且数据库读写正常时输出`fatal_rollback_decision=ROLLBACK_CONFIRMED`。任一链路可用、数据库异常、探针信息不足、发布器自身网络异常、用户取消或发布服务重启都保留目标版本并进入`RECOVERY_REQUIRED`。Swarm `update_config.failure_action` 必须为 `pause`，让回退只受发布器证据门禁控制。最终运行校验继续等待 `UpdateStatus=completed`。默认等待上限为1800秒，可通过 `RELEASE_PUBLISHER_ROLLOUT_TIMEOUT_SECONDS` 调整；恢复也使用1800秒默认上限，可通过 `RELEASE_PUBLISHER_ROLLBACK_TIMEOUT_SECONDS` 调整。
+
+发布总览按八个阶段展示，原始检查与日志仍保留在步骤详情中。恢复判断和命令只在真正触发时显示。游戏Docker构建目标会在一次构建中运行完整Maven测试并生成产物，运行镜像与静态资源目标复用该层缓存，避免本机测试完成后再次完整编译。
 
 ## 论坛发布
 
