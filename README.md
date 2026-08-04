@@ -240,10 +240,11 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 5. 冷缓存 MISS 响应体总量不得超过默认 240 MiB 源站预算。预算可以通过 `RHOSPITAL_RELEASE_ORIGIN_BUDGET_BYTES` 调整。
 6. Steam 域名使用同一前置独立加载，必须枚举到至少一个 ES 模块，并要求全部 JavaScript 模块成功且包含缓存状态。
 7. 游戏页面的浏览器运行时错误、控制台错误和加载器错误均会阻止发布完成。主机名精确匹配 `bam.nr-data.net` 的 New Relic 上报失败会单独计数和保留证据，不参与游戏健康判定；其他第三方或应用错误继续阻止发布。
+8. 每个 CDP 请求使用独立硬超时。`Framebuffer Unsupported`、CDP 超时、目标关闭和浏览器进程异常会使用全新 Chrome profile 隔离复测一次。复测会记录失败证据和尝试次数。重复基础设施异常、应用运行错误、资源错误和网络错误继续失败关闭。
 
 登录 token 只从本地受控文件读取。正式发布计划优先把 `release-publisher.config.json` 中 `gameStaticDelivery.authTokenFile` 配置的文件路径作为 `--auth-token-file` 参数显式传给前置检查和发布后验收，避免 Windows 服务用户配置单元未加载时丢失用户级环境变量；独立命令仍可使用 `RHOSPITAL_RELEASE_AUTH_TOKEN_FILE`。文件可以保存原始 token 或 `token=<value>`，脚本不会输出 token。token 必须符合游戏服务签发格式，并在检查时至少保留两小时有效期。缺少文件、格式错误、临近到期、Chrome、前置地址或任一验收证据时检查失败关闭。节点 IP、网页域名和 Steam 域名可分别通过 `RHOSPITAL_RIVEN_GATE_IP`、`RHOSPITAL_VMISS_GATE_IP`、`RHOSPITAL_GAME_HOST` 与 `RHOSPITAL_STEAM_HOST` 覆盖。
 
-正式游戏发布在代码切换、完整 Maven 测试、构建和全部生产动作之前强制执行 `validate-game-static-delivery-prerequisites`。该步骤只检查 Node.js、登录 token 文件与有效期、Chrome、两台前置地址、网页域名、Steam 域名和数值限制，不启动浏览器或访问生产环境。任一条件缺失时发布立即停止，因此环境缺失不会把工作区留在指定提交的 detached HEAD。令牌值不会写入命令、日志或发布历史。
+正式游戏发布在代码切换、完整 Maven 测试、构建和全部生产动作之前强制执行 `validate-game-static-delivery-prerequisites`。该步骤检查 Node.js、登录 token 文件与有效期、Chrome、两台前置地址、网页域名、Steam 域名和数值限制，并使用正式 Chrome 参数执行离线 WebGL 2 framebuffer 探针。探针输出 renderer、WebGL version、viewport、devicePixelRatio、纹理尺寸和 framebuffer 状态，不访问生产环境。任一条件缺失时发布立即停止，因此环境缺失不会把工作区留在指定提交的 detached HEAD。令牌值不会写入命令、日志或发布历史。CDP 单次超时默认 15 秒，可通过 `RHOSPITAL_RELEASE_CDP_TIMEOUT_MS` 调整；浏览器基础设施隔离复测默认 1 次，可通过 `RHOSPITAL_RELEASE_BROWSER_INFRASTRUCTURE_RETRIES` 调整为非负整数。
 
 查看本地参数说明不会访问生产：
 

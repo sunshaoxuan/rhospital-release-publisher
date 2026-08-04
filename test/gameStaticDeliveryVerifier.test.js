@@ -164,6 +164,8 @@ test('prerequisite check rejects invalid gateway addresses and numeric limits', 
     /riven gateway must be an IP address/);
   assert.throws(() => resolveStaticDeliveryPrerequisites({...base, 'timeout-ms': '0'}, {}),
     /Browser timeout must be greater than zero/);
+  assert.throws(() => resolveStaticDeliveryPrerequisites({...base, 'browser-infrastructure-retries': '1.5'}, {}),
+    /Browser infrastructure retries must be a non-negative integer/);
 });
 
 test('prerequisite check rejects malformed and expiring smoke tokens', async t => {
@@ -180,28 +182,46 @@ test('prerequisite check rejects malformed and expiring smoke tokens', async t =
   assert.throws(() => resolveStaticDeliveryPrerequisites(base, {}), /expires in less than two hours/);
 });
 
-test('prerequisite CLI reports readiness without exposing the token', t => {
+test('prerequisite readiness runs the browser capability probe without exposing the token', async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'rhospital-static-prerequisites-cli-'));
   t.after(() => fs.rmSync(root, {recursive: true, force: true}));
   const tokenFile = path.join(root, 'smoke-token.txt');
   const controlledToken = smokeToken();
   fs.writeFileSync(tokenFile, `${controlledToken}\n`, 'utf8');
-  const script = path.resolve(__dirname, '..', 'scripts', 'verify-game-static-delivery.mjs');
-  const result = spawnSync(process.execPath, [
-    script,
-    '--app-tag', '20260803',
-    '--auth-token-file', tokenFile,
-    '--chrome', process.execPath,
-    '--riven-ip', '192.0.2.45',
-    '--vmiss-ip', '192.0.2.64',
-    '--game-host', 'game.example.test',
-    '--steam-host', 'steam.example.test',
-    '--check-prerequisites'
-  ], {encoding: 'utf8'});
+  const {runStaticDelivery} = await verifier();
+  const lines = [];
+  let capabilityRuns = 0;
+  await runStaticDelivery({
+    'app-tag': '20260803',
+    'auth-token-file': tokenFile,
+    chrome: process.execPath,
+    'riven-ip': '192.0.2.45',
+    'vmiss-ip': '192.0.2.64',
+    'game-host': 'game.example.test',
+    'steam-host': 'steam.example.test',
+    'check-prerequisites': true
+  }, {
+    capabilityProbe: async () => {
+      capabilityRuns += 1;
+      return {
+        context: true,
+        version: 'WebGL 2 test',
+        renderer: 'SwiftShader test',
+        viewport: [800, 600],
+        devicePixelRatio: 1,
+        texture: [1280, 720],
+        statusName: 'Complete',
+        complete: true,
+        error: 0
+      };
+    },
+    log: line => lines.push(line)
+  });
 
-  assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /game_static_delivery_prerequisites=PASS/);
-  assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, new RegExp(controlledToken));
+  assert.equal(capabilityRuns, 1);
+  assert.match(lines.join('\n'), /game_static_delivery_browser=PASS/);
+  assert.match(lines.join('\n'), /game_static_delivery_prerequisites=PASS/);
+  assert.doesNotMatch(lines.join('\n'), new RegExp(controlledToken));
 });
 
 test('prerequisite CLI uses a distinct failure marker', () => {
@@ -268,4 +288,114 @@ test('validation rejects cold-cache origin bytes above the configured budget', a
     steam: false,
     originBudgetBytes: 1024
   }), /origin MISS bytes 5000 exceeded budget 1024/);
+});
+
+test('browser capability requires a complete framebuffer and zero WebGL errors', async () => {
+  const {assertBrowserCapability, BrowserInfrastructureError} = await verifier();
+  const passing = {
+    context: true,
+    complete: true,
+    statusName: 'Complete',
+    error: 0
+  };
+
+  assert.equal(assertBrowserCapability(passing), passing);
+  assert.throws(() => assertBrowserCapability({context: false}), BrowserInfrastructureError);
+  assert.throws(() => assertBrowserCapability({context: true, complete: false, statusName: 'Unsupported', error: 0}),
+    /Framebuffer Unsupported/);
+  assert.throws(() => assertBrowserCapability({...passing, error: 1285}), /glError=1285/);
+});
+
+test('CDP requests fail within their own timeout and clear pending work', async () => {
+  const {CdpClient, BrowserInfrastructureError} = await verifier();
+  class SilentSocket extends EventTarget {
+    constructor() {
+      super();
+      this.readyState = WebSocket.OPEN;
+    }
+    send() {}
+    close() {
+      this.readyState = WebSocket.CLOSED;
+      this.dispatchEvent(new Event('close'));
+    }
+  }
+  const socket = new SilentSocket();
+  const client = new CdpClient('ws://example.test', {
+    requestTimeoutMs: 20,
+    webSocketFactory: () => socket
+  });
+
+  await assert.rejects(client.send('Runtime.evaluate'), error => {
+    assert.ok(error instanceof BrowserInfrastructureError);
+    assert.equal(error.code, 'CDP_REQUEST_TIMEOUT');
+    assert.match(error.message, /Runtime\.evaluate timed out/);
+    return true;
+  });
+  assert.equal(client.pending.size, 0);
+  client.close();
+});
+
+test('isolated retry recovers a framebuffer infrastructure failure with a fresh probe key', async () => {
+  const {runValidatedChromeProbe} = await verifier();
+  let runs = 0;
+  const keys = [];
+  const failed = passingResult({
+    state: {href: 'https://rhospital.cc/run/newGame', firstFloor: false, loadState: null},
+    runtimeErrors: [{
+      source: 'runtime-exception',
+      message: 'Error: Framebuffer status: Framebuffer Unsupported',
+      url: 'https://rhospital.cc/assets/js/vendor/phaser.esm.js'
+    }]
+  });
+  const result = await runValidatedChromeProbe({
+    probeOptions: {probeKey: '20260805-riven'},
+    validationOptions: {warm: false, steam: false},
+    infrastructureRetries: 1,
+    probeRunner: async options => {
+      runs += 1;
+      keys.push(options.probeKey);
+      return runs === 1 ? failed : passingResult();
+    }
+  });
+
+  assert.equal(result.attempts, 2);
+  assert.equal(result.summary.launched, true);
+  assert.deepEqual(keys, ['20260805-riven', '20260805-riven-infra-retry-1']);
+});
+
+test('application runtime failures remain fail closed without browser retry', async () => {
+  const {runValidatedChromeProbe} = await verifier();
+  let runs = 0;
+  await assert.rejects(runValidatedChromeProbe({
+    probeOptions: {probeKey: 'application-failure'},
+    validationOptions: {warm: false, steam: false},
+    infrastructureRetries: 1,
+    probeRunner: async () => {
+      runs += 1;
+      return passingResult({
+        state: {href: 'https://rhospital.cc/run/newGame', firstFloor: false, loadState: null},
+        runtimeErrors: [{
+          source: 'runtime-exception',
+          message: 'ReferenceError: gameBoot is not defined',
+          url: 'https://rhospital.cc/assets/js/main.js'
+        }]
+      });
+    }
+  }), /browser runtime errors were captured/);
+  assert.equal(runs, 1);
+});
+
+test('repeated browser infrastructure failures stop after the configured retry budget', async () => {
+  const {runValidatedChromeProbe, BrowserInfrastructureError} = await verifier();
+  let runs = 0;
+  await assert.rejects(runValidatedChromeProbe({
+    probeOptions: {probeKey: 'cdp-timeout'},
+    validationOptions: {warm: false, steam: false},
+    infrastructureRetries: 1,
+    probeRunner: async () => {
+      runs += 1;
+      throw new BrowserInfrastructureError('CDP Runtime.evaluate timed out after 20ms', 'CDP_REQUEST_TIMEOUT');
+    }
+  }), /CDP Runtime\.evaluate timed out/);
+  assert.equal(runs, 2);
 });

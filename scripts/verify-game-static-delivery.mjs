@@ -3,7 +3,7 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 const DEFAULT_GATEWAYS = [
@@ -11,9 +11,20 @@ const DEFAULT_GATEWAYS = [
   { name: 'vmiss', ip: '64.83.37.55' }
 ];
 const DEFAULT_TIMEOUT_MS = 300000;
+const DEFAULT_CDP_TIMEOUT_MS = 15000;
+const DEFAULT_BROWSER_INFRASTRUCTURE_RETRIES = 1;
 const DEFAULT_ORIGIN_BUDGET_BYTES = 240 * 1024 * 1024;
 const MINIMUM_TOKEN_VALIDITY_MS = 2 * 60 * 60 * 1000;
 const IGNORED_TELEMETRY_HOSTS = new Set(['bam.nr-data.net']);
+const BROWSER_INFRASTRUCTURE_ERROR_PATTERN = /(?:Framebuffer (?:Unsupported|Incomplete)|WebGL context|CDP .* timed out|Chrome debugging|DevTools|target closed|session closed|socket closed|browser disconnected|GPU process|renderer process)/i;
+
+export class BrowserInfrastructureError extends Error {
+  constructor(message, code = 'BROWSER_INFRASTRUCTURE_FAILURE') {
+    super(message);
+    this.name = 'BrowserInfrastructureError';
+    this.code = code;
+  }
+}
 
 function parseArgs(argv) {
   const values = {};
@@ -95,6 +106,14 @@ function positiveNumber(value, label, {allowZero = false} = {}) {
   return number;
 }
 
+function nonNegativeInteger(value, label) {
+  const number = positiveNumber(value, label, {allowZero: true});
+  if (!Number.isSafeInteger(number)) {
+    throw new Error(`${label} must be a non-negative integer`);
+  }
+  return number;
+}
+
 export function resolveStaticDeliveryPrerequisites(args = {}, env = process.env) {
   requireNode22();
   const appTag = String(args['app-tag'] || env.RHOSPITAL_RELEASE_APP_TAG || '').trim();
@@ -104,6 +123,14 @@ export function resolveStaticDeliveryPrerequisites(args = {}, env = process.env)
   const timeoutMs = positiveNumber(
     args['timeout-ms'] || env.RHOSPITAL_RELEASE_BROWSER_TIMEOUT_MS || DEFAULT_TIMEOUT_MS,
     'Browser timeout');
+  const cdpTimeoutMs = positiveNumber(
+    args['cdp-timeout-ms'] || env.RHOSPITAL_RELEASE_CDP_TIMEOUT_MS || DEFAULT_CDP_TIMEOUT_MS,
+    'CDP timeout');
+  const browserInfrastructureRetries = nonNegativeInteger(
+    args['browser-infrastructure-retries']
+      ?? env.RHOSPITAL_RELEASE_BROWSER_INFRASTRUCTURE_RETRIES
+      ?? DEFAULT_BROWSER_INFRASTRUCTURE_RETRIES,
+    'Browser infrastructure retries');
   const originBudgetBytes = positiveNumber(
     args['origin-budget-bytes'] || env.RHOSPITAL_RELEASE_ORIGIN_BUDGET_BYTES || DEFAULT_ORIGIN_BUDGET_BYTES,
     'Origin byte budget',
@@ -118,55 +145,111 @@ export function resolveStaticDeliveryPrerequisites(args = {}, env = process.env)
     if (net.isIP(gateway.ip) === 0) throw new Error(`${gateway.name} gateway must be an IP address`);
   }
   const {gameHost, steamHost} = resolveProbeHosts(args, env);
-  return {appTag, token, chromePath, timeoutMs, originBudgetBytes, gateways, gameHost, steamHost};
+  return {
+    appTag,
+    token,
+    chromePath,
+    timeoutMs,
+    cdpTimeoutMs,
+    browserInfrastructureRetries,
+    originBudgetBytes,
+    gateways,
+    gameHost,
+    steamHost
+  };
 }
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function waitForFile(filePath, timeoutMs = 15000) {
+async function waitForFile(
+  filePath,
+  timeoutMs = 15000,
+  child,
+  browserStderr = () => '',
+  browserSpawnError = () => null
+) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (fs.existsSync(filePath) && fs.statSync(filePath).size > 0) return;
+    if (browserSpawnError()) {
+      throw new BrowserInfrastructureError(
+        `Chrome failed to start: ${browserSpawnError().message}`,
+        'CHROME_SPAWN_FAILURE');
+    }
+    if (child && child.exitCode !== null) {
+      throw new BrowserInfrastructureError(
+        `Chrome exited before DevTools became ready, code=${child.exitCode}${browserDiagnosticSuffix(browserStderr())}`,
+        'CHROME_EARLY_EXIT');
+    }
     await delay(100);
   }
-  throw new Error(`Timed out waiting for Chrome debugging file: ${filePath}`);
+  throw new BrowserInfrastructureError(
+    `Timed out waiting for Chrome debugging file after ${timeoutMs}ms${browserDiagnosticSuffix(browserStderr())}`,
+    'CHROME_STARTUP_TIMEOUT');
 }
 
-function requestJson(url, method = 'GET') {
+function requestJson(url, method = 'GET', timeoutMs = DEFAULT_CDP_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const request = http.request(url, { method }, response => {
       const chunks = [];
       response.on('data', chunk => chunks.push(chunk));
       response.on('end', () => {
         if ((response.statusCode || 500) >= 400) {
-          reject(new Error(`Chrome debugging request failed: ${response.statusCode}`));
+          reject(new BrowserInfrastructureError(
+            `Chrome debugging request failed: ${response.statusCode}`,
+            'CHROME_DEBUGGING_HTTP_FAILURE'));
           return;
         }
-        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        try {
+          resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        } catch (error) {
+          reject(new BrowserInfrastructureError(
+            `Chrome debugging response was invalid JSON: ${error.message}`,
+            'CHROME_DEBUGGING_INVALID_JSON'));
+        }
       });
     });
-    request.on('error', reject);
+    request.setTimeout(timeoutMs, () => request.destroy(new BrowserInfrastructureError(
+      `Chrome debugging request timed out after ${timeoutMs}ms`,
+      'CHROME_DEBUGGING_TIMEOUT')));
+    request.on('error', error => reject(error instanceof BrowserInfrastructureError
+      ? error
+      : new BrowserInfrastructureError(`Chrome debugging request failed: ${error.message}`, 'CHROME_DEBUGGING_IO')));
     request.end();
   });
 }
 
-class CdpClient {
-  constructor(webSocketUrl) {
-    this.socket = new WebSocket(webSocketUrl);
+export class CdpClient {
+  constructor(webSocketUrl, {requestTimeoutMs = DEFAULT_CDP_TIMEOUT_MS, webSocketFactory} = {}) {
+    this.socket = webSocketFactory ? webSocketFactory(webSocketUrl) : new WebSocket(webSocketUrl);
+    this.requestTimeoutMs = requestTimeoutMs;
     this.nextId = 1;
     this.pending = new Map();
     this.listeners = new Map();
+    this.socket.addEventListener('message', event => this.handleMessage(event.data));
+    this.socket.addEventListener('close', () => this.rejectPending(
+      new BrowserInfrastructureError('CDP socket closed', 'CDP_SOCKET_CLOSED')));
+    this.socket.addEventListener('error', () => this.rejectPending(
+      new BrowserInfrastructureError('CDP socket failed', 'CDP_SOCKET_ERROR')));
   }
 
   async open() {
     if (this.socket.readyState === WebSocket.OPEN) return;
     await new Promise((resolve, reject) => {
-      this.socket.addEventListener('open', resolve, { once: true });
-      this.socket.addEventListener('error', reject, { once: true });
+      const timer = setTimeout(() => reject(new BrowserInfrastructureError(
+        `CDP socket open timed out after ${this.requestTimeoutMs}ms`,
+        'CDP_OPEN_TIMEOUT')), this.requestTimeoutMs);
+      this.socket.addEventListener('open', () => {
+        clearTimeout(timer);
+        resolve();
+      }, { once: true });
+      this.socket.addEventListener('error', () => {
+        clearTimeout(timer);
+        reject(new BrowserInfrastructureError('CDP socket failed while opening', 'CDP_OPEN_ERROR'));
+      }, { once: true });
     });
-    this.socket.addEventListener('message', event => this.handleMessage(event.data));
   }
 
   handleMessage(raw) {
@@ -175,6 +258,7 @@ class CdpClient {
       const pending = this.pending.get(message.id);
       if (!pending) return;
       this.pending.delete(message.id);
+      clearTimeout(pending.timer);
       if (message.error) pending.reject(new Error(message.error.message));
       else pending.resolve(message.result || {});
       return;
@@ -190,15 +274,36 @@ class CdpClient {
     this.listeners.set(method, listeners);
   }
 
-  send(method, params = {}) {
+  send(method, params = {}, timeoutMs = this.requestTimeoutMs) {
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
-      this.socket.send(JSON.stringify({ id, method, params }));
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        reject(new BrowserInfrastructureError(
+          `CDP ${method} timed out after ${timeoutMs}ms`,
+          'CDP_REQUEST_TIMEOUT'));
+      }, timeoutMs);
+      this.pending.set(id, { resolve, reject, timer, method });
+      try {
+        this.socket.send(JSON.stringify({ id, method, params }));
+      } catch (error) {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        reject(new BrowserInfrastructureError(`CDP ${method} send failed: ${error.message}`, 'CDP_SEND_FAILURE'));
+      }
     });
   }
 
+  rejectPending(error) {
+    for (const pending of this.pending.values()) {
+      clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    this.pending.clear();
+  }
+
   close() {
+    this.rejectPending(new BrowserInfrastructureError('CDP client closed', 'CDP_CLIENT_CLOSED'));
     this.socket.close();
   }
 }
@@ -225,15 +330,13 @@ async function evaluate(client, expression) {
   return result.result?.value;
 }
 
-export async function runChromeProbe({ chromePath, gateway, host, mappedHosts, route, token, probeKey, timeoutMs }) {
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rhospital-release-smoke-'));
-  const debugFile = path.join(userDataDir, 'DevToolsActivePort');
-  const hostRules = [
-    ...new Set([...mappedHosts, 'hero-hospital.icu'])
-  ].map(mappedHost => `MAP ${mappedHost} ${gateway.ip}`).concat([
-    'EXCLUDE localhost'
-  ]).join(',');
-  const child = spawn(chromePath, [
+function browserDiagnosticSuffix(value) {
+  const diagnostic = String(value || '').trim().replace(/\s+/g, ' ').slice(-500);
+  return diagnostic ? `, stderr=${diagnostic}` : '';
+}
+
+function chromeArguments(userDataDir, extraArguments = []) {
+  return [
     '--headless=new',
     '--no-first-run',
     '--no-default-browser-check',
@@ -241,20 +344,143 @@ export async function runChromeProbe({ chromePath, gateway, host, mappedHosts, r
     '--disable-features=DnsOverHttps',
     '--enable-unsafe-swiftshader',
     '--use-gl=swiftshader',
+    ...extraArguments,
     '--remote-debugging-port=0',
     `--user-data-dir=${userDataDir}`,
-    `--host-resolver-rules=${hostRules}`,
     'about:blank'
-  ], { stdio: 'ignore' });
+  ];
+}
+
+async function stopChrome(child, timeoutMs = 3000) {
+  if (!child || child.exitCode !== null) return;
+  child.kill();
+  await Promise.race([
+    new Promise(resolve => child.once('close', resolve)),
+    delay(timeoutMs)
+  ]);
+  if (child.exitCode !== null) return;
+  if (process.platform === 'win32' && child.pid) {
+    spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {stdio: 'ignore', windowsHide: true});
+  } else {
+    try { child.kill('SIGKILL'); } catch {}
+  }
+}
+
+async function useChromeTarget({chromePath, extraArguments = [], startupTimeoutMs, cdpTimeoutMs}, action) {
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rhospital-release-smoke-'));
+  const debugFile = path.join(userDataDir, 'DevToolsActivePort');
+  const stderr = [];
+  let spawnError = null;
+  const child = spawn(chromePath, chromeArguments(userDataDir, extraArguments), {
+    stdio: ['ignore', 'ignore', 'pipe'],
+    windowsHide: true
+  });
+  child.once('error', error => { spawnError = error; });
+  child.stderr?.on('data', chunk => stderr.push(chunk.toString()));
+  const browserStderr = () => stderr.join('').slice(-2000);
 
   let client;
   try {
-    await waitForFile(debugFile);
+    if (spawnError) {
+      throw new BrowserInfrastructureError(`Chrome failed to start: ${spawnError.message}`, 'CHROME_SPAWN_FAILURE');
+    }
+    await waitForFile(debugFile, startupTimeoutMs, child, browserStderr, () => spawnError);
     const [port] = fs.readFileSync(debugFile, 'utf8').trim().split(/\r?\n/);
-    const target = await requestJson(`http://127.0.0.1:${port}/json/new?about%3Ablank`, 'PUT');
-    client = new CdpClient(target.webSocketDebuggerUrl);
+    const target = await requestJson(`http://127.0.0.1:${port}/json/new?about%3Ablank`, 'PUT', cdpTimeoutMs);
+    client = new CdpClient(target.webSocketDebuggerUrl, {requestTimeoutMs: cdpTimeoutMs});
     await client.open();
+    return await action(client);
+  } catch (error) {
+    if (error instanceof BrowserInfrastructureError) {
+      error.message += browserDiagnosticSuffix(browserStderr());
+    }
+    throw error;
+  } finally {
+    try { client?.close(); } catch {}
+    await stopChrome(child);
+    fs.rmSync(userDataDir, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
+  }
+}
 
+export function assertBrowserCapability(capability) {
+  if (!capability?.context) {
+    throw new BrowserInfrastructureError('WebGL context is unavailable', 'WEBGL_CONTEXT_UNAVAILABLE');
+  }
+  if (!capability.complete) {
+    throw new BrowserInfrastructureError(
+      `Framebuffer ${capability.statusName || capability.status || 'Incomplete'}, glError=${capability.error}`,
+      'WEBGL_FRAMEBUFFER_INCOMPLETE');
+  }
+  if (Number(capability.error || 0) !== 0) {
+    throw new BrowserInfrastructureError(
+      `WebGL capability probe returned glError=${capability.error}`,
+      'WEBGL_ERROR');
+  }
+  return capability;
+}
+
+export async function runBrowserCapabilityProbe({chromePath, cdpTimeoutMs = DEFAULT_CDP_TIMEOUT_MS}) {
+  const capability = await useChromeTarget({
+    chromePath,
+    startupTimeoutMs: cdpTimeoutMs,
+    cdpTimeoutMs
+  }, client => evaluate(client, `(() => {
+    const canvas = document.createElement('canvas');
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.max(1, Math.round(1280 * dpr));
+    canvas.height = Math.max(1, Math.round(720 * dpr));
+    const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+    if (!gl) return { context: false, viewport: [innerWidth, innerHeight], devicePixelRatio: dpr };
+    const texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, canvas.width, canvas.height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    const framebuffer = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    const debugRenderer = gl.getExtension('WEBGL_debug_renderer_info');
+    return {
+      context: true,
+      version: gl.getParameter(gl.VERSION),
+      renderer: debugRenderer ? gl.getParameter(debugRenderer.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER),
+      viewport: [innerWidth, innerHeight],
+      devicePixelRatio: dpr,
+      texture: [canvas.width, canvas.height],
+      status,
+      statusName: status === gl.FRAMEBUFFER_COMPLETE ? 'Complete' : String(status),
+      complete: status === gl.FRAMEBUFFER_COMPLETE,
+      error: gl.getError()
+    };
+  })()`));
+  return assertBrowserCapability(capability);
+}
+
+export async function runChromeProbe({
+  chromePath,
+  gateway,
+  host,
+  mappedHosts,
+  route,
+  token,
+  probeKey,
+  timeoutMs,
+  cdpTimeoutMs = DEFAULT_CDP_TIMEOUT_MS
+}) {
+  const hostRules = [
+    ...new Set([...mappedHosts, 'hero-hospital.icu'])
+  ].map(mappedHost => `MAP ${mappedHost} ${gateway.ip}`).concat([
+    'EXCLUDE localhost'
+  ]).join(',');
+  return useChromeTarget({
+    chromePath,
+    extraArguments: [`--host-resolver-rules=${hostRules}`],
+    startupTimeoutMs: cdpTimeoutMs,
+    cdpTimeoutMs
+  }, async client => {
     const responses = new Map();
     const requestUrls = new Map();
     const failures = [];
@@ -313,7 +539,16 @@ export async function runChromeProbe({ chromePath, gateway, host, mappedHosts, r
           errorText: error.message,
           canceled: false
         });
-        await client.send('Fetch.failRequest', { requestId: params.requestId, errorReason: 'Failed' });
+        try {
+          await client.send('Fetch.failRequest', { requestId: params.requestId, errorReason: 'Failed' });
+        } catch (failError) {
+          failures.push({
+            requestId: params.requestId,
+            url: params.request?.url || '',
+            errorText: `Fetch.failRequest failed: ${failError.message}`,
+            canceled: false
+          });
+        }
       }
     });
 
@@ -353,6 +588,8 @@ export async function runChromeProbe({ chromePath, gateway, host, mappedHosts, r
       }))()`);
       if (state?.firstFloor || state?.loadState?.phase === 'launched') break;
       if (state?.loadState?.phase?.endsWith('-error') || state?.loadState?.phase === 'asset-timeout') break;
+      if (runtimeErrors.some(entry => !isIgnoredTelemetryEntry(entry)
+        && BROWSER_INFRASTRUCTURE_ERROR_PATTERN.test(String(entry?.message || entry)))) break;
     }
     await delay(1500);
     return {
@@ -364,12 +601,7 @@ export async function runChromeProbe({ chromePath, gateway, host, mappedHosts, r
       failures,
       runtimeErrors
     };
-  } finally {
-    try { client?.close(); } catch {}
-    child.kill();
-    await delay(200);
-    fs.rmSync(userDataDir, { recursive: true, force: true });
-  }
+  });
 }
 
 export function summarizeProbe(result) {
@@ -468,51 +700,176 @@ export function assertProbe(summary, { warm, steam, originBudgetBytes = DEFAULT_
   }
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
+function infrastructureErrorMessage(error) {
+  return String(error?.message || error || 'browser infrastructure failure').replace(/\s+/g, ' ').slice(0, 500);
+}
+
+export function isBrowserInfrastructureFailure({result, error} = {}) {
+  if (error instanceof BrowserInfrastructureError || String(error?.code || '').startsWith('CDP_')) return true;
+  if (error && BROWSER_INFRASTRUCTURE_ERROR_PATTERN.test(String(error.message || error))) return true;
+  if (!result) return false;
+
+  const summary = summarizeProbe(result);
+  if (summary.launched || summary.badResponseCount > 0 || summary.networkFailureCount > 0) return false;
+  const runtimeErrors = result.runtimeErrors.filter(entry => !isIgnoredTelemetryEntry(entry));
+  return runtimeErrors.length > 0
+    && runtimeErrors.every(entry => BROWSER_INFRASTRUCTURE_ERROR_PATTERN.test(String(entry?.message || entry)));
+}
+
+export async function runValidatedChromeProbe({
+  probeOptions,
+  validationOptions,
+  infrastructureRetries = DEFAULT_BROWSER_INFRASTRUCTURE_RETRIES,
+  rotateProbeKeyOnRetry = true,
+  probeRunner = runChromeProbe,
+  onRetry = () => {}
+}) {
+  const baseProbeKey = probeOptions.probeKey;
+  for (let attempt = 1; attempt <= infrastructureRetries + 1; attempt += 1) {
+    const probeKey = rotateProbeKeyOnRetry && attempt > 1
+      ? `${baseProbeKey}-infra-retry-${attempt - 1}`
+      : baseProbeKey;
+    let result;
+    try {
+      result = await probeRunner({...probeOptions, probeKey});
+      const summary = summarizeProbe(result);
+      assertProbe(summary, validationOptions);
+      return {result, summary, attempts: attempt, probeKey};
+    } catch (error) {
+      const retryable = isBrowserInfrastructureFailure({result, error});
+      if (!retryable || attempt > infrastructureRetries) {
+        if (result) error.probeResult = result;
+        throw error;
+      }
+      await onRetry({attempt, result, error, nextAttempt: attempt + 1});
+    }
+  }
+  throw new Error('Browser infrastructure retry loop ended unexpectedly');
+}
+
+function browserCapabilityReceipt(capability) {
+  return [
+    'game_static_delivery_browser=PASS',
+    `renderer=${JSON.stringify(capability.renderer || 'unknown')}`,
+    `webgl=${JSON.stringify(capability.version || 'unknown')}`,
+    `framebuffer=${capability.statusName || capability.status}`,
+    `viewport=${(capability.viewport || []).join('x')}`,
+    `dpr=${capability.devicePixelRatio}`,
+    `texture=${(capability.texture || []).join('x')}`
+  ].join(' ');
+}
+
+export async function runStaticDelivery(args, {
+  capabilityProbe = runBrowserCapabilityProbe,
+  probeRunner = runChromeProbe,
+  log = console.log,
+  errorLog = console.error
+} = {}) {
   if (args.help) {
-    console.log('Usage: node scripts/verify-game-static-delivery.mjs --app-tag TAG --auth-token-file FILE [--check-prerequisites]');
+    log('Usage: node scripts/verify-game-static-delivery.mjs --app-tag TAG --auth-token-file FILE [--check-prerequisites]');
     return;
   }
   const prerequisites = resolveStaticDeliveryPrerequisites(args);
+  const capability = await capabilityProbe({
+    chromePath: prerequisites.chromePath,
+    cdpTimeoutMs: prerequisites.cdpTimeoutMs
+  });
+  log(browserCapabilityReceipt(capability));
   if (args['check-prerequisites']) {
-    console.log(`game_static_delivery_prerequisites=PASS token=readable chrome=available gateways=${prerequisites.gateways.length} game_host=${prerequisites.gameHost} steam_host=${prerequisites.steamHost}`);
+    log(`game_static_delivery_prerequisites=PASS token=readable chrome=webgl-ready gateways=${prerequisites.gateways.length} game_host=${prerequisites.gameHost} steam_host=${prerequisites.steamHost}`);
     return;
   }
-  const {appTag, token, chromePath, timeoutMs, originBudgetBytes, gateways, gameHost, steamHost} = prerequisites;
+  const {
+    appTag,
+    token,
+    chromePath,
+    timeoutMs,
+    cdpTimeoutMs,
+    browserInfrastructureRetries,
+    originBudgetBytes,
+    gateways,
+    gameHost,
+    steamHost
+  } = prerequisites;
   const mappedHosts = [...new Set([gameHost, steamHost])];
 
   const receipts = [];
   for (const gateway of gateways) {
     const probeKey = `${appTag}-${gateway.name}`;
-    const coldResult = await runChromeProbe({
-      chromePath, gateway, host: gameHost, mappedHosts, route: '/run/newGame', token, probeKey, timeoutMs
+    const retryLogger = pass => async ({attempt, result, error, nextAttempt}) => {
+      if (result) errorLog(`game_static_delivery_retry_evidence=${JSON.stringify(probeFailureEvidence(result))}`);
+      errorLog(`game_static_delivery_browser_retry=START gateway=${gateway.name} pass=${pass} failed_attempt=${attempt} next_attempt=${nextAttempt} reason=${JSON.stringify(infrastructureErrorMessage(error))}`);
+    };
+    const coldResult = await runValidatedChromeProbe({
+      probeOptions: {
+        chromePath,
+        gateway,
+        host: gameHost,
+        mappedHosts,
+        route: '/run/newGame',
+        token,
+        probeKey,
+        timeoutMs,
+        cdpTimeoutMs
+      },
+      validationOptions: {warm: false, steam: false, originBudgetBytes},
+      infrastructureRetries: browserInfrastructureRetries,
+      rotateProbeKeyOnRetry: true,
+      probeRunner,
+      onRetry: retryLogger('cold')
     });
-    const cold = summarizeProbe(coldResult);
-    if (!cold.launched || cold.badResponseCount > 0 || cold.networkFailureCount > 0 || cold.runtimeErrorCount > 0) {
-      console.error(`game_static_delivery_evidence=${JSON.stringify(probeFailureEvidence(coldResult))}`);
-    }
-    assertProbe(cold, { warm: false, steam: false, originBudgetBytes });
-    receipts.push({ pass: 'cold', ...cold });
+    receipts.push({pass: 'cold', attempts: coldResult.attempts, ...coldResult.summary});
 
-    const warm = summarizeProbe(await runChromeProbe({
-      chromePath, gateway, host: gameHost, mappedHosts, route: '/run/newGame', token, probeKey, timeoutMs
-    }));
-    assertProbe(warm, { warm: true, steam: false, originBudgetBytes });
-    receipts.push({ pass: 'warm', ...warm });
+    const warmResult = await runValidatedChromeProbe({
+      probeOptions: {
+        chromePath,
+        gateway,
+        host: gameHost,
+        mappedHosts,
+        route: '/run/newGame',
+        token,
+        probeKey: coldResult.probeKey,
+        timeoutMs,
+        cdpTimeoutMs
+      },
+      validationOptions: {warm: true, steam: false, originBudgetBytes},
+      infrastructureRetries: browserInfrastructureRetries,
+      rotateProbeKeyOnRetry: false,
+      probeRunner,
+      onRetry: retryLogger('warm')
+    });
+    receipts.push({pass: 'warm', attempts: warmResult.attempts, ...warmResult.summary});
 
-    const steam = summarizeProbe(await runChromeProbe({
-      chromePath, gateway, host: steamHost, mappedHosts, route: '/run/newGameSteam', token, probeKey, timeoutMs
-    }));
-    assertProbe(steam, { warm: true, steam: true, originBudgetBytes });
-    receipts.push({ pass: 'steam', ...steam });
+    const steamResult = await runValidatedChromeProbe({
+      probeOptions: {
+        chromePath,
+        gateway,
+        host: steamHost,
+        mappedHosts,
+        route: '/run/newGameSteam',
+        token,
+        probeKey: coldResult.probeKey,
+        timeoutMs,
+        cdpTimeoutMs
+      },
+      validationOptions: {warm: true, steam: true, originBudgetBytes},
+      infrastructureRetries: browserInfrastructureRetries,
+      rotateProbeKeyOnRetry: false,
+      probeRunner,
+      onRetry: retryLogger('steam')
+    });
+    receipts.push({pass: 'steam', attempts: steamResult.attempts, ...steamResult.summary});
   }
-  for (const receipt of receipts) console.log(JSON.stringify(receipt));
-  console.log(`game_static_delivery_validation=PASS probes=${receipts.length}`);
+  for (const receipt of receipts) log(JSON.stringify(receipt));
+  log(`game_static_delivery_validation=PASS probes=${receipts.length}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  main().catch(error => {
+  const args = parseArgs(process.argv.slice(2));
+  runStaticDelivery(args).catch(error => {
+    if (error.probeResult) {
+      console.error(`game_static_delivery_evidence=${JSON.stringify(probeFailureEvidence(error.probeResult))}`);
+    }
     const label = process.argv.includes('--check-prerequisites')
       ? 'game_static_delivery_prerequisites'
       : 'game_static_delivery_validation';

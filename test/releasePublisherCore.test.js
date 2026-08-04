@@ -343,12 +343,14 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.command.includes('--app-tag 2026070702')
     && step.command.includes("--auth-token-file 'C:\\ProgramData\\RHospital\\secrets\\game-smoke-token.txt'")
     && step.validation.includes('X-Cache')
-    && step.validation.includes('Steam ES 模块')));
+    && step.validation.includes('Steam ES 模块')
+    && step.summary.includes('隔离复测一次')));
   assert.ok(plan.steps.some(step => step.key === 'validate-game-static-delivery-prerequisites'
     && step.command.includes('verify-game-static-delivery.mjs')
     && step.command.includes('--app-tag 2026070702')
     && step.command.includes("--auth-token-file 'C:\\ProgramData\\RHospital\\secrets\\game-smoke-token.txt'")
     && step.command.includes('--check-prerequisites')
+    && step.validation.includes('game_static_delivery_browser=PASS')
     && step.validation.includes('game_static_delivery_prerequisites=PASS')));
   const prerequisiteIndex = plan.steps.findIndex(step => step.key === 'validate-game-static-delivery-prerequisites');
   const backendTestIndex = plan.steps.findIndex(step => step.key === 'test-game-backend');
