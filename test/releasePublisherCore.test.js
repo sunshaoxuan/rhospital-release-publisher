@@ -1966,6 +1966,15 @@ test('step backgrounds communicate execution status instead of final-check type'
   assert.match(app, /const done = status === 'done' \|\| status === 'dry-run-checked';[\s\S]*item\.className = `step \$\{done \? 'checked' : ''\}/);
 });
 
+test('page keeps a visible vertical scrollbar for content below the viewport', () => {
+  const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
+
+  assert.match(css, /html\s*\{[^}]*overflow-y:\s*scroll;[^}]*scrollbar-gutter:\s*stable;/s);
+  assert.match(css, /html::\-webkit-scrollbar\s*\{[^}]*width:\s*14px;/s);
+  assert.match(css, /html::\-webkit-scrollbar-thumb\s*\{[^}]*background:\s*var\(--line\);/s);
+  assert.doesNotMatch(css, /body\s*\{[^}]*(?:overflow-y:\s*(?:hidden|clip)|overflow:\s*(?:hidden|clip))/s);
+});
+
 test('plan loading and image labels distinguish target from production compose', () => {
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');

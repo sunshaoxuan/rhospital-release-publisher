@@ -20,6 +20,25 @@
   box-sizing: border-box;
 }
 
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  scrollbar-color: var(--line) var(--bg);
+}
+
+html::-webkit-scrollbar {
+  width: 14px;
+}
+
+html::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+
+html::-webkit-scrollbar-thumb {
+  border: 3px solid var(--bg);
+  background: var(--line);
+}
+
 [hidden] {
   display: none !important;
 }
