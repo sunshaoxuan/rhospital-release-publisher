@@ -2505,8 +2505,13 @@ function chainPowerShellCommands(commands) {
 function forumSourceScriptValidationCommands() {
   return [
     sourceCleanPowerShellCommand('forumReleaseChanges', ['integrations/flarum']),
+    '$gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1; '
+      + '$gitExecutable = $gitCommand.Source; '
+      + '$gitRoot = Split-Path (Split-Path $gitExecutable -Parent) -Parent; '
+      + "$gitBash = Join-Path $gitRoot 'bin\\bash.exe'; "
+      + "if (!(Test-Path -LiteralPath $gitBash -PathType Leaf)) { throw 'Git Bash executable is unavailable' }",
     ...DEFAULT_FORUM_INIT_SCRIPTS.map(scriptPath =>
-      `bash -o pipefail -c ${shellToken(`git show HEAD:${scriptPath} | bash -n`)}`)
+      `& $gitBash -o pipefail -c ${shellToken(`git show HEAD:${scriptPath} | bash -n`)}`)
   ];
 }
 

@@ -493,7 +493,7 @@ rhospital/flarum-sso:2026071501
 
 “构建并上传新镜像”用于论坛源码、扩展、初始化脚本或基础镜像发生变化的发布。“复用生产已有镜像”用于重新创建容器、重新加载运行时 Secret、应用 Compose 参数变化或回到某个已经上传的不可变 TAG。复用模式不会重新打包论坛。
 
-论坛源码校验会先确认整个 `integrations/flarum/` 相对发布提交没有内容改动，再直接读取 Git 提交中的 LF 脚本执行 Bash 语法检查。Windows 工作区的 CRLF 检出格式不会造成误报，任何未提交的论坛镜像内容都会阻止发布。派生镜像直接固定安装 `flarum-lang/chinese-simplified 1.6.0` 和 `rhospital-sso`，镜像校验会确认中文包文件、Composer 锁定版本和 SSO Secret 边界。
+论坛源码校验会先确认整个 `integrations/flarum/` 相对发布提交没有内容改动，再从当前 Git for Windows 安装目录解析 Git Bash，直接读取 Git 提交中的 LF 脚本执行 Bash 语法检查。Windows 系统 Bash 与 WSL 入口不会进入发布命令。Windows 工作区的 CRLF 检出格式不会造成误报，任何未提交的论坛镜像内容都会阻止发布。派生镜像直接固定安装 `flarum-lang/chinese-simplified 1.6.0`、`rhospital-search` 和 `rhospital-sso`，镜像校验会确认中文包文件、Composer 锁定版本、搜索迁移与 SSO Secret 边界。
 
 本地构建使用：
 

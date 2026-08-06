@@ -90,3 +90,9 @@ ngram 索引替换、幂等跳过和 down 回滚契约位于 `ForumSearchMigrati
 4. 使用真实生产基线和当前提交 `e7b67154` 生成论坛计划成功，13 个论坛运行路径和三个必需检查全部进入计划。
 5. 使用同一目标生成游戏计划成功，16 个游戏运行路径、数据库迁移步骤和全部游戏基础检查保持完整。
 6. 本次修复没有执行论坛或游戏生产发布。
+
+## Git Bash 续修
+
+正式论坛任务在 `validate-forum-source` 阶段调用 PATH 中的 `C:\Windows\System32\bash.exe`，该 Windows Bash 入口返回 `Bash/Service/0x8007274c`。任务在本地校验阶段终止，完成步骤 6 个，生产步骤 0 个。
+
+发布器现在从 `Get-Command git` 的首个应用结果解析 `bin\bash.exe`，使用当前 Git 安装自带 Bash 检查两个目标提交脚本。显式选择首个结果可以适配服务 PATH 中同时存在系统 Git 和捆绑 Git 的环境。系统 Bash 与 WSL 状态不再影响论坛发布门禁。

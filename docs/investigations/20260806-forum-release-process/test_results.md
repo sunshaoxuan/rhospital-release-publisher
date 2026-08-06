@@ -38,3 +38,12 @@
 | 浏览器控制台 | PASS | 论坛与游戏场景的 error 和 warning 均为 0 |
 
 浏览器只生成计划并读取页面状态，没有点击执行流程，没有触发生产动作。
+
+## Git Bash 故障续验
+
+| 测试 | 结果 | 说明 |
+|---|---|---|
+| 失败任务历史 | PASS | 论坛任务在第 7 步本地源码校验停止，生产步骤执行数为 0 |
+| Bash 路径调查 | PASS | PATH 首项为系统 Bash，Git Bash 位于当前 Git 安装目录的 `bin\bash.exe` |
+| 计划命令回归 | PASS | 完整 `validate-forum-source` 步骤实际执行退出码为 0，使用 Git Bash 且没有调用 PATH 中的系统 Bash |
+| 多 Git 路径复验 | FAIL THEN FIXED | 首轮发现 `Get-Command git` 返回两个应用路径，已改为明确选择首个 PATH 结果 |

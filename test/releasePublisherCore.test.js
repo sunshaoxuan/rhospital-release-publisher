@@ -1011,8 +1011,11 @@ test('creates reusable forum compose release plan with backup validation and rol
   assert.ok(plan.steps.some(step => step.key === 'validate-forum-source'
     && step.command.includes('ForumFlarumImageAssetTest,ForumSearchMigrationContractTest,ForumDeploymentConfigTest')
     && step.command.includes('git status --porcelain --untracked-files=all -- integrations/flarum')
-    && step.command.includes("bash -o pipefail -c 'git show HEAD:integrations/flarum/04-rhospital-secret.sh | bash -n'")
-    && step.command.includes("bash -o pipefail -c 'git show HEAD:integrations/flarum/05-rhospital-env.sh | bash -n'")
+    && step.command.includes('Select-Object -First 1')
+    && step.command.includes("$gitBash = Join-Path $gitRoot 'bin\\bash.exe'")
+    && step.command.includes("& $gitBash -o pipefail -c 'git show HEAD:integrations/flarum/04-rhospital-secret.sh | bash -n'")
+    && step.command.includes("& $gitBash -o pipefail -c 'git show HEAD:integrations/flarum/05-rhospital-env.sh | bash -n'")
+    && !step.command.includes('; bash -o pipefail')
     && !step.command.includes('bash -n integrations/flarum/')));
   assert.ok(plan.steps.some(step => step.key === 'build-image'
     && step.command.includes('-f integrations/flarum/Dockerfile')
