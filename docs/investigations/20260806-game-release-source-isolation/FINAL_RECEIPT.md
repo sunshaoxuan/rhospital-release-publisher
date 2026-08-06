@@ -14,4 +14,10 @@ tests: 122 passed, 0 failed
 
 real_rehearsal: target `7d8aeae7`, source gate passed, developer status preserved, isolated worktree removed
 
+installed_commit: `19c54047`
+
+service_runtime: `19c54047`, status `UP_TO_DATE`
+
+service_dry_run: `DRY_RUN`, create and cleanup receipts present, isolated directory absent after completion
+
 rollback: 回退本次发布器提交并重启发布器服务。开发仓库与生产游戏不需要回滚。
