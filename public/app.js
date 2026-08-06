@@ -387,10 +387,10 @@
       { key: 'source', title: '准备发布源', members: [
         'git-status-before-update', 'validate-release-input', 'validate-game-static-delivery-prerequisites',
         'git-fetch', 'git-update', 'capture-release-commit', 'validate-release-impact-checklist',
-        'validate-game-sso-source', 'save-run-config', 'validate-forum-source'
+        'validate-game-sso-source', 'validate-forum-source'
       ] },
       { key: 'build', title: '批量测试与构建', members: [
-        'test-game-backend', 'build-image', 'build-game-static-assets', 'validate-game-image',
+        'test-game-backend', 'save-run-config', 'build-image', 'build-game-static-assets', 'validate-game-image',
         'validate-forum-image'
       ] },
       { key: 'delivery', title: '交付镜像与连接校验', members: [

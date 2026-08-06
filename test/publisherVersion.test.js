@@ -322,7 +322,17 @@ function openSlowJsonPost(port, pathname) {
 }
 
 function removeTempTree(root) {
-  fs.rmSync(root, {recursive: true, force: true, maxRetries: 100, retryDelay: 100});
+  for (let attempt = 0; attempt <= 100; attempt += 1) {
+    try {
+      fs.rmSync(root, {recursive: true, force: true});
+      return;
+    } catch (error) {
+      if (!['EBUSY', 'EPERM', 'ENOTEMPTY'].includes(error.code) || attempt === 100) {
+        throw error;
+      }
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+    }
+  }
 }
 
 function delay(milliseconds) {

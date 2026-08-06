@@ -15,3 +15,9 @@
 ## 线上状态
 
 生产 Swarm 服务镜像为 `hospital-backend:20260805`，期望副本 1，更新状态 completed，运行任务持续 45 小时且错误为空。`https://rhospital.cc/run/newGame` 返回 HTTP 200。
+
+## 第二次任务续查
+
+任务 `2026-08-06T14:10:58.026Z-20260806` 已通过隔离发布源阶段，在 `test-game-backend` 的 Docker Maven 构建中停止。919 项测试有 1 项失败，失败类为 `BillboardConcurrencyUiContractTest`。目标 `PropScene.js` 中点击锁、单次刷新和 finally 释放逻辑均存在。测试直接匹配带 LF 的多行字符串，Windows Git 系统配置 `core.autocrlf=true`，干净工作树检出为 CRLF 后产生假失败。
+
+页面第一阶段未变绿还有独立的阶段映射错误。`save-run-config` 在计划中位于 `test-game-backend` 之后，页面曾把它归入“准备发布源”。修复后该步骤归入“批量测试与构建”，阶段完成颜色与真实执行顺序一致。

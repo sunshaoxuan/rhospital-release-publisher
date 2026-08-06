@@ -1829,6 +1829,17 @@ test('runtime source exposes fatal-gated observation and visible active job hear
   assert.match(server, /等待全链路致命故障复核/);
 });
 
+test('pipeline phases follow execution order when game build starts', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const sourceMembers = app.match(/key: 'source'[\s\S]*?members: \[([\s\S]*?)\]\s*},\s*\{ key: 'build'/);
+  const buildMembers = app.match(/key: 'build'[\s\S]*?members: \[([\s\S]*?)\]\s*},\s*\{ key: 'delivery'/);
+
+  assert.ok(sourceMembers);
+  assert.ok(buildMembers);
+  assert.doesNotMatch(sourceMembers[1], /save-run-config/);
+  assert.match(buildMembers[1], /test-game-backend[\s\S]*save-run-config[\s\S]*build-image/);
+});
+
 test('release history supports pagination and deletion', () => {
   const root = tempProject(sampleXml);
   const historyPath = path.join(root, 'history.json');
