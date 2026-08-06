@@ -26,6 +26,20 @@ ssh -o BatchMode=yes -o ConnectTimeout=15 -i <key> root@178.239.117.99 <read-onl
 
 ```powershell
 Invoke-WebRequest -Uri 'https://bbs.rhospital.cc/' -Method Head -TimeoutSec 20
+
+# 中文搜索故障复现与验收
+docker pull mysql:8.4.9
+docker pull mysql:8.4.10
+docker run -d --name forum-ngram-849 -e MYSQL_ALLOW_EMPTY_PASSWORD=yes mysql:8.4.9
+docker run -d --name forum-ngram-8410 -e MYSQL_ALLOW_EMPTY_PASSWORD=yes mysql:8.4.10
+
+# 生产只读索引 token 检查通过 INNODB_FT_INDEX_TABLE 完成
+# 修复前验证完整备份目录中的 SHA256SUMS
+# 修复使用两条独立 DDL，先 DROP INDEX，再 ADD FULLTEXT INDEX WITH PARSER ngram
+
+Invoke-RestMethod 'https://bbs.rhospital.cc/api/discussions?filter%5Bq%5D=%E8%87%B3%E5%B0%8A%E5%8B%8B%E7%AB%A0'
+Invoke-RestMethod 'https://bbs.rhospital.cc/api/discussions?filter%5Bq%5D=%E5%8B%8B%E7%AB%A0'
+Invoke-RestMethod 'https://bbs.rhospital.cc/api/discussions?filter%5Bq%5D=%E5%8C%BB%E9%99%A2'
 ```
 
 ```powershell

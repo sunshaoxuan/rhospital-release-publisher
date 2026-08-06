@@ -15,6 +15,11 @@
 | 游戏真实计划保持可用 | 修复后对 `e7b67154` 调用 `createPlan`，返回 `PLAN_OK`，包含数据库迁移和完整游戏门禁 | 高 | dry run 计划，没有执行生产动作 |
 | 未知游戏数据库分类继续失败关闭 | 新增游戏非法分类回归测试通过 | 高 | 单元测试 |
 | 论坛恢复边界生效 | 模拟 Compose 修改步骤失败，结果与历史均为 `RECOVERY_REQUIRED` | 高 | 命令 runner 模拟，没有注入生产故障 |
+| 中文搜索故障来自索引实际 token | 生产 `INNODB_FT_INDEX_TABLE` 返回完整中文词条，二元 token 查询为空 | 高 | 检查时索引元数据仍显示 ngram |
+| 合并式同名索引替换会保留旧解析结果 | MySQL 8.4.9 与 8.4.10 隔离容器执行相同 DDL，合并 ALTER 后 MATCH 均为 0 | 高 | 最小复现表使用与 Flarum 相同字符集和字段类型 |
+| 两段式 DDL 恢复中文索引 | 隔离容器出现二元 token，生产正文 MATCH 与公网 API 均恢复结果 | 高 | 公网结果数量受 Flarum权限和分页规则影响 |
+| 修复未改变论坛业务行 | 生产修复前后帖子 2502、主题 237 | 高 | 只比较主要业务表行数 |
+| 游戏未进入修复范围 | 生产命令只连接论坛 Compose 目录和 MySQL 的 Flarum 两张表 | 高 | 没有执行游戏容器、Swarm或医院业务库命令 |
 
 ## 主要文件
 
@@ -25,3 +30,5 @@
 5. `C:\workspace\hospital-backend\integrations\flarum\rhospital-sso\validate-runtime.php`
 6. `C:\workspace\hospital-backend\integrations\flarum\rhospital-search\migrations\2026_08_06_000001_enable_chinese_ngram_fulltext.php`
 7. `C:\workspace\hospital-backend\src\test\java\com\zly\hospital\ui\ForumSearchMigrationContractTest.java`
+8. `C:\workspace\hospital-backend\integrations\flarum\rhospital-search\migrations\2026_08_06_000002_rebuild_chinese_ngram_fulltext.php`
+9. `C:\workspace\hospital-backend\docs\forum-search-ngram-index-rebuild.md`

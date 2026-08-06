@@ -102,3 +102,13 @@ ngram 索引替换、幂等跳过和 down 回滚契约位于 `ForumSearchMigrati
 论坛发布 `rhospital/flarum-sso:20260806` 于 2026-08-06 08:20 JST 完成，18 个步骤全部通过。运行观察发现顶部阶段映射没有包含 `backup-forum-release`，该步骤被追加到恢复阶段之后显示，造成色块变绿顺序与实际执行顺序不一致。正常发布还会完成非执行型的 `forum-rollback-command`，使“致命故障恢复”在没有发生故障时变绿。
 
 阶段映射现已把论坛备份归入“数据安全与迁移”，论坛正常流程的恢复证据阶段显示为“记录论坛恢复入口”。阶段颜色仍按组内全部步骤完成后变绿，运行中的组保持运行色。
+
+## 中文搜索生产故障与修复
+
+论坛升级完成后，公网讨论搜索对 `至尊勋章`、`勋章` 和 `医院` 均返回空结果。生产数据库中帖子与主题数据完整，`LIKE` 可以找到中文内容，两个 FULLTEXT 索引的表结构也显示 `WITH PARSER ngram`，因此故障位于全文索引的实际 token 内容。
+
+使用 `INFORMATION_SCHEMA.INNODB_FT_INDEX_TABLE` 检查发现，主题索引把 `周更新内容` 作为完整词条保存，预期的 `周更`、`更新`、`新内`、`内容` 二元 token 不存在。相同 DDL 在隔离的 MySQL 8.4.9 和 8.4.10 上复现：将 `DROP INDEX` 与同名 `ADD FULLTEXT INDEX ... WITH PARSER ngram` 合并在一条 `ALTER TABLE` 中，结构元数据会显示 ngram，实际查询仍返回 0。拆分成两条独立 DDL 后，两版 MySQL 均能产生二元 token 并命中中文。
+
+生产修复在完整数据库备份和 SHA256 校验通过后执行。仅重建 `flarum_posts.content` 与 `flarum_discussions.title` 两个索引，未修改业务行、游戏容器或游戏数据库。修复后帖子数保持 2502，主题数保持 237，当前镜像要求的 `rhospital-ngram-v1` 标记保留，运行 validator 通过。
+
+源码提交 `63de6fce` 增加第二个幂等迁移，为已记录旧迁移的实例重新构建索引，并把新审计标记升级为 `rhospital-ngram-v2`。首装迁移也改为两条独立 DDL。新运行 validator 会从真实标题和正文提取中文二字样本并执行 `MATCH ... AGAINST`，避免只凭索引类型和注释放行。
