@@ -111,4 +111,4 @@ ngram 索引替换、幂等跳过和 down 回滚契约位于 `ForumSearchMigrati
 
 生产修复在完整数据库备份和 SHA256 校验通过后执行。仅重建 `flarum_posts.content` 与 `flarum_discussions.title` 两个索引，未修改业务行、游戏容器或游戏数据库。修复后帖子数保持 2502，主题数保持 237，当前镜像要求的 `rhospital-ngram-v1` 标记保留，运行 validator 通过。
 
-源码提交 `63de6fce` 增加第二个幂等迁移，为已记录旧迁移的实例重新构建索引，并把新审计标记升级为 `rhospital-ngram-v2`。首装迁移也改为两条独立 DDL。新运行 validator 会从真实标题和正文提取中文二字样本并执行 `MATCH ... AGAINST`，避免只凭索引类型和注释放行。
+源码提交 `63de6fce` 增加第二个幂等迁移，为已记录旧迁移的实例重新构建索引，并把新审计标记升级为 `rhospital-ngram-v2`。首装迁移也改为两条独立 DDL。新运行 validator 会从真实标题和正文提取中文二字样本并执行 `MATCH ... AGAINST`，避免只凭索引类型和注释放行。发布影响评估提交 `53eb6931` 精确覆盖三个论坛运行文件，18 步论坛计划生成通过，两个提交已进入 `origin/master`。
