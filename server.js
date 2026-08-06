@@ -40,6 +40,10 @@ const {
   assertPublisherActionVersion,
   shouldAutoRestartPublisher
 } = require('./src/publisherVersion');
+const {
+  createReleaseWorktree,
+  removeReleaseWorktree
+} = require('./src/releaseWorktree');
 
 const projectRoot = defaultProjectRoot();
 const publisherRepositoryRoot = __dirname;
@@ -349,9 +353,7 @@ function prepareReleaseRequest(body, enforceChangedTarget) {
   }
   return {
     ...body,
-    gitCommit: body.gitCommit === 'latest' || !body.gitCommit
-      ? analysis.targetCommit
-      : body.gitCommit,
+    gitCommit: analysis.targetCommit,
     changeAnalysis: analysis
   };
 }
@@ -372,42 +374,78 @@ function createExecutionJob(body) {
   jobs.set(id, job);
   jobControllers.set(id, controller);
   persistJobs();
-  executePlan(projectRoot, body, process.env, {
-    signal: controller.signal,
-    onProgress(progress) {
-      if (isTerminalJobStatus(job.status)) {
-        return;
-      }
-      Object.assign(job, {
-        ...progress,
-        id,
-        createdAt,
-        updatedAt: new Date().toISOString()
-      });
-      schedulePersistJobs();
-    }
-  }).then(result => {
+  runExecutionJobInIsolatedWorktree(job, body, controller, createdAt);
+  pruneJobs();
+  return job;
+}
+
+async function runExecutionJobInIsolatedWorktree(job, body, controller, createdAt) {
+  let executionRoot = '';
+  let sourceSetupLog = '';
+  try {
+    executionRoot = createReleaseWorktree(
+      projectRoot,
+      publisherRepositoryRoot,
+      job.id,
+      body.gitCommit
+    );
+    sourceSetupLog = `隔离发布工作树已创建: ${executionRoot}`;
     Object.assign(job, {
-      ...result,
-      id,
-      createdAt,
+      sourceProjectRoot: projectRoot,
+      executionProjectRoot: executionRoot,
+      logs: (job.logs || []).concat(sourceSetupLog),
       updatedAt: new Date().toISOString()
     });
-    jobControllers.delete(id);
     persistJobs();
-  }).catch(error => {
+
+    const result = await executePlan(executionRoot, body, process.env, {
+      signal: controller.signal,
+      onProgress(progress) {
+        if (isTerminalJobStatus(job.status)) {
+          return;
+        }
+        Object.assign(job, {
+          ...progress,
+          id: job.id,
+          createdAt,
+          sourceProjectRoot: projectRoot,
+          executionProjectRoot: executionRoot,
+          logs: [sourceSetupLog].concat(progress.logs || []),
+          updatedAt: new Date().toISOString()
+        });
+        schedulePersistJobs();
+      }
+    });
     Object.assign(job, {
-      id,
+      ...result,
+      id: job.id,
+      createdAt,
+      sourceProjectRoot: projectRoot,
+      executionProjectRoot: executionRoot,
+      logs: [sourceSetupLog].concat(result.logs || []),
+      updatedAt: new Date().toISOString()
+    });
+  } catch (error) {
+    Object.assign(job, {
+      id: job.id,
       createdAt,
       updatedAt: new Date().toISOString(),
       status: 'ERROR',
       logs: (job.logs || []).concat(`ERROR: ${error.message}`)
     });
-    jobControllers.delete(id);
+  } finally {
+    if (executionRoot) {
+      try {
+        removeReleaseWorktree(projectRoot, publisherRepositoryRoot, job.id);
+        job.logs = (job.logs || []).concat('隔离发布工作树已清理');
+        job.executionProjectRoot = '';
+      } catch (cleanupError) {
+        job.logs = (job.logs || []).concat(`WARNING: ${cleanupError.message}`);
+      }
+    }
+    jobControllers.delete(job.id);
     persistJobs();
-  });
-  pruneJobs();
-  return job;
+  }
 }
 
 function cancelExecutionJob(id) {

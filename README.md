@@ -100,6 +100,8 @@ npm run service:uninstall
 ```text
 C:\workspace\rhospital-release-publisher\.service\release-console.log
 C:\workspace\rhospital-release-publisher\.service\service-host.log
+
+正式执行任务会在发布器仓库的 `.release-worktrees/<任务ID>` 下创建目标提交的隔离 Git 工作树。源码校验、测试和 Docker 构建只读取该干净工作树，开发目录中的未提交游戏或论坛文件不会进入镜像，也不会阻断已提交版本的发布。任务成功、失败或取消后都会通过 `git worktree remove` 清理隔离目录。计划生成和变更分析继续读取开发仓库及其远端引用。
 ```
 
 启动脚本会守护 Node 进程，Node 退出后等待 10 秒重新启动。服务宿主监控隐藏 runner，并处理用户会话切换与 Modern Standby 恢复。服务宿主退出时，SCM 会按 5 秒、15 秒、30 秒的间隔重启。

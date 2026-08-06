@@ -2250,7 +2250,11 @@ test('release console exposes game and forum targets with target-aware API paylo
   assert.match(server, /capturePublisherRuntimeVersion/);
   assert.match(server, /RELEASE_PUBLISHER_REHEARSAL_GATEWAY_STATIC_CONFIG/);
   assert.match(server, /assertReleaseTargetChanged/);
-  assert.match(server, /gitCommit:\s*body\.gitCommit === 'latest'[\s\S]*?analysis\.targetCommit/);
+  assert.match(server, /gitCommit:\s*analysis\.targetCommit/);
+  assert.match(server, /createReleaseWorktree\([\s\S]*?body\.gitCommit/);
+  assert.match(server, /executePlan\(executionRoot/);
+  assert.match(server, /logs:\s*\[sourceSetupLog\]\.concat\(progress\.logs \|\| \[\]\)/);
+  assert.match(server, /removeReleaseWorktree\(projectRoot, publisherRepositoryRoot, job\.id\)/);
 });
 
 function tempProject(xml) {

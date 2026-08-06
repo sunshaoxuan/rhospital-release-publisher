@@ -7,3 +7,4 @@ screenshots/
 .service/
 .release-history.json
 .release-jobs.json
+.release-worktrees/
