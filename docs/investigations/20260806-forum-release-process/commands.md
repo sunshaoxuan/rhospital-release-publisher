@@ -39,3 +39,21 @@ npm test
 ```powershell
 .\mvnw.cmd -q "-Dtest=ForumSearchMigrationContractTest" test
 ```
+
+修复续验新增：
+
+```powershell
+node --check src/releasePublisherCore.js
+node --check server.js
+node --test --test-concurrency=1 --test-name-pattern="forum|database impact|recovery" test/releasePublisherCore.test.js
+```
+
+```powershell
+.\mvnw.cmd -q "-Dtest=ForumFlarumImageAssetTest,ForumSearchMigrationContractTest,ForumDeploymentConfigTest" test
+```
+
+```powershell
+node -
+```
+
+Node 续验脚本使用真实发布历史，对当前提交分别调用论坛和游戏 `createPlan`，只输出规范数据库影响、必需检查和步骤键。

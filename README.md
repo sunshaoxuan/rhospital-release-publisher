@@ -214,9 +214,9 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 自动恢复中的 ADMIN 挂单暂停 SQL 先编码为 Base64，再通过标准输入交给数据库容器内的 `psql`。该路径避免 Windows PowerShell、SSH 和 Bash 多层命令解析改写 SQL 字符串引号；发布器测试必须解码并核对表名、字段名和枚举值字符串完整。
 
-固定 CheckList 之外，业务仓库通过 `release/release-impact.json` 保存逐次发版影响评估。发布器比较最近一次成功生产发布提交和目标提交，检测游戏或论坛运行路径变化。存在运行变化时，评估文件必须同时更新并使用新的 `assessmentId`，`coveredRuntimePaths` 必须与 Git 差异完全一致。评估还必须说明代码影响、数据库影响、风险等级、现有检查是否足够，并引用发布器已注册的可执行步骤。遗漏评估、沿用旧标识、路径覆盖不完整、数据库影响未声明或检查步骤不存在时，发布计划生成直接失败。
+固定 CheckList 之外，业务仓库通过 `release/release-impact.json` 保存逐次发版影响评估。发布器比较最近一次成功生产发布提交和目标提交，检测游戏或论坛运行路径变化。存在运行变化时，评估文件必须同时更新并使用新的 `assessmentId`，`coveredRuntimePaths` 必须与 Git 差异完全一致。评估还必须说明代码影响、数据库影响、风险等级、现有检查是否足够，并引用发布器已注册的可执行步骤。`databaseImpact` 接受固定分类，也接受 `固定分类: 详细说明`，发布历史会分别保存规范分类和说明。遗漏评估、沿用旧标识、路径覆盖不完整、数据库影响未声明或检查步骤不存在时，发布计划生成直接失败。
 
-游戏发布固定执行 `validate-game-static-delivery-prerequisites`，并至少保留 `test-game-backend`、`verify-game-static-assets-predeploy`、`pre-deploy-checklist`、`final-runtime-check` 和 `verify-game-static-delivery`。论坛构建发布至少保留 `validate-forum-source`、`forum-preflight` 和 `final-runtime-check`。实体、Repository、DAO 或迁移脚本变化时必须声明数据库影响；存在迁移脚本时还必须选择 `apply-database-migrations`。现有步骤无法覆盖新增风险时，应先在本仓库增加可执行检查和测试，再由业务仓库的影响评估引用该步骤。
+游戏发布固定执行 `validate-game-static-delivery-prerequisites`，并至少保留 `test-game-backend`、`verify-game-static-assets-predeploy`、`pre-deploy-checklist`、`final-runtime-check` 和 `verify-game-static-delivery`。论坛构建发布至少保留 `validate-forum-source`、`forum-preflight` 和 `final-runtime-check`，源码门禁包含论坛镜像、搜索迁移和部署配置契约测试。实体、Repository、DAO 或迁移脚本变化时必须声明数据库影响；存在游戏迁移脚本时还必须选择 `apply-database-migrations`。现有步骤无法覆盖新增风险时，应先在本仓库增加可执行检查和测试，再由业务仓库的影响评估引用该步骤。论坛生产 Compose 修改开始后，失败、取消或发布器重启会进入 `RECOVERY_REQUIRED`，保留备份与回滚入口供人工复核。
 
 游戏静态资源采用应用切换前交付：
 

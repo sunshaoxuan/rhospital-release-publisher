@@ -917,7 +917,8 @@ test('enforces the same release impact assessment gate for forum runtime changes
     coveredRuntimePaths: [],
     checklistDecision: 'existing-checks-sufficient',
     forumCoveredRuntimePaths: [forumPath],
-    forumChecklistDecision: 'existing-checks-sufficient'
+    forumChecklistDecision: 'existing-checks-sufficient',
+    forumDatabaseImpact: 'schema-change: replaces the two existing fulltext indexes with the MySQL ngram parser'
   });
   runGit(root, ['add', '.']);
   runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'forum assessment']);
@@ -944,7 +945,37 @@ test('enforces the same release impact assessment gate for forum runtime changes
 
   assert.equal(plan.config.releaseImpactAssessment.assessmentId, '20260717-forum-impact');
   assert.equal(plan.config.releaseImpactAssessment.target, 'forum');
+  assert.equal(plan.config.releaseImpactAssessment.databaseImpact, 'schema-change');
+  assert.equal(plan.config.releaseImpactAssessment.databaseImpactDetail,
+    'replaces the two existing fulltext indexes with the MySQL ngram parser');
+  const history = buildHistoryEntry('DRY_RUN', plan, [], []);
+  assert.equal(history.releaseImpactDatabaseImpact, 'schema-change');
+  assert.equal(history.releaseImpactDatabaseImpactDetail,
+    'replaces the two existing fulltext indexes with the MySQL ngram parser');
   assert.ok(plan.steps.some(step => step.key === 'validate-release-impact-checklist'));
+});
+
+test('keeps invalid database impact classifications fail closed for game releases', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'changed\n', 'utf8');
+  writeReleaseImpact(root, {
+    assessmentId: '20260717-invalid-game-database-impact',
+    coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'existing-checks-sufficient',
+    databaseImpact: 'schema-update: unsupported classification remains blocked'
+  });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'invalid database impact']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+
+  assert.throws(() => createPlan(root, releaseImpactPlanRequest(
+    target,
+    baseline,
+    [runtimePath],
+    ['release/release-impact.json']
+  )), /databaseImpact 必须为/);
 });
 
 test('creates reusable forum compose release plan with backup validation and rollback evidence', () => {
@@ -978,7 +1009,7 @@ test('creates reusable forum compose release plan with backup validation and rol
   assert.equal(plan.steps.some(step => step.key === 'save-run-config'), false);
   assert.equal(plan.steps.some(step => step.key === 'compile-artifact'), false);
   assert.ok(plan.steps.some(step => step.key === 'validate-forum-source'
-    && step.command.includes('ForumFlarumImageAssetTest,ForumDeploymentConfigTest')
+    && step.command.includes('ForumFlarumImageAssetTest,ForumSearchMigrationContractTest,ForumDeploymentConfigTest')
     && step.command.includes('git status --porcelain --untracked-files=all -- integrations/flarum')
     && step.command.includes("bash -o pipefail -c 'git show HEAD:integrations/flarum/04-rhospital-secret.sh | bash -n'")
     && step.command.includes("bash -o pipefail -c 'git show HEAD:integrations/flarum/05-rhospital-env.sh | bash -n'")
@@ -1002,6 +1033,7 @@ test('creates reusable forum compose release plan with backup validation and rol
     && decodedRemoteScript(step.command).includes('flarum-data.tar.gz')
     && decodedRemoteScript(step.command).includes('.last-forum-release-backup')));
   assert.ok(plan.steps.some(step => step.key === 'update-remote-compose'
+    && step.recoveryBoundary === true
     && decodedRemoteScript(step.command).includes('rhospital/flarum-sso:2026071501')
     && decodedRemoteScript(step.command).includes('docker compose config')));
   assert.ok(plan.steps.some(step => step.key === 'deploy-forum-compose'
@@ -1582,6 +1614,43 @@ test('execute errors are written to history with partial progress', async () => 
   assert.equal(runCommand.commands.length, 1);
 });
 
+test('forum compose mutation failures require recovery without changing game recovery behavior', async () => {
+  const root = tempProject(sampleXml);
+  const historyPath = path.join(root, 'forum-recovery-history.json');
+  const commands = [];
+  const runCommand = async (cwd, command, env, onChunk) => {
+    commands.push(command);
+    const script = decodedScriptTree(command);
+    if (script.includes("sed -i -E") && script.includes('rhospital/flarum-sso:2026071501')) {
+      throw new Error('simulated forum compose mutation failure');
+    }
+    if (onChunk) onChunk('test_command=PASS\n');
+    return 'test_command=PASS\n';
+  };
+  const result = await executePlan(root, {
+    releaseTarget: 'forum',
+    forumImageMode: 'reuse',
+    appTag: '2026071501',
+    dryRun: false,
+    dockerContext: 'SSH178',
+    remoteSshTarget: 'root@178.239.117.99',
+    includeStackDeploy: true
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  }, {runCommand});
+
+  assert.equal(result.status, 'RECOVERY_REQUIRED');
+  assert.equal(result.recoveryBoundaryEntered, true);
+  assert.match(result.logs.join('\n'), /论坛生产 Compose 修改已经进入执行边界/);
+  assert.ok(commands.some(command => decodedScriptTree(command).includes("sed -i -E")));
+  const history = readReleaseHistory(root, 1, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath})[0];
+  assert.equal(history.status, 'RECOVERY_REQUIRED');
+  assert.equal(history.stepSummary.find(step => step.key === 'update-remote-compose').status, 'failed');
+});
+
 test('observing target holds when the fatal full-chain threshold is not met', async () => {
   const root = tempProject(sampleXml);
   const historyPath = path.join(root, 'history.json');
@@ -1752,6 +1821,8 @@ test('runtime source exposes fatal-gated observation and visible active job hear
   assert.match(app, /距超时约/);
   assert.match(server, /'ROLLED_BACK', 'RECOVERY_REQUIRED'/);
   assert.match(server, /job\.cutoverCommitted === true/);
+  assert.match(server, /job\.recoveryBoundaryEntered === true/);
+  assert.match(server, /论坛生产 Compose 修改已经开始/);
   assert.match(server, /等待全链路致命故障复核/);
 });
 
@@ -2322,7 +2393,7 @@ function writeReleaseImpact(root, options) {
         checklistDecision: options.forumChecklistDecision || 'existing-checks-sufficient',
         riskLevel: options.forumRiskLevel || 'low',
         codeImpact: options.forumCodeImpact || '本次评估没有论坛运行代码变化，保留论坛发布基础检查',
-        databaseImpact: 'none',
+        databaseImpact: options.forumDatabaseImpact || 'none',
         coveredRuntimePaths: options.forumCoveredRuntimePaths || [],
         requiredChecks: [
           {stepKey: 'validate-forum-source', reason: '论坛源码发布前必须执行契约测试和脚本语法检查'},

@@ -322,7 +322,7 @@ function openSlowJsonPost(port, pathname) {
 }
 
 function removeTempTree(root) {
-  fs.rmSync(root, {recursive: true, force: true, maxRetries: 20, retryDelay: 100});
+  fs.rmSync(root, {recursive: true, force: true, maxRetries: 100, retryDelay: 100});
 }
 
 function delay(milliseconds) {

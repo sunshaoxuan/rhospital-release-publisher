@@ -508,14 +508,17 @@ function appendInterruptedJobHistory(job) {
 }
 
 function markInterruptedJob(job, reason) {
-  const committed = job.cutoverCommitted === true;
-  const terminalStatus = committed ? 'RECOVERY_REQUIRED' : 'INTERRUPTED';
-  const message = committed
-    ? `RECOVERY_REQUIRED: ${reason}；新版本处于观察期，保留目标版本并等待全链路致命故障复核`
+  const recoveryRequired = job.cutoverCommitted === true || job.recoveryBoundaryEntered === true;
+  const forumRecovery = job.plan && job.plan.releaseTarget === 'forum' && job.recoveryBoundaryEntered === true;
+  const terminalStatus = recoveryRequired ? 'RECOVERY_REQUIRED' : 'INTERRUPTED';
+  const message = recoveryRequired
+    ? forumRecovery
+      ? `RECOVERY_REQUIRED: ${reason}；论坛生产 Compose 修改已经开始，保留现场并按备份与回滚入口复核`
+      : `RECOVERY_REQUIRED: ${reason}；新版本处于观察期，保留目标版本并等待全链路致命故障复核`
     : `INTERRUPTED: ${reason}`;
   const logs = (job.logs || []).concat(message);
   const plan = job.plan && job.currentStepKey
-    ? markJobPlanStep(job.plan, job.currentStepKey, committed ? 'failed' : 'interrupted', message)
+      ? markJobPlanStep(job.plan, job.currentStepKey, recoveryRequired ? 'failed' : 'interrupted', message)
     : job.plan;
   return {
     ...job,

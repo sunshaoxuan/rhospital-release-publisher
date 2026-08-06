@@ -11,6 +11,10 @@
 | 生产仍运行旧论坛镜像 | SSH 只读查询返回 Compose 和容器镜像 `rhospital/flarum-sso:20260724` | 高 | 查询时间为 2026-08-06 |
 | 生产基础状态正常 | 容器运行、MySQL 8.4.9、可用空间 56,403,688 KB、公网 HTTP 200 | 高 | 未执行登录态业务搜索验收 |
 | 生产具备 ngram 前置条件 | `INFORMATION_SCHEMA.PLUGINS` 返回 ngram 插件 1，现有索引定义没有 `WITH PARSER ngram` | 高 | 只读结构检查 |
+| 论坛真实计划已恢复 | 修复后对 `e7b67154` 调用 `createPlan`，返回 `PLAN_OK`，包含 18 个步骤 | 高 | dry run 计划，没有执行生产动作 |
+| 游戏真实计划保持可用 | 修复后对 `e7b67154` 调用 `createPlan`，返回 `PLAN_OK`，包含数据库迁移和完整游戏门禁 | 高 | dry run 计划，没有执行生产动作 |
+| 未知游戏数据库分类继续失败关闭 | 新增游戏非法分类回归测试通过 | 高 | 单元测试 |
+| 论坛恢复边界生效 | 模拟 Compose 修改步骤失败，结果与历史均为 `RECOVERY_REQUIRED` | 高 | 命令 runner 模拟，没有注入生产故障 |
 
 ## 主要文件
 

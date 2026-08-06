@@ -858,7 +858,7 @@ function createForumPlan(projectRoot, request, env = process.env) {
       title: '校验论坛发布源码',
       summary: '执行论坛镜像契约测试和初始化脚本语法检查',
       command: chainPowerShellCommands([
-        '.\\mvnw.cmd -q "-Dtest=ForumFlarumImageAssetTest,ForumDeploymentConfigTest" test',
+        '.\\mvnw.cmd -q "-Dtest=ForumFlarumImageAssetTest,ForumSearchMigrationContractTest,ForumDeploymentConfigTest" test',
         ...forumSourceScriptValidationCommands()
       ]),
       validation: '论坛镜像契约测试必须通过，两个初始化脚本必须与发布提交一致且语法有效',
@@ -976,6 +976,7 @@ function createForumPlan(projectRoot, request, env = process.env) {
       ])),
       actionType: 'production',
       productionAction: true,
+      recoveryBoundary: true,
       executable: true
     }));
     steps.push(releaseStep({
@@ -1071,6 +1072,7 @@ function releaseStep({
   executable = false,
   finalCheck = false,
   cutoverCommit = false,
+  recoveryBoundary = false,
   recoveryOnly = false,
   timeoutSeconds = 0,
   rehearsal = false
@@ -1087,6 +1089,7 @@ function releaseStep({
     executable,
     finalCheck,
     cutoverCommit,
+    recoveryBoundary,
     recoveryOnly,
     timeoutSeconds,
     rehearsal,
@@ -1153,6 +1156,7 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
   let cutoverStarted = false;
   let cutoverCommitted = false;
   let cutoverCommittedAt = '';
+  let recoveryBoundaryEntered = false;
   const updateStep = (stepKey, status, output) => {
     const activeStep = runtimePlan.steps.find(step => step.key === stepKey);
     const elapsedMs = stepTiming[stepKey] ? stepTiming[stepKey].elapsedMs : 0;
@@ -1169,6 +1173,7 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
       heartbeatAt: new Date().toISOString(),
       cutoverCommitted,
       cutoverCommittedAt,
+      recoveryBoundaryEntered,
       status: executionStatus
     });
   };
@@ -1271,6 +1276,11 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
         continue;
       }
       if (step.executable) {
+        if (step.recoveryBoundary) {
+          recoveryBoundaryEntered = true;
+          pushStepLog(step.key, '[RECOVERY_BOUNDARY] 论坛生产 Compose 修改即将开始，后续中断需要恢复复核');
+          updateStep(step.key, 'running');
+        }
         if (step.key === 'deploy-stack') {
           cutoverStarted = true;
         }
@@ -1346,6 +1356,22 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
         completedStepKeys,
         cutoverCommitted,
         cutoverCommittedAt
+      };
+    }
+    if (plan.releaseTarget === 'forum' && recoveryBoundaryEntered) {
+      pushStepLog(failedStepKey,
+        'RECOVERY_REQUIRED: 论坛生产 Compose 修改已经进入执行边界，保留现场并按备份与回滚入口复核');
+      runtimePlan = markStepStatus(runtimePlan, completedStepKeys, failedStepKey,
+        error.name === 'CancellationError' ? 'cancelled' : 'failed', stepLogs, stepTiming);
+      const recoveryLogs = logs.slice();
+      appendReleaseHistory(projectRoot,
+        buildHistoryEntry('RECOVERY_REQUIRED', runtimePlan, recoveryLogs, completedStepKeys), env);
+      return {
+        status: 'RECOVERY_REQUIRED',
+        plan: runtimePlan,
+        logs: recoveryLogs,
+        completedStepKeys,
+        recoveryBoundaryEntered
       };
     }
     const shouldEvaluateRecovery = plan.releaseTarget === 'game'
@@ -1484,7 +1510,8 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
     logs,
     completedStepKeys,
     cutoverCommitted,
-    cutoverCommittedAt
+    cutoverCommittedAt,
+    recoveryBoundaryEntered
   };
 }
 
@@ -1586,6 +1613,7 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
     releaseImpactAssessmentId: releaseImpactAssessment ? releaseImpactAssessment.assessmentId : '',
     releaseImpactRiskLevel: releaseImpactAssessment ? releaseImpactAssessment.riskLevel : '',
     releaseImpactDatabaseImpact: releaseImpactAssessment ? releaseImpactAssessment.databaseImpact : '',
+    releaseImpactDatabaseImpactDetail: releaseImpactAssessment ? releaseImpactAssessment.databaseImpactDetail : '',
     releaseImpactChecklistDecision: releaseImpactAssessment ? releaseImpactAssessment.checklistDecision : '',
     releaseImpactRuntimePaths: releaseImpactAssessment ? releaseImpactAssessment.coveredRuntimePaths.slice() : [],
     releaseImpactRequiredChecks: releaseImpactAssessment
@@ -2188,7 +2216,12 @@ function normalizeReleaseImpactTarget(assessmentId, target, assessment) {
   if (codeImpact.length < 10) {
     throw new Error(`targets.${target}.codeImpact 必须说明代码变化的发版影响`);
   }
-  const databaseImpact = String(assessment.databaseImpact || '').trim();
+  const databaseImpactValue = String(assessment.databaseImpact || '').trim();
+  const databaseImpactMatch = databaseImpactValue.match(/^([a-z-]+)(?:\s*:\s*(.{10,}))?$/s);
+  const databaseImpact = databaseImpactMatch ? databaseImpactMatch[1] : '';
+  const databaseImpactDetail = databaseImpactMatch && databaseImpactMatch[2]
+    ? databaseImpactMatch[2].trim()
+    : '';
   if (!RELEASE_DATABASE_IMPACTS.has(databaseImpact)) {
     throw new Error(`targets.${target}.databaseImpact 必须为 ${[...RELEASE_DATABASE_IMPACTS].join('、')}`);
   }
@@ -2201,6 +2234,7 @@ function normalizeReleaseImpactTarget(assessmentId, target, assessment) {
     riskLevel,
     codeImpact,
     databaseImpact,
+    databaseImpactDetail,
     coveredRuntimePaths,
     requiredChecks
   };
