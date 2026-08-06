@@ -588,6 +588,57 @@ test('rejects destructive database migrations that make automatic application ro
   }), /包含不兼容旧版本自动恢复的操作/);
 });
 
+test('allows default and not-null finalization only for columns added by the same migration', () => {
+  const root = tempProject(sampleXml);
+  const migrationPath = 'scripts/migration/additive-column.sql';
+  const absoluteMigration = path.join(root, ...migrationPath.split('/'));
+  fs.mkdirSync(path.dirname(absoluteMigration), {recursive: true});
+  fs.writeFileSync(absoluteMigration, [
+    '\\set ON_ERROR_STOP on',
+    'begin;',
+    "set local lock_timeout = '5s';",
+    "set local statement_timeout = '2min';",
+    'alter table t_guild add column if not exists auto_approval_enabled boolean;',
+    'alter table t_guild alter column auto_approval_enabled set default false, alter column auto_approval_enabled set not null;',
+    'commit;',
+    'select 1;',
+    ''
+  ].join('\n'), 'utf8');
+
+  assert.doesNotThrow(() => createPlan(root, {
+    appTag: '2026080601',
+    dryRun: true,
+    includeStackDeploy: true,
+    gitCommit: 'latest',
+    changeAnalysis: {targets: {game: {changedPaths: [migrationPath]}}}
+  }));
+});
+
+test('rejects default or not-null changes for columns not added by the same migration', () => {
+  const root = tempProject(sampleXml);
+  const migrationPath = 'scripts/migration/existing-column.sql';
+  const absoluteMigration = path.join(root, ...migrationPath.split('/'));
+  fs.mkdirSync(path.dirname(absoluteMigration), {recursive: true});
+  fs.writeFileSync(absoluteMigration, [
+    '\\set ON_ERROR_STOP on',
+    'begin;',
+    "set local lock_timeout = '5s';",
+    "set local statement_timeout = '2min';",
+    'alter table t_guild alter column name set not null;',
+    'commit;',
+    'select 1;',
+    ''
+  ].join('\n'), 'utf8');
+
+  assert.throws(() => createPlan(root, {
+    appTag: '2026080602',
+    dryRun: true,
+    includeStackDeploy: true,
+    gitCommit: 'latest',
+    changeAnalysis: {targets: {game: {changedPaths: [migrationPath]}}}
+  }), /包含不兼容旧版本自动恢复的操作/);
+});
+
 test('accepts locked unique-id deletion of original player logs from a temporary snapshot', () => {
   const root = tempProject(sampleXml);
   const migrationPath = 'scripts/migration/controlled-log-delete.sql';

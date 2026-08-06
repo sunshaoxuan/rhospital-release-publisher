@@ -1,5 +1,9 @@
 # 变更记录
 
+## 2026-08-06
+
+1. 数据库 migration 安全门允许同一脚本以 `ADD COLUMN IF NOT EXISTS` 新增的列继续执行 `SET DEFAULT` 与 `SET NOT NULL`，支持幂等回填后的完整约束收口。对既有列的默认值或非空修改，以及删列、改类型、重命名和截断操作继续失败关闭；正反契约测试覆盖允许边界。
+
 ## 2026-08-05
 
 1. 游戏真实登录验收前置条件新增离线 WebGL 2 framebuffer 能力探针，使用正式 Chrome 与 SwiftShader 参数记录 renderer、WebGL version、viewport、devicePixelRatio、纹理尺寸和 framebuffer 状态。全部 CDP 请求新增独立硬超时，Chrome 启动、调试端口、WebSocket 和请求卡住时可以在限定时间内终止并清理进程与 profile。`Framebuffer Unsupported`、CDP 超时、目标关闭和浏览器进程异常使用全新 profile 隔离复测一次；应用错误、资源错误、网络错误和重复基础设施异常继续失败关闭。真实生产双前置六探针续验通过，Riven 与 VMISS 的冷缓存、暖缓存和 Steam 路径均一次成功。

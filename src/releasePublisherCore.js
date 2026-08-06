@@ -2041,11 +2041,37 @@ function validateReleaseMigration(filePath, sql) {
   if (missing.length > 0) {
     throw new Error(`数据库迁移 ${filePath} 缺少发布安全约束: ${missing.join(', ')}`);
   }
-  const incompatible = source.match(/\b(drop\s+(?:table|column|index|constraint)|truncate\b|rename\s+(?:column|to)\b|alter\s+column\b)/i);
+  const compatibilitySource = stripAdditiveNewColumnFinalization(source);
+  const incompatible = compatibilitySource.match(/\b(drop\s+(?:table|column|index|constraint)|truncate\b|rename\s+(?:column|to)\b|alter\s+column\b)/i);
   if (incompatible) {
     throw new Error(`数据库迁移 ${filePath} 包含不兼容旧版本自动恢复的操作: ${incompatible[0]}`);
   }
   validateControlledDeleteStatements(filePath, source);
+}
+
+function stripAdditiveNewColumnFinalization(source) {
+  const statements = String(source || '').split(';');
+  const addedColumns = new Set();
+  for (const statement of statements) {
+    const tableMatch = statement.match(/\balter\s+table\s+"?([a-z_][a-z0-9_]*)"?/i);
+    if (!tableMatch) {
+      continue;
+    }
+    for (const match of statement.matchAll(/\badd\s+column\s+if\s+not\s+exists\s+"?([a-z_][a-z0-9_]*)"?/gi)) {
+      addedColumns.add(`${tableMatch[1].toLowerCase()}.${match[1].toLowerCase()}`);
+    }
+  }
+  return statements.map(statement => {
+    const tableMatch = statement.match(/\balter\s+table\s+"?([a-z_][a-z0-9_]*)"?/i);
+    if (!tableMatch) {
+      return statement;
+    }
+    const tableName = tableMatch[1].toLowerCase();
+    return statement.replace(
+      /\balter\s+column\s+"?([a-z_][a-z0-9_]*)"?\s+set\s+(?:default\s+[^,;]+|not\s+null)\b/gi,
+      (clause, columnName) => addedColumns.has(`${tableName}.${String(columnName).toLowerCase()}`) ? '' : clause
+    );
+  }).join(';');
 }
 
 function assertJpaSchemaMigrationCoverage(projectRoot, targetCommit, changeAnalysis, releaseMigrations) {
