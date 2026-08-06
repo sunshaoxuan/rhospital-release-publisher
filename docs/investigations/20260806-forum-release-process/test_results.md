@@ -47,3 +47,11 @@
 | Bash 路径调查 | PASS | PATH 首项为系统 Bash，Git Bash 位于当前 Git 安装目录的 `bin\bash.exe` |
 | 计划命令回归 | PASS | 完整 `validate-forum-source` 步骤实际执行退出码为 0，使用 Git Bash 且没有调用 PATH 中的系统 Bash |
 | 多 Git 路径复验 | FAIL THEN FIXED | 首轮发现 `Get-Command git` 返回两个应用路径，已改为明确选择首个 PATH 结果 |
+
+## 阶段色块同步续验
+
+| 测试 | 结果 | 说明 |
+|---|---|---|
+| 论坛成功发布历史 | PASS | `rhospital/flarum-sso:20260806`，18/18，状态 `EXECUTED` |
+| 阶段映射回归 | PASS | 论坛备份进入数据阶段，正常恢复证据显示准确标题 |
+| 发布器完整测试 | PASS | 120 项通过，失败 0 |

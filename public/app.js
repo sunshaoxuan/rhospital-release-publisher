@@ -401,7 +401,7 @@
       ] },
       { key: 'data', title: '数据安全与迁移', members: [
         'game-database-preflight', 'backup-game-release', 'apply-database-migrations',
-        'pre-deploy-checklist', 'forum-preflight'
+        'pre-deploy-checklist', 'forum-preflight', 'backup-forum-release'
       ] },
       { key: 'switch', title: '切换生产版本', members: [
         'update-remote-compose', 'deploy-stack', 'deploy-forum-compose'
@@ -432,7 +432,10 @@
       const elapsedValues = members.map(step => Number(step.elapsedMs)).filter(Number.isFinite);
       phases.push({
         key: `phase-${definition.key}`,
-        title: definition.title,
+        title: definition.key === 'recovery'
+          && members.every(step => step.key === 'forum-rollback-command')
+          ? '记录论坛恢复入口'
+          : definition.title,
         validation: `${members.length} 项检查，详情与原始日志保留在下方`,
         status,
         durationMs: durationValues.length === members.length

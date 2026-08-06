@@ -2093,6 +2093,14 @@ test('step backgrounds communicate execution status instead of final-check type'
   assert.match(app, /const done = status === 'done' \|\| status === 'dry-run-checked';[\s\S]*item\.className = `step \$\{done \? 'checked' : ''\}/);
 });
 
+test('forum pipeline groups backup before cutover and labels its normal recovery evidence accurately', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+
+  assert.match(app, /'pre-deploy-checklist', 'forum-preflight', 'backup-forum-release'/);
+  assert.match(app, /members\.every\(step => step\.key === 'forum-rollback-command'\)/);
+  assert.match(app, /'记录论坛恢复入口'/);
+});
+
 test('page keeps a visible vertical scrollbar for content below the viewport', () => {
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
 
