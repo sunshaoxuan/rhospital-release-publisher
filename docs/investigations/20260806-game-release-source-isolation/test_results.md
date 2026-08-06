@@ -26,3 +26,6 @@
 | 真实 Docker 构建 | PASS | 与失败任务相同的 `docker build --target build` 成功，容器内 919 项测试通过 |
 | 发布器重启稳定性 | PASS | `publisherVersion` 聚焦测试连续两轮通过 |
 | 发布器完整测试 | PASS | 123 项通过，失败 0 |
+| 浏览器阶段分组 | PASS | 运行版本 `7591c3ad`，准备发布源 8 项，批量测试与构建 5 项 |
+| 浏览器控制台 | PASS | error/warning 0 |
+| 浏览器截图 | INCOMPLETE | 页面 DOM 与控制台读取成功，CDP 截图连续两次超时，未取得新截图证据 |
