@@ -612,6 +612,19 @@ function createPlan(projectRoot, request, env = process.env) {
       timeoutSeconds: 120
     }));
     steps.push(releaseStep({
+      key: 'cleanup-game-release-containers',
+      title: '清理游戏发布历史容器',
+      summary: '定向删除当前游戏 Swarm 服务产生的 Exited 容器，保留镜像与其他服务容器，并复核目标版本健康副本',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        gamePostReleaseCleanupCommand(config.stackName, config.containerName, imageTag)
+      )),
+      validation: `只允许删除 ${config.stackName}_${config.containerName} 的 Exited 容器；单个删除失败记录 WARNING，${imageTag} 健康副本复核失败时停止`,
+      actionType: 'production',
+      productionAction: true,
+      executable: true,
+      timeoutSeconds: 120
+    }));
+    steps.push(releaseStep({
       key: 'game-rollback-decision',
       title: '记录自动回滚最小触发复核',
       summary: '自动回滚前只读确认目标版本确实不健康、版本不符或仍与旧版本并行运行；证据不足时保留目标版本和现场',
@@ -3471,6 +3484,53 @@ function finalRuntimeCheckCommand(stackName, containerName, imageTag, appTag, op
   ];
 }
 
+function gamePostReleaseCleanupCommand(stackName, containerName, imageTag) {
+  const serviceName = gameServiceName(stackName, containerName);
+  return [
+    `service_name=${shellToken(serviceName)}`,
+    `expected_image=${shellToken(imageTag)}`,
+    'cleanup_candidates=$(docker ps -aq --filter "status=exited" --filter "label=com.docker.swarm.service.name=$service_name")',
+    'deleted_count=0',
+    'warning_count=0',
+    'for container_id in $cleanup_candidates; do',
+    "  container_image=$(docker inspect --format '{{.Config.Image}}' \"$container_id\" 2>/dev/null || printf unknown)",
+    '  if docker rm "$container_id" >/dev/null 2>&1; then',
+    '    deleted_count=$((deleted_count + 1))',
+    '    echo "cleanup_deleted_container=$container_id image=$container_image"',
+    '  else',
+    '    warning_count=$((warning_count + 1))',
+    '    echo "WARNING: cleanup_failed_container=$container_id image=$container_image"',
+    '  fi',
+    'done',
+    'remaining_exited_count=$(docker ps -aq --filter "status=exited" --filter "label=com.docker.swarm.service.name=$service_name" | wc -l | tr -d " ")',
+    "service_image=$(docker service inspect \"$service_name\" --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}')",
+    "update_state=$(docker service inspect \"$service_name\" --format '{{if .UpdateStatus}}{{.UpdateStatus.State}}{{else}}completed{{end}}')",
+    "expected_replicas=$(docker service inspect \"$service_name\" --format '{{if .Spec.Mode.Replicated}}{{.Spec.Mode.Replicated.Replicas}}{{else}}1{{end}}')",
+    'running_count=0',
+    'healthy_target_count=0',
+    'for container_id in $(docker ps -q --filter "status=running" --filter "label=com.docker.swarm.service.name=$service_name"); do',
+    "  container_image=$(docker inspect --format '{{.Config.Image}}' \"$container_id\")",
+    "  container_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \"$container_id\")",
+    '  running_count=$((running_count + 1))',
+    '  case "$container_image" in',
+    '    "$expected_image"|"$expected_image"@*) if [ "$container_health" = healthy ]; then healthy_target_count=$((healthy_target_count + 1)); fi ;;',
+    '  esac',
+    'done',
+    'image_matches=false',
+    'case "$service_image" in "$expected_image"|"$expected_image"@*) image_matches=true ;; esac',
+    'echo "post_release_cleanup_health image=$service_image update=$update_state expected_replicas=$expected_replicas running=$running_count healthy_target=$healthy_target_count"',
+    'if [ "$image_matches" != true ] || [ "$update_state" != completed ] || [ "$running_count" -ne "$expected_replicas" ] || [ "$healthy_target_count" -ne "$expected_replicas" ]; then',
+    '  echo "ERROR: target service health changed during post-release cleanup"',
+    '  exit 1',
+    'fi',
+    'if [ "$warning_count" -gt 0 ]; then',
+    '  echo "post_release_container_cleanup=WARNING deleted=$deleted_count warnings=$warning_count remaining_exited=$remaining_exited_count"',
+    'else',
+    '  echo "post_release_container_cleanup=PASS deleted=$deleted_count warnings=0 remaining_exited=$remaining_exited_count"',
+    'fi'
+  ];
+}
+
 function forumImageValidationCommand(dockerTarget, imageTag) {
   const script = [
     'set -eu',
@@ -4145,5 +4205,6 @@ module.exports = {
   validateGitBranch,
   validateGitCommit,
   resolveCatalogSchemaVersion,
-  tradePoolCatalogLogCheckCommands
+  tradePoolCatalogLogCheckCommands,
+  gamePostReleaseCleanupCommand
 };

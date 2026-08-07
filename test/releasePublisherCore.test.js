@@ -39,7 +39,8 @@ const {
   analyzeReleaseChanges,
   assertReleaseTargetChanged,
   readRemoteComposeImageTag,
-  tradePoolCatalogLogCheckCommands
+  tradePoolCatalogLogCheckCommands,
+  gamePostReleaseCleanupCommand
 } = require('../src/releasePublisherCore');
 
 const sampleXml = `<component name="ProjectRunConfigurationManager">
@@ -137,6 +138,68 @@ test('trade-pool log gate accepts captured completion after container log timeou
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /catalog_log_collection_exit=124/);
   assert.match(result.stdout, /validating captured output/);
+});
+
+function runGamePostReleaseCleanup(mockDockerBody) {
+  const cleanupScript = gamePostReleaseCleanupCommand(
+    'hospital_stack', 'hospital-backend', 'hospital-backend:20260807').join('\n');
+  const script = [
+    'set -e',
+    'docker() {',
+    mockDockerBody,
+    '}',
+    cleanupScript
+  ].join('\n');
+  return spawnSync(testBashExecutable(), ['-c', script], {encoding: 'utf8'});
+}
+
+test('post-release cleanup keeps deletion failures non-fatal and rechecks the target service', () => {
+  const result = runGamePostReleaseCleanup(`
+case "$1 $2" in
+  "ps -aq") printf '%s\\n' old-container ;;
+  "rm old-container") return 1 ;;
+  "service inspect")
+    case "$*" in
+      *TaskTemplate.ContainerSpec.Image*) printf '%s\\n' hospital-backend:20260807 ;;
+      *UpdateStatus*) printf '%s\\n' completed ;;
+      *Replicas*) printf '%s\\n' 1 ;;
+    esac ;;
+  "ps -q") printf '%s\\n' target-container ;;
+  "inspect --format")
+    case "$*" in
+      *Config.Image*) printf '%s\\n' hospital-backend:20260807 ;;
+      *State.Health*) printf '%s\\n' healthy ;;
+    esac ;;
+esac
+return 0`);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /WARNING: cleanup_failed_container=old-container/);
+  assert.match(result.stdout, /post_release_container_cleanup=WARNING/);
+  assert.match(result.stdout, /healthy_target=1/);
+});
+
+test('post-release cleanup fails closed when the target service is no longer healthy', () => {
+  const result = runGamePostReleaseCleanup(`
+case "$1 $2" in
+  "ps -aq") return 0 ;;
+  "service inspect")
+    case "$*" in
+      *TaskTemplate.ContainerSpec.Image*) printf '%s\\n' hospital-backend:20260807 ;;
+      *UpdateStatus*) printf '%s\\n' completed ;;
+      *Replicas*) printf '%s\\n' 1 ;;
+    esac ;;
+  "ps -q") printf '%s\\n' target-container ;;
+  "inspect --format")
+    case "$*" in
+      *Config.Image*) printf '%s\\n' hospital-backend:20260807 ;;
+      *State.Health*) printf '%s\\n' unhealthy ;;
+    esac ;;
+esac
+return 0`);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stdout, /ERROR: target service health changed during post-release cleanup/);
 });
 
 test('trade-pool log gate rejects a timed out capture without completion evidence', () => {
@@ -390,6 +453,21 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedScriptTree(step.command).includes('/admin/tradepool')
     && decodedScriptTree(step.command).includes('/api/admin/toilet-market/pool')
     && decodedScriptTree(step.command).includes('tradepool_release_validation=PASS')));
+  const cleanupStep = plan.steps.find(step => step.key === 'cleanup-game-release-containers');
+  assert.ok(cleanupStep);
+  const cleanupScript = decodedRemoteScript(cleanupStep.command);
+  assert.match(cleanupScript, /status=exited/);
+  assert.match(cleanupScript, /label=com\.docker\.swarm\.service\.name=\$service_name/);
+  assert.match(cleanupScript, /docker rm "\$container_id"/);
+  assert.match(cleanupScript, /WARNING: cleanup_failed_container=/);
+  assert.match(cleanupScript, /post_release_container_cleanup=PASS/);
+  assert.match(cleanupScript, /target service health changed during post-release cleanup/);
+  assert.doesNotMatch(cleanupScript, /docker container prune|docker system prune|docker image rm/);
+  const staticDeliveryIndex = plan.steps.findIndex(step => step.key === 'verify-game-static-delivery');
+  const tradePoolIndex = plan.steps.findIndex(step => step.key === 'verify-tradepool-release');
+  const cleanupIndex = plan.steps.findIndex(step => step.key === 'cleanup-game-release-containers');
+  assert.ok(finalRuntimeIndex < cleanupIndex && staticDeliveryIndex < cleanupIndex && tradePoolIndex < cleanupIndex,
+    'post-release cleanup must run after every final game verification');
   const gameRollback = plan.steps.find(step => step.key === 'game-rollback-command');
   const gameRollbackDecision = plan.steps.find(step => step.key === 'game-rollback-decision');
   assert.ok(gameRollbackDecision);
@@ -439,6 +517,7 @@ test('creates dry run command plan without production execution enabled', () => 
   assertStepType(plan, 'final-runtime-check', 'remote-check', false);
   assertStepType(plan, 'verify-game-static-delivery', 'remote-check', false);
   assertStepType(plan, 'verify-tradepool-release', 'remote-check', false);
+  assertStepType(plan, 'cleanup-game-release-containers', 'production', true);
   assertStepType(plan, 'game-rollback-decision', 'remote-check', false);
   assertStepType(plan, 'game-fatal-rollback-decision', 'remote-check', false);
   assert.ok(plan.steps.find(step => step.key === 'game-fatal-rollback-decision').recoveryOnly);
@@ -1654,6 +1733,34 @@ test('forum compose mutation failures require recovery without changing game rec
   assert.equal(history.stepSummary.find(step => step.key === 'update-remote-compose').status, 'failed');
 });
 
+test('successful game release cleans exited service containers after every final verification', async () => {
+  const root = tempProject(sampleXml);
+  const historyPath = path.join(root, 'cleanup-success-history.json');
+  const runCommand = testCommandRunner();
+  const result = await executePlan(root, {
+    appTag: '2026070702',
+    dryRun: false,
+    dockerContext: 'SSH178',
+    includeStackDeploy: true
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  }, {runCommand});
+
+  assert.equal(result.status, 'EXECUTED');
+  const cleanupStep = result.plan.steps.find(step => step.key === 'cleanup-game-release-containers');
+  assert.equal(cleanupStep.status, 'done');
+  const cleanupCommandIndex = runCommand.commands.findIndex(command =>
+    decodedScriptTree(command).includes('post_release_container_cleanup=PASS'));
+  const tradePoolCommandIndex = runCommand.commands.findIndex(command =>
+    decodedScriptTree(command).includes('tradepool_release_validation=PASS'));
+  assert.ok(cleanupCommandIndex > tradePoolCommandIndex);
+  const history = readReleaseHistory(root, 1, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath})[0];
+  assert.equal(history.stepSummary.find(step => step.key === 'cleanup-game-release-containers').status, 'done');
+});
+
 test('observing target holds when the fatal full-chain threshold is not met', async () => {
   const root = tempProject(sampleXml);
   const historyPath = path.join(root, 'history.json');
@@ -1683,6 +1790,9 @@ test('observing target holds when the fatal full-chain threshold is not met', as
   assert.equal(history.stepSummary.find(step => step.key === 'game-rollback-decision').status, 'pending');
   assert.equal(history.stepSummary.find(step => step.key === 'game-fatal-rollback-decision').status, 'done');
   assert.equal(history.stepSummary.find(step => step.key === 'game-rollback-command').status, 'pending');
+  assert.equal(history.stepSummary.find(step => step.key === 'cleanup-game-release-containers').status, 'pending');
+  assert.equal(runCommand.commands.some(command =>
+    decodedScriptTree(command).includes('post_release_container_cleanup=PASS')), false);
 });
 
 test('three-round fatal full-chain evidence after cutover permits automatic rollback', async () => {
