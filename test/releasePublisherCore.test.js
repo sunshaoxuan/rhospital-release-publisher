@@ -419,6 +419,12 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.validation.includes('邮箱、医院名和院长名')
     && step.validation.includes('查询提交不得自动选择')
     && step.validation.includes('加载和刷新期间禁用')
+    && step.validation.includes('页面首次关系 API 响应')
+    && step.validation.includes('至少有一条明确关系')
+    && step.validation.includes('快照必须发生在成功响应之后')
+    && step.validation.includes('实际场景关系对象均清零')
+    && step.summary.includes('医院 ID 唯一')
+    && step.summary.includes('真实场景对象全量一致')
     && step.summary.includes('Riven 与 VMISS')));
   assert.ok(plan.steps.some(step => step.key === 'validate-game-static-delivery-prerequisites'
     && step.command.includes('verify-game-static-delivery.mjs')

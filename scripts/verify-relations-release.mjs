@@ -37,9 +37,42 @@ function normalizedHeaders(headers = {}) {
   return Object.fromEntries(Object.entries(headers).map(([key, value]) => [key.toLowerCase(), String(value)]));
 }
 
-function relationsInteractionExpression(timeoutMs) {
+export function readRelationsDebugSnapshot(runtimeDebug, serializedSnapshot) {
+  const runtimeSnapshot = runtimeDebug?.getSnapshot?.();
+  if (runtimeSnapshot) return runtimeSnapshot;
+  if (!serializedSnapshot) return null;
+  try {
+    return JSON.parse(serializedSnapshot);
+  } catch {
+    return null;
+  }
+}
+
+export function isRelationsRefreshCycleComplete({
+  snapshot,
+  selectedNodeId,
+  refreshButtonDisabled,
+  statusHidden,
+  refreshLoadingGuard
+}) {
+  return refreshButtonDisabled === false
+    && statusHidden === true
+    && refreshLoadingGuard?.graphRequestCount === 1
+    && refreshLoadingGuard?.graphResponseCount === 1
+    && refreshLoadingGuard?.graphOkResponseCount === 1
+    && refreshLoadingGuard?.snapshotMutationCount > 0
+    && refreshLoadingGuard?.graphRequestSequence > 0
+    && refreshLoadingGuard?.graphOkResponseSequence > refreshLoadingGuard.graphRequestSequence
+    && refreshLoadingGuard?.latestSnapshotMutationSequence > refreshLoadingGuard.graphOkResponseSequence
+    && snapshot?.mainNodeId === selectedNodeId
+    && snapshot?.sceneObjectsReady === true;
+}
+
+export function relationsInteractionExpression(timeoutMs) {
   return `(() => (async () => {
     const timeoutMs = ${JSON.stringify(timeoutMs)};
+    const parseDebugSnapshot = ${readRelationsDebugSnapshot.toString()};
+    const refreshCycleComplete = ${isRelationsRefreshCycleComplete.toString()};
     const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
     const waitFor = async (predicate, label) => {
       const deadline = Date.now() + timeoutMs;
@@ -66,21 +99,57 @@ function relationsInteractionExpression(timeoutMs) {
       if (Array.isArray(value)) return value.some(item => hasEmailValue(item, seen));
       return Object.values(value).some(child => hasEmailValue(child, seen));
     };
-    const readSnapshot = () => window.__relationsGraphDebug?.getSnapshot?.() || null;
-    const graphUrl = document.body.dataset.relationsApi || '/api/admin/relations';
-    const graphResponse = await fetch(graphUrl, {
-      credentials: 'same-origin',
-      headers: {Accept: 'application/json'}
-    });
-    const graphContentType = graphResponse.headers.get('content-type') || '';
-    let graph = null;
-    try {
-      graph = await graphResponse.json();
-    } catch {}
-    const hospitalNodes = Array.isArray(graph?.nodes)
-      ? graph.nodes.filter(node => node?.kind === 'HOSPITAL'
-        && (String(node.hospitalName || '').trim() || String(node.personName || '').trim()))
-      : [];
+    const readSnapshot = () => parseDebugSnapshot(
+      window.__relationsGraphDebug,
+      document.getElementById('relations-shell')?.dataset.relationsDebugSnapshot);
+    const initialGraphCapture = await waitFor(() => {
+      const capture = window.__relationsReleaseInitialGraphCapture;
+      return capture?.complete === true ? capture : null;
+    }, 'initial page relation API response capture');
+    const graphContentType = String(initialGraphCapture.contentType || '');
+    const graph = initialGraphCapture.payload;
+    const graphNodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
+    const graphLinks = Array.isArray(graph?.links) ? graph.links : [];
+    const hospitalNodeRows = graphNodes.filter(node => node?.kind === 'HOSPITAL');
+    const guildNodeRows = graphNodes.filter(node => node?.kind === 'GUILD');
+    const hospitalIds = new Set();
+    let missingHospitalIdCount = 0;
+    let duplicateHospitalIdCount = 0;
+    let hospitalNodeIdMismatchCount = 0;
+    for (const node of hospitalNodeRows) {
+      if (node?.hospitalId == null) {
+        missingHospitalIdCount += 1;
+        continue;
+      }
+      const hospitalId = String(node.hospitalId);
+      if (hospitalIds.has(hospitalId)) duplicateHospitalIdCount += 1;
+      hospitalIds.add(hospitalId);
+      if (node.id !== 'hospital:' + hospitalId) hospitalNodeIdMismatchCount += 1;
+    }
+    const directorNodeCount = graphNodes.filter(node => node?.kind === 'DIRECTOR').length;
+    const heroNodeCount = graphNodes.filter(node => node?.kind === 'HERO').length;
+    const unsupportedNodeKindCount = graphNodes.filter(node =>
+      node?.kind !== 'HOSPITAL' && node?.kind !== 'GUILD').length;
+    const legacyIdentityRelationTypeCount = Array.isArray(graph?.relationTypes)
+      ? graph.relationTypes.filter(type => type?.key === 'DIRECTOR_OF' || type?.key === 'HERO_OF').length
+      : 0;
+    const legacyIdentityLinkCount = graphLinks.filter(link =>
+      link?.type === 'DIRECTOR_OF' || link?.type === 'HERO_OF').length;
+    const hospitalNodeIds = new Set(hospitalNodeRows.map(node => node.id));
+    const relatedHospitalNodeIds = new Set();
+    for (const link of graphLinks) {
+      const sourceId = typeof link?.source === 'object' ? link.source?.id : link?.source;
+      const targetId = typeof link?.target === 'object' ? link.target?.id : link?.target;
+      if (hospitalNodeIds.has(sourceId)) relatedHospitalNodeIds.add(sourceId);
+      if (hospitalNodeIds.has(targetId)) relatedHospitalNodeIds.add(targetId);
+    }
+    const initialSnapshot = await waitFor(() => {
+      const snapshot = readSnapshot();
+      return snapshot?.sceneObjectsReady === true ? snapshot : null;
+    }, 'initial complete relation scene');
+    const hospitalNodes = hospitalNodeRows.filter(node =>
+      relatedHospitalNodeIds.has(node.id)
+      && (String(node.hospitalName || '').trim() || String(node.personName || '').trim()));
     const searchUrl = document.body.dataset.relationsSearchApi || '/api/admin/relations/hospitals/search';
     const requestSearch = async value => {
       const separator = searchUrl.includes('?') ? '&' : '?';
@@ -130,6 +199,7 @@ function relationsInteractionExpression(timeoutMs) {
       && graphSerialized.includes(selectedEmail.toLocaleLowerCase('en-US'));
 
     let selectedSnapshot = null;
+    let selectedRelationCount = null;
     let filteredSnapshot = null;
     let refreshedSnapshot = null;
     let refreshCompleted = false;
@@ -139,6 +209,14 @@ function relationsInteractionExpression(timeoutMs) {
       heldDuringPending: true,
       pendingSubmitDispatched: false,
       searchRequestCount: 0,
+      graphRequestCount: 0,
+      graphResponseCount: 0,
+      graphOkResponseCount: 0,
+      snapshotMutationCount: 0,
+      eventSequence: 0,
+      graphRequestSequence: 0,
+      graphOkResponseSequence: 0,
+      latestSnapshotMutationSequence: 0,
       mainNodePreserved: true
     };
     if (selected) {
@@ -161,10 +239,20 @@ function relationsInteractionExpression(timeoutMs) {
       button.click();
       selectedSnapshot = await waitFor(() => {
         const snapshot = readSnapshot();
-        return snapshot?.mainNodeId === selected.nodeId && snapshot?.selectedNodeId === selected.nodeId
+        return snapshot?.mainNodeId === selected.nodeId
+          && snapshot?.selectedNodeId === selected.nodeId
+          && snapshot?.sceneObjectsReady === true
           ? snapshot
           : null;
-      }, 'selected main hospital');
+      }, 'selected main hospital with synchronized scene objects');
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      selectedSnapshot = readSnapshot();
+      const selectedRelationCountText = String(
+        document.getElementById('selected-relation-count')?.textContent || '').trim();
+      const normalizedSelectedRelationCount = selectedRelationCountText.replace(/[,，]/g, '');
+      selectedRelationCount = /^[0-9]+$/.test(normalizedSelectedRelationCount)
+        ? Number(normalizedSelectedRelationCount)
+        : null;
 
       const toggleAll = document.getElementById('toggle-all-types');
       if ((readSnapshot()?.activeTypes || []).length > 0) toggleAll.click();
@@ -180,20 +268,57 @@ function relationsInteractionExpression(timeoutMs) {
           && snapshot?.activeTypes?.length === 0
           && snapshot?.renderedLinkCount === 0
           && snapshot?.renderedNodeCount === 1
+          && snapshot?.sceneObjectsReady === true
           ? snapshot
           : null;
       }, 'main hospital retained while isolated nodes are hidden');
+      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      filteredSnapshot = readSnapshot();
 
-      const previousDebugHandle = window.__relationsGraphDebug;
       const refreshButton = document.getElementById('refresh-graph');
+      const relationsShell = document.getElementById('relations-shell');
+      let refreshCycleStarted = false;
+      const snapshotObserver = new MutationObserver(records => {
+        if (!refreshCycleStarted) return;
+        for (const record of records) {
+          if (record.attributeName !== 'data-relations-debug-snapshot') continue;
+          refreshLoadingGuard.snapshotMutationCount += 1;
+          refreshLoadingGuard.latestSnapshotMutationSequence = ++refreshLoadingGuard.eventSequence;
+        }
+      });
+      snapshotObserver.observe(relationsShell, {
+        attributes: true,
+        attributeFilter: ['data-relations-debug-snapshot']
+      });
       const originalFetch = window.fetch;
       window.fetch = (...args) => {
-        if (String(args[0] || '').includes('/api/admin/relations/hospitals/search')) {
+        const requestInput = args[0];
+        const requestUrl = typeof requestInput === 'string'
+          ? requestInput
+          : String(requestInput?.url || requestInput || '');
+        if (requestUrl.includes('/api/admin/relations/hospitals/search')) {
           refreshLoadingGuard.searchRequestCount += 1;
         }
-        return originalFetch.apply(window, args);
+        const isGraphRequest = requestUrl.includes('/api/admin/relations')
+          && !requestUrl.includes('/api/admin/relations/hospitals/search');
+        const responsePromise = originalFetch.apply(window, args);
+        if (!isGraphRequest) return responsePromise;
+        refreshLoadingGuard.graphRequestCount += 1;
+        refreshLoadingGuard.graphRequestSequence = ++refreshLoadingGuard.eventSequence;
+        return Promise.resolve(responsePromise).then(response => {
+          refreshLoadingGuard.graphResponseCount += 1;
+          if (response?.ok === true) {
+            refreshLoadingGuard.graphOkResponseCount += 1;
+            refreshLoadingGuard.graphOkResponseSequence = ++refreshLoadingGuard.eventSequence;
+          }
+          return response;
+        }, error => {
+          refreshLoadingGuard.graphResponseCount += 1;
+          throw error;
+        });
       };
       try {
+        refreshCycleStarted = true;
         refreshButton.click();
         while (refreshButton.disabled) {
           refreshLoadingGuard.observedPending = true;
@@ -211,24 +336,41 @@ function relationsInteractionExpression(timeoutMs) {
         refreshedSnapshot = await waitFor(() => {
           const snapshot = readSnapshot();
           const status = document.getElementById('graph-status');
-          const complete = window.__relationsGraphDebug !== previousDebugHandle
-            && !refreshButton.disabled
-            && status?.hidden === true;
+          const complete = refreshCycleComplete({
+            snapshot,
+            selectedNodeId: selected.nodeId,
+            refreshButtonDisabled: refreshButton.disabled,
+            statusHidden: status?.hidden === true,
+            refreshLoadingGuard
+          });
           if (!complete) return null;
           refreshCompleted = true;
-          return snapshot?.mainNodeId === selected.nodeId ? snapshot : null;
+          return snapshot;
         }, 'relations graph refresh with retained main hospital');
       } finally {
+        snapshotObserver.disconnect();
         window.fetch = originalFetch;
       }
     }
 
     return {
       graphApi: {
-        status: graphResponse.status,
+        source: 'initial-page-response',
+        status: initialGraphCapture.status,
         json: graphContentType.includes('application/json'),
         nodeCount: Array.isArray(graph?.nodes) ? graph.nodes.length : 0,
-        linkCount: Array.isArray(graph?.links) ? graph.links.length : 0,
+        linkCount: graphLinks.length,
+        hospitalNodeCount: hospitalNodeRows.length,
+        guildNodeCount: guildNodeRows.length,
+        uniqueHospitalIdCount: hospitalIds.size,
+        missingHospitalIdCount,
+        duplicateHospitalIdCount,
+        hospitalNodeIdMismatchCount,
+        directorNodeCount,
+        heroNodeCount,
+        unsupportedNodeKindCount,
+        legacyIdentityRelationTypeCount,
+        legacyIdentityLinkCount,
         hasEmailKey: hasEmailKey(graph),
         containsAnyEmailValue: hasEmailValue(graph),
         containsSelectedEmail: graphContainsSelectedEmail
@@ -250,7 +392,9 @@ function relationsInteractionExpression(timeoutMs) {
         selectedHospitalNamePresent: Boolean(String(selected?.hospitalName || '').trim()),
         selectedEmailPresent: Boolean(selectedEmail && selectedEmail.includes('@'))
       },
+      initialSnapshot,
       selectedSnapshot,
+      selectedRelationCount,
       filteredSnapshot,
       refreshedSnapshot,
       refreshCompleted,
@@ -335,7 +479,38 @@ export async function runRelationsProbe({
       client.send('Log.enable')
     ]);
     await client.send('Page.addScriptToEvaluateOnNewDocument', {
-      source: `document.addEventListener('DOMContentLoaded', () => {
+      source: `(() => {
+        const initialFetch = window.fetch;
+        window.fetch = (...args) => {
+          const requestInput = args[0];
+          const requestUrl = typeof requestInput === 'string'
+            ? requestInput
+            : String(requestInput?.url || requestInput || '');
+          const responsePromise = initialFetch.apply(window, args);
+          const isGraphRequest = requestUrl.includes('/api/admin/relations')
+            && !requestUrl.includes('/api/admin/relations/hospitals/search');
+          if (!isGraphRequest || window.__relationsReleaseInitialGraphCapture) return responsePromise;
+          const capture = window.__relationsReleaseInitialGraphCapture = {
+            requestUrl,
+            status: 0,
+            contentType: '',
+            payload: null,
+            complete: false
+          };
+          Promise.resolve(responsePromise).then(response => {
+            capture.status = Number(response?.status || 0);
+            capture.contentType = response?.headers?.get?.('content-type') || '';
+            return response.clone().json();
+          }).then(payload => {
+            capture.payload = payload;
+            capture.complete = true;
+          }, () => {
+            capture.complete = true;
+          });
+          return responsePromise;
+        };
+        document.addEventListener('DOMContentLoaded', () => {
+        const parseDebugSnapshot = ${readRelationsDebugSnapshot.toString()};
         const input = document.getElementById('node-search');
         const button = document.getElementById('node-search-button');
         const form = document.getElementById('node-search-form');
@@ -349,7 +524,10 @@ export async function runRelationsProbe({
           completed: false
         };
         const sample = () => {
-          const ready = Boolean(window.__relationsGraphDebug?.getSnapshot?.())
+          const snapshot = parseDebugSnapshot(
+            window.__relationsGraphDebug,
+            shell?.dataset.relationsDebugSnapshot);
+          const ready = Boolean(snapshot)
             && input?.disabled === false
             && button?.disabled === false
             && document.getElementById('graph-status')?.hidden === true;
@@ -370,7 +548,8 @@ export async function runRelationsProbe({
           if (typeof form.requestSubmit === 'function') form.requestSubmit();
           else form.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}));
         });
-      }, {once: true});`
+        }, {once: true});
+      })();`
     });
     for (const cookieHost of [...new Set(mappedHosts)]) {
       await client.send('Network.setCookie', {
@@ -394,7 +573,8 @@ export async function runRelationsProbe({
         pathname: location.pathname,
         title: document.title,
         loadingGuard: window.__relationsReleaseLoadingGuard || null,
-        ready: Boolean(window.__relationsGraphDebug?.getSnapshot?.())
+        ready: Boolean(window.__relationsGraphDebug?.getSnapshot?.()
+          || document.getElementById('relations-shell')?.dataset.relationsDebugSnapshot)
           && window.__relationsReleaseLoadingGuard?.completed === true
           && document.getElementById('node-search')?.disabled === false
           && document.getElementById('graph-status')?.hidden === true
@@ -434,6 +614,66 @@ function hasUniqueFixedMain(snapshot) {
     && fixedAtOrigin(snapshot);
 }
 
+const SCENE_EVIDENCE_COUNT_FIELDS = Object.freeze([
+  'apiNodeCount',
+  'apiLinkCount',
+  'renderedNodeCount',
+  'renderedLinkCount',
+  'overviewLinkCount',
+  'overviewGeometrySegmentCount',
+  'overviewLineObjectCount',
+  'focusedLinkCount',
+  'selectedLinkCount',
+  'focusedLinkObjectCount',
+  'focusedDirectedLinkCount',
+  'focusedArrowObjectCount',
+  'expectedSpriteLabelCount',
+  'spriteLabelCount'
+]);
+
+function isNonNegativeInteger(value) {
+  return Number.isInteger(value) && value >= 0;
+}
+
+function hasCompleteSceneEvidence(snapshot) {
+  return snapshot?.sceneObjectsReady === true
+    && SCENE_EVIDENCE_COUNT_FIELDS.every(field => isNonNegativeInteger(snapshot?.[field]));
+}
+
+function overviewSceneMatches(snapshot, expectedLinkCount) {
+  return snapshot?.overviewLineObjectCount === 1
+    && snapshot.overviewLinkCount === expectedLinkCount
+    && snapshot.overviewGeometrySegmentCount === expectedLinkCount;
+}
+
+function focusedSceneMatches(snapshot) {
+  return snapshot?.focusedLinkObjectCount === snapshot?.focusedLinkCount
+    && snapshot?.focusedDirectedLinkCount <= snapshot?.focusedLinkCount
+    && snapshot?.focusedArrowObjectCount === snapshot?.focusedDirectedLinkCount;
+}
+
+function adaptiveSceneLabelsMatch(snapshot, adaptiveLabelCap) {
+  return snapshot?.spriteLabelCount > 0
+    && snapshot.spriteLabelCount === snapshot.expectedSpriteLabelCount
+    && Number.isInteger(adaptiveLabelCap)
+    && snapshot.spriteLabelCount <= adaptiveLabelCap
+    && snapshot.spriteLabelCount < snapshot.renderedNodeCount;
+}
+
+function clearedSceneMatches(snapshot) {
+  return hasCompleteSceneEvidence(snapshot)
+    && snapshot.renderedNodeCount === 1
+    && snapshot.renderedLinkCount === 0
+    && overviewSceneMatches(snapshot, 0)
+    && snapshot.focusedLinkCount === 0
+    && snapshot.selectedLinkCount === 0
+    && snapshot.focusedLinkObjectCount === 0
+    && snapshot.focusedDirectedLinkCount === 0
+    && snapshot.focusedArrowObjectCount === 0
+    && snapshot.expectedSpriteLabelCount === 1
+    && snapshot.spriteLabelCount === 1;
+}
+
 export function summarizeRelationsProbe(result) {
   const failedResponses = (result.responses || []).filter(entry =>
     Number(entry.status) >= 400 && !isIgnoredTelemetryEntry(entry));
@@ -441,6 +681,13 @@ export function summarizeRelationsProbe(result) {
     !entry.canceled && !isIgnoredTelemetryEntry(entry));
   const runtimeErrors = (result.runtimeErrors || []).filter(entry => !isIgnoredTelemetryEntry(entry));
   const interaction = result.interaction || {};
+  const graphApi = interaction.graphApi || null;
+  const initialSnapshot = interaction.initialSnapshot;
+  const selectedSnapshot = interaction.selectedSnapshot;
+  const guildNodeCount = graphApi?.guildNodeCount;
+  const adaptiveLabelCap = Number.isInteger(guildNodeCount) && guildNodeCount >= 0
+    ? 120 + guildNodeCount + 1
+    : null;
   return {
     gateway: result.gateway,
     pageReady: result.pageState?.ready === true
@@ -452,23 +699,64 @@ export function summarizeRelationsProbe(result) {
       && result.pageState?.loadingGuard?.mainNodeChanged === false
       && result.pageState?.loadingGuard?.completed === true
       && result.preReadySearchRequestCount === 0,
-    graphApi: interaction.graphApi || null,
+    graphApi,
     searchApi: interaction.searchApi || null,
+    initialSceneValid: hasCompleteSceneEvidence(initialSnapshot)
+      && initialSnapshot.apiNodeCount === graphApi?.nodeCount
+      && initialSnapshot.apiLinkCount === graphApi?.linkCount
+      && initialSnapshot.renderedNodeCount === graphApi?.nodeCount
+      && initialSnapshot.renderedLinkCount === graphApi?.linkCount
+      && overviewSceneMatches(initialSnapshot, graphApi?.linkCount)
+      && focusedSceneMatches(initialSnapshot)
+      && adaptiveSceneLabelsMatch(initialSnapshot, adaptiveLabelCap)
+      && initialSnapshot.selectedLinkCount === 0,
     selectedMainValid: hasUniqueFixedMain(interaction.selectedSnapshot),
     filteredMainValid: hasUniqueFixedMain(interaction.filteredSnapshot)
       && interaction.filteredSnapshot?.activeTypes?.length === 0
       && interaction.filteredSnapshot?.renderedLinkCount === 0
+      && interaction.filteredSnapshot?.overviewLinkCount === 0
       && interaction.filteredSnapshot?.renderedNodeCount === 1,
+    filteredSceneValid: clearedSceneMatches(interaction.filteredSnapshot),
     refreshedMainValid: interaction.refreshCompleted === true
       && hasUniqueFixedMain(interaction.refreshedSnapshot)
       && interaction.refreshedSnapshot?.activeTypes?.length === 0
       && interaction.refreshedSnapshot?.renderedLinkCount === 0
+      && interaction.refreshedSnapshot?.overviewLinkCount === 0
       && interaction.refreshedSnapshot?.renderedNodeCount === 1,
+    refreshedSceneValid: interaction.refreshCompleted === true
+      && clearedSceneMatches(interaction.refreshedSnapshot),
+    sceneObjectsReady: selectedSnapshot?.sceneObjectsReady === true,
+    overviewBatchValid: hasCompleteSceneEvidence(selectedSnapshot)
+      && selectedSnapshot.apiNodeCount === graphApi?.nodeCount
+      && selectedSnapshot.apiLinkCount === graphApi?.linkCount
+      && selectedSnapshot.renderedNodeCount === graphApi?.nodeCount
+      && selectedSnapshot.renderedLinkCount === graphApi?.linkCount
+      && overviewSceneMatches(selectedSnapshot, graphApi?.linkCount),
+    adaptiveLabelsValid: hasCompleteSceneEvidence(selectedSnapshot)
+      && adaptiveSceneLabelsMatch(selectedSnapshot, adaptiveLabelCap),
+    focusedLinksValid: hasCompleteSceneEvidence(selectedSnapshot)
+      && selectedSnapshot.selectedLinkCount > 0
+      && selectedSnapshot.focusedLinkCount === selectedSnapshot.selectedLinkCount
+      && selectedSnapshot.focusedLinkObjectCount === selectedSnapshot.focusedLinkCount,
+    focusedArrowsValid: hasCompleteSceneEvidence(selectedSnapshot)
+      && focusedSceneMatches(selectedSnapshot),
+    selectedRelationCountValid: isNonNegativeInteger(interaction.selectedRelationCount)
+      && isNonNegativeInteger(selectedSnapshot?.selectedLinkCount)
+      && interaction.selectedRelationCount === selectedSnapshot.selectedLinkCount,
     explicitSelectionRequired: interaction.explicitSelectionRequired === true,
     refreshLoadingGuardValid: interaction.refreshLoadingGuard?.observedPending === true
       && interaction.refreshLoadingGuard?.heldDuringPending === true
       && interaction.refreshLoadingGuard?.pendingSubmitDispatched === true
       && interaction.refreshLoadingGuard?.searchRequestCount === 0
+      && interaction.refreshLoadingGuard?.graphRequestCount === 1
+      && interaction.refreshLoadingGuard?.graphResponseCount === 1
+      && interaction.refreshLoadingGuard?.graphOkResponseCount === 1
+      && interaction.refreshLoadingGuard?.snapshotMutationCount > 0
+      && interaction.refreshLoadingGuard?.graphRequestSequence > 0
+      && interaction.refreshLoadingGuard?.graphOkResponseSequence
+        > interaction.refreshLoadingGuard.graphRequestSequence
+      && interaction.refreshLoadingGuard?.latestSnapshotMutationSequence
+        > interaction.refreshLoadingGuard.graphOkResponseSequence
       && interaction.refreshLoadingGuard?.mainNodePreserved === true,
     failedResponseCount: failedResponses.length,
     networkFailureCount: networkFailures.length,
@@ -488,10 +776,38 @@ export function assertRelationsProbe(summary) {
   if (summary.graphApi?.status !== 200 || !summary.graphApi?.json) {
     errors.push('graph API did not return HTTP 200 JSON');
   }
+  if (summary.graphApi?.source !== 'initial-page-response') {
+    errors.push('graph API evidence did not come from the initial page response');
+  }
   if (!(summary.graphApi?.nodeCount > 0)) errors.push('graph API returned no nodes');
-  if (summary.graphApi?.hasEmailKey) errors.push('graph API exposed an email field');
-  if (summary.graphApi?.containsAnyEmailValue) errors.push('graph API exposed an email-shaped value');
-  if (summary.graphApi?.containsSelectedEmail) errors.push('graph API exposed the selected hospital email value');
+  if (!(summary.graphApi?.hospitalNodeCount > 0)) errors.push('graph API returned no hospital nodes');
+  if (summary.graphApi?.hospitalNodeCount !== summary.graphApi?.uniqueHospitalIdCount
+      || summary.graphApi?.duplicateHospitalIdCount !== 0) {
+    errors.push('hospital nodes were not unique by hospital ID');
+  }
+  if (summary.graphApi?.missingHospitalIdCount !== 0
+      || summary.graphApi?.hospitalNodeIdMismatchCount !== 0) {
+    errors.push('hospital node IDs did not match hospital:<hospitalId>');
+  }
+  if (summary.graphApi?.nodeCount
+      !== summary.graphApi?.hospitalNodeCount + summary.graphApi?.guildNodeCount) {
+    errors.push('graph API returned nodes outside the hospital and guild model');
+  }
+  if (summary.graphApi?.directorNodeCount !== 0 || summary.graphApi?.heroNodeCount !== 0
+      || summary.graphApi?.unsupportedNodeKindCount !== 0) {
+    errors.push('graph API retained director, hero, or unsupported nodes');
+  }
+  if (summary.graphApi?.legacyIdentityRelationTypeCount !== 0
+      || summary.graphApi?.legacyIdentityLinkCount !== 0) {
+    errors.push('graph API retained legacy director or hero identity relations');
+  }
+  if (summary.graphApi?.hasEmailKey !== false) errors.push('graph API exposed an email field or omitted isolation evidence');
+  if (summary.graphApi?.containsAnyEmailValue !== false) {
+    errors.push('graph API exposed an email-shaped value or omitted isolation evidence');
+  }
+  if (summary.graphApi?.containsSelectedEmail !== false) {
+    errors.push('graph API exposed the selected hospital email value or omitted isolation evidence');
+  }
   if (!summary.searchApi?.allQueriesOk) errors.push('hospital search API did not return HTTP 200 JSON for all query fields');
   if (!summary.searchApi?.hospitalNameMatched) errors.push('hospital name search did not return the hospital');
   if (!summary.searchApi?.directorNameMatched) errors.push('director name search did not return the hospital');
@@ -502,9 +818,34 @@ export function assertRelationsProbe(summary) {
   }
   if (!summary.searchApi?.selectedEmailPresent) errors.push('hospital search result missed email');
   if (!summary.explicitSelectionRequired) errors.push('hospital query selected a main node before an explicit result click');
+  if (!summary.initialSceneValid) {
+    errors.push('initial full scene did not match graph API node and relation totals with complete scene evidence');
+  }
   if (!summary.selectedMainValid) errors.push('selected hospital was not the unique main node fixed at the origin');
   if (!summary.filteredMainValid) errors.push('main hospital was not retained after disabling relations and hiding isolated nodes');
+  if (!summary.filteredSceneValid) {
+    errors.push('filtered all-off scene retained geometry or omitted scene object evidence');
+  }
   if (!summary.refreshedMainValid) errors.push('main hospital was not retained at the origin after refresh');
+  if (!summary.refreshedSceneValid) {
+    errors.push('refreshed all-off scene retained geometry or omitted scene object evidence');
+  }
+  if (!summary.sceneObjectsReady) errors.push('relation graph scene objects did not report synchronized evidence');
+  if (!summary.overviewBatchValid) {
+    errors.push('overview scene object and geometry did not cover every active logical relation');
+  }
+  if (!summary.adaptiveLabelsValid) {
+    errors.push('actual Sprite labels did not match the expected adaptive label set or cap');
+  }
+  if (!summary.focusedLinksValid) {
+    errors.push('selected hospital had no relation or actual focused links did not match its logical selected relations');
+  }
+  if (!summary.focusedArrowsValid) {
+    errors.push('actual focused arrow objects did not match the logical directed relation count');
+  }
+  if (!summary.selectedRelationCountValid) {
+    errors.push('selected relation detail count did not match the logical selected relation count');
+  }
   if (!summary.refreshLoadingGuardValid) errors.push('hospital search loading guard failed while the graph refreshed');
   if (summary.failedResponseCount > 0) errors.push(`${summary.failedResponseCount} responses returned 4xx/5xx`);
   if (summary.networkFailureCount > 0) errors.push(`${summary.networkFailureCount} network requests failed`);
@@ -582,6 +923,8 @@ export async function runRelationsRelease(args, {
       `gateway=${gateway.name}`,
       `attempts=${validated.attempts}`,
       `graph_nodes=${summary.graphApi.nodeCount}`,
+      `hospital_nodes=${summary.graphApi.hospitalNodeCount}`,
+      `guild_nodes=${summary.graphApi.guildNodeCount}`,
       `graph_links=${summary.graphApi.linkCount}`,
       `search_hospital_results=${summary.searchApi.resultCounts.hospitalName}`,
       `search_director_results=${summary.searchApi.resultCounts.directorName}`,

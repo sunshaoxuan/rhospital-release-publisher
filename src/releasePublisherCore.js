@@ -602,9 +602,9 @@ function createPlan(projectRoot, request, env = process.env) {
     steps.push(releaseStep({
       key: 'verify-relations-release',
       title: '验证管理员关系图发布结果',
-      summary: '使用受控管理员登录令牌和真实 Chrome 分别直连 Riven 与 VMISS，验证三字段医院查询、显式主节点选择、邮箱隔离、加载门禁和筛选刷新状态',
+      summary: '使用受控管理员登录令牌和真实 Chrome 分别直连 Riven 与 VMISS，验证医院 ID 唯一、API 与真实场景对象全量一致、三字段查询、显式选择及筛选刷新场景清理',
       command: relationsReleaseCheckCommand(appTag, env),
-      validation: '两台前置均须打开 /relations，邮箱、医院名和院长名查询均返回同一医院，查询提交不得自动选择，关系图接口不含邮箱，搜索在加载和刷新期间禁用，显式选择的医院作为唯一原点主节点并在关闭关系、隐藏孤立节点和刷新后保持；网络、控制台和运行时错误必须为零',
+      validation: '两台前置均须打开 /relations，医院节点按 hospitalId 唯一且仅含医院与公会，页面首次关系 API 响应的节点与连线总数必须等于实际渲染及概览几何总数；邮箱、医院名和院长名查询均返回同一家至少有一条明确关系的医院，查询提交不得自动选择，关系图接口不含邮箱；搜索在加载和刷新期间禁用，刷新 dataset 快照必须发生在成功响应之后，显式选择的医院作为唯一原点主节点，精细连线、箭头和详情计数一致，关闭关系、隐藏孤立节点与刷新后的实际场景关系对象均清零且主节点保持；网络、控制台和运行时错误必须为零',
       actionType: 'remote-check',
       executable: true,
       finalCheck: true,
