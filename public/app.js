@@ -408,7 +408,7 @@
       ] },
       { key: 'observe', title: '全链路观察', members: [
         'commit-game-cutover', 'final-runtime-check', 'verify-game-static-delivery',
-        'verify-tradepool-release'
+        'verify-relations-release', 'verify-tradepool-release'
       ] },
       { key: 'recovery', title: '致命故障恢复', members: [
         'game-rollback-decision', 'game-fatal-rollback-decision', 'game-rollback-command',

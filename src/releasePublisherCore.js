@@ -49,6 +49,7 @@ const KNOWN_RELEASE_CHECKS = {
     'final-runtime-check',
     'verify-game-static-delivery',
     'verify-tradepool-release',
+    'verify-relations-release',
     'game-fatal-rollback-decision'
   ]),
   forum: new Set([
@@ -599,6 +600,17 @@ function createPlan(projectRoot, request, env = process.env) {
       timeoutSeconds: 2100
     }));
     steps.push(releaseStep({
+      key: 'verify-relations-release',
+      title: '验证管理员关系图发布结果',
+      summary: '使用受控管理员登录令牌和真实 Chrome 分别直连 Riven 与 VMISS，验证三字段医院查询、显式主节点选择、邮箱隔离、加载门禁和筛选刷新状态',
+      command: relationsReleaseCheckCommand(appTag, env),
+      validation: '两台前置均须打开 /relations，邮箱、医院名和院长名查询均返回同一医院，查询提交不得自动选择，关系图接口不含邮箱，搜索在加载和刷新期间禁用，显式选择的医院作为唯一原点主节点并在关闭关系、隐藏孤立节点和刷新后保持；网络、控制台和运行时错误必须为零',
+      actionType: 'remote-check',
+      executable: true,
+      finalCheck: true,
+      timeoutSeconds: 900
+    }));
+    steps.push(releaseStep({
       key: 'verify-tradepool-release',
       title: '验证管理员交易池发布结果',
       summary: `核对 Catalog v${catalogSchemaVersion} 标记、字段、索引、迁移日志、匿名页面跳转和管理员 API 拒绝未登录请求`,
@@ -720,6 +732,13 @@ function gameStaticDeliveryCheckCommand(appTag, env = process.env) {
 
 function gameStaticDeliveryPrerequisiteCheckCommand(appTag, env = process.env) {
   return `${gameStaticDeliveryCheckCommand(appTag, env)} --check-prerequisites`;
+}
+
+function relationsReleaseCheckCommand(appTag, env = process.env) {
+  const scriptPath = path.resolve(__dirname, '..', 'scripts', 'verify-relations-release.mjs');
+  const authTokenFile = resolveGameStaticDeliveryAuthTokenFile(env);
+  const authTokenArgument = authTokenFile ? ` --auth-token-file ${shellToken(authTokenFile)}` : '';
+  return `node ${shellToken(scriptPath)} --app-tag ${shellToken(appTag)}${authTokenArgument}`;
 }
 
 function gameFatalRollbackDecisionCommand(remoteTarget, stackName, containerName, imageTag, appTag, env = process.env) {

@@ -218,7 +218,7 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 固定 CheckList 之外，业务仓库通过 `release/release-impact.json` 保存逐次发版影响评估。发布器比较最近一次成功生产发布提交和目标提交，检测游戏或论坛运行路径变化。存在运行变化时，评估文件必须同时更新并使用新的 `assessmentId`，`coveredRuntimePaths` 必须与 Git 差异完全一致。评估还必须说明代码影响、数据库影响、风险等级、现有检查是否足够，并引用发布器已注册的可执行步骤。`databaseImpact` 接受固定分类，也接受 `固定分类: 详细说明`，发布历史会分别保存规范分类和说明。遗漏评估、沿用旧标识、路径覆盖不完整、数据库影响未声明或检查步骤不存在时，发布计划生成直接失败。
 
-游戏发布固定执行 `validate-game-static-delivery-prerequisites`，并至少保留 `test-game-backend`、`verify-game-static-assets-predeploy`、`pre-deploy-checklist`、`final-runtime-check` 和 `verify-game-static-delivery`。论坛构建发布至少保留 `validate-forum-source`、`forum-preflight` 和 `final-runtime-check`，源码门禁包含论坛镜像、搜索迁移和部署配置契约测试。实体、Repository、DAO 或迁移脚本变化时必须声明数据库影响；存在游戏迁移脚本时还必须选择 `apply-database-migrations`。现有步骤无法覆盖新增风险时，应先在本仓库增加可执行检查和测试，再由业务仓库的影响评估引用该步骤。论坛生产 Compose 修改开始后，失败、取消或发布器重启会进入 `RECOVERY_REQUIRED`，保留备份与回滚入口供人工复核。
+游戏发布固定执行 `validate-game-static-delivery-prerequisites`，并至少保留 `test-game-backend`、`verify-game-static-assets-predeploy`、`pre-deploy-checklist`、`final-runtime-check` 和 `verify-game-static-delivery`。正式游戏部署计划还会执行 `verify-relations-release`，该步骤已注册为业务影响评估可引用的检查。论坛构建发布至少保留 `validate-forum-source`、`forum-preflight` 和 `final-runtime-check`，源码门禁包含论坛镜像、搜索迁移和部署配置契约测试。实体、Repository、DAO 或迁移脚本变化时必须声明数据库影响；存在游戏迁移脚本时还必须选择 `apply-database-migrations`。现有步骤无法覆盖新增风险时，应先在本仓库增加可执行检查和测试，再由业务仓库的影响评估引用该步骤。论坛生产 Compose 修改开始后，失败、取消或发布器重启会进入 `RECOVERY_REQUIRED`，保留备份与回滚入口供人工复核。
 
 游戏静态资源采用应用切换前交付：
 
@@ -253,6 +253,27 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 ```powershell
 node scripts\verify-game-static-delivery.mjs --help
 node scripts\verify-game-static-delivery.mjs --app-tag 20260803 --check-prerequisites
+```
+
+## 管理员关系图发布验收
+
+`verify-relations-release` 在游戏最终运行校验之后执行，并复用静态交付检查的受控管理员 token 文件、Chrome DevTools Protocol、WebGL 能力探针、双前置 IP 和目标域名。检查分别直连 Riven 与 VMISS，真实打开 `/relations`，不会通过负载均衡随机选择节点。
+
+每个前置依次执行以下检查：
+
+1. 等待关系图页面、3D 图和医院查询控件进入可用状态。
+2. 读取 `/api/admin/relations`，要求返回非空 JSON 图数据，递归检查响应中不存在 `email` 字段。
+3. 从图数据选择一家同时具备医院名和院长名的医院，分别按医院名、院长名和搜索响应中的邮箱请求 `/api/admin/relations/hospitals/search`，三种查询均须返回同一医院。检查还确认搜索响应存在邮箱，该邮箱值没有出现在图接口响应中。
+4. 从 `DOMContentLoaded` 到图就绪持续观察搜索控件，整个 pending 窗口必须保持禁用；pending 期间实际提交一次查询，要求没有搜索请求、结果或主节点变化。图就绪后通过页面表单提交邮箱查询，结果出现后主节点仍须为空；明确点击对应结果后，所选医院才成为唯一固定节点，`x`、`y`、`z`、`fx`、`fy` 和 `fz` 全部为 `0`。
+5. 通过页面控件关闭全部关系类型、启用隐藏孤立节点并点击刷新。刷新 pending 窗口持续观察搜索控件并实际提交查询，要求控件始终禁用、没有搜索请求且主节点不变；刷新完成后画布只保留主医院、连线为零，主节点、筛选状态和原点固定状态继续保持。
+6. 捕获 HTTP 4xx/5xx、网络加载失败、控制台错误、未捕获运行时异常和浏览器错误日志。除现有明确隔离的 New Relic 遥测失败外，任一错误都会使检查失败。
+
+检查日志只输出节点数、连线数、匹配数量、查询字段类型和布尔验收结果。管理员 token、医院邮箱和查询值不会写入发布日志或历史。浏览器基础设施错误沿用隔离 profile 重试预算，页面、接口和业务断言失败保持失败关闭。
+
+独立执行命令如下：
+
+```powershell
+node scripts\verify-relations-release.mjs --app-tag 20260810 --auth-token-file C:\ProgramData\RHospital\secrets\game-smoke-token.txt
 ```
 
 包含管理员交易池的游戏发布还会执行以下门禁：

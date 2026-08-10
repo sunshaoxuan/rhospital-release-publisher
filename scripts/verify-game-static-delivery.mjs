@@ -318,7 +318,7 @@ function withProbeQuery(rawUrl, probeKey) {
   return url.toString();
 }
 
-async function evaluate(client, expression) {
+export async function evaluate(client, expression) {
   const result = await client.send('Runtime.evaluate', {
     expression,
     awaitPromise: true,
@@ -366,7 +366,7 @@ async function stopChrome(child, timeoutMs = 3000) {
   }
 }
 
-async function useChromeTarget({chromePath, extraArguments = [], startupTimeoutMs, cdpTimeoutMs}, action) {
+export async function useChromeTarget({chromePath, extraArguments = [], startupTimeoutMs, cdpTimeoutMs}, action) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rhospital-release-smoke-'));
   const debugFile = path.join(userDataDir, 'DevToolsActivePort');
   const stderr = [];

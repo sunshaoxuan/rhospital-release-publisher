@@ -408,6 +408,18 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.validation.includes('X-Cache')
     && step.validation.includes('Steam ES 模块')
     && step.summary.includes('隔离复测一次')));
+  assert.ok(plan.steps.some(step => step.key === 'verify-relations-release'
+    && step.finalCheck
+    && step.timeoutSeconds === 900
+    && step.command.includes('verify-relations-release.mjs')
+    && step.command.includes('--app-tag 2026070702')
+    && step.command.includes("--auth-token-file 'C:\\ProgramData\\RHospital\\secrets\\game-smoke-token.txt'")
+    && step.validation.includes('/relations')
+    && step.validation.includes('关系图接口不含邮箱')
+    && step.validation.includes('邮箱、医院名和院长名')
+    && step.validation.includes('查询提交不得自动选择')
+    && step.validation.includes('加载和刷新期间禁用')
+    && step.summary.includes('Riven 与 VMISS')));
   assert.ok(plan.steps.some(step => step.key === 'validate-game-static-delivery-prerequisites'
     && step.command.includes('verify-game-static-delivery.mjs')
     && step.command.includes('--app-tag 2026070702')
@@ -464,10 +476,14 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.match(cleanupScript, /target service health changed during post-release cleanup/);
   assert.doesNotMatch(cleanupScript, /docker container prune|docker system prune|docker image rm/);
   const staticDeliveryIndex = plan.steps.findIndex(step => step.key === 'verify-game-static-delivery');
+  const relationsReleaseIndex = plan.steps.findIndex(step => step.key === 'verify-relations-release');
   const tradePoolIndex = plan.steps.findIndex(step => step.key === 'verify-tradepool-release');
   const cleanupIndex = plan.steps.findIndex(step => step.key === 'cleanup-game-release-containers');
-  assert.ok(finalRuntimeIndex < cleanupIndex && staticDeliveryIndex < cleanupIndex && tradePoolIndex < cleanupIndex,
-    'post-release cleanup must run after every final game verification');
+  assert.ok(finalRuntimeIndex < staticDeliveryIndex
+    && staticDeliveryIndex < relationsReleaseIndex
+    && relationsReleaseIndex < tradePoolIndex
+    && tradePoolIndex < cleanupIndex,
+    'final game verification order must be runtime, static delivery, relations, trade pool, then cleanup');
   const gameRollback = plan.steps.find(step => step.key === 'game-rollback-command');
   const gameRollbackDecision = plan.steps.find(step => step.key === 'game-rollback-decision');
   assert.ok(gameRollbackDecision);
@@ -516,6 +532,7 @@ test('creates dry run command plan without production execution enabled', () => 
   assertStepType(plan, 'commit-game-cutover', 'remote-check', false);
   assertStepType(plan, 'final-runtime-check', 'remote-check', false);
   assertStepType(plan, 'verify-game-static-delivery', 'remote-check', false);
+  assertStepType(plan, 'verify-relations-release', 'remote-check', false);
   assertStepType(plan, 'verify-tradepool-release', 'remote-check', false);
   assertStepType(plan, 'cleanup-game-release-containers', 'production', true);
   assertStepType(plan, 'game-rollback-decision', 'remote-check', false);
@@ -818,6 +835,50 @@ test('accepts an updated release impact assessment with exact runtime path and r
     'pre-deploy-checklist',
     'final-runtime-check',
     'verify-game-static-delivery'
+  ]);
+});
+
+test('accepts verify-relations-release as a registered executable game impact check', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'relations changed\n', 'utf8');
+  writeReleaseImpact(root, {
+    assessmentId: '20260810-relations-impact',
+    coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated',
+    requiredChecks: [
+      'test-game-backend',
+      'verify-game-static-assets-predeploy',
+      'pre-deploy-checklist',
+      'final-runtime-check',
+      'verify-game-static-delivery',
+      'verify-relations-release'
+    ]
+  });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'relations impact check']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+
+  const plan = createPlan(root, releaseImpactPlanRequest(
+    target,
+    baseline,
+    [runtimePath],
+    ['release/release-impact.json']
+  ));
+  const relationsStep = plan.steps.find(step => step.key === 'verify-relations-release');
+
+  assert.ok(relationsStep);
+  assert.equal(relationsStep.executable, true);
+  assert.equal(relationsStep.finalCheck, true);
+  assert.ok(relationsStep.command.includes('verify-relations-release.mjs'));
+  assert.deepEqual(plan.config.releaseImpactAssessment.requiredChecks.map(item => item.stepKey), [
+    'test-game-backend',
+    'verify-game-static-assets-predeploy',
+    'pre-deploy-checklist',
+    'final-runtime-check',
+    'verify-game-static-delivery',
+    'verify-relations-release'
   ]);
 });
 
@@ -1929,6 +1990,7 @@ test('runtime source exposes fatal-gated observation and visible active job hear
   assert.match(app, /准备发布源/);
   assert.match(app, /批量测试与构建/);
   assert.match(app, /全链路观察/);
+  assert.match(app, /'verify-game-static-delivery',\s*'verify-relations-release', 'verify-tradepool-release'/);
   assert.match(app, /致命故障恢复/);
   assert.match(app, /step\.recoveryOnly/);
   assert.match(app, /距超时约/);
