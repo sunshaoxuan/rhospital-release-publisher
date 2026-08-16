@@ -460,9 +460,15 @@ test('fails closed when graph email isolation evidence is omitted', async () => 
 
 test('fails closed when any query field, explicit selection, or continuous loading guard regresses', async () => {
   const {summarizeRelationsProbe, assertRelationsProbe} = await verifier();
+  const initialGuardResult = passingResult();
+  initialGuardResult.pageState.loadingGuard.heldDuringPending = false;
+  initialGuardResult.preReadySearchRequestCount = 1;
+  assert.throws(
+    () => assertRelationsProbe(summarizeRelationsProbe(initialGuardResult)),
+    /loading guard failed before the graph became ready/
+  );
+
   const result = passingResult();
-  result.pageState.loadingGuard.heldDuringPending = false;
-  result.preReadySearchRequestCount = 1;
   result.interaction.searchApi.allQueriesOk = false;
   result.interaction.searchApi.hospitalNameMatched = false;
   result.interaction.searchApi.directorNameMatched = false;
@@ -472,7 +478,6 @@ test('fails closed when any query field, explicit selection, or continuous loadi
   result.interaction.refreshLoadingGuard.searchRequestCount = 1;
 
   assert.throws(() => assertRelationsProbe(summarizeRelationsProbe(result)), error => {
-    assert.match(error.message, /loading guard failed before the graph became ready/);
     assert.match(error.message, /all query fields/);
     assert.match(error.message, /hospital name search/);
     assert.match(error.message, /director name search/);
@@ -504,15 +509,23 @@ test('fails closed when refresh request, response, or ordered snapshot cycle evi
   }
 });
 
-test('browser probe continuously samples pending windows and submits guarded searches', () => {
+test('browser probe continuously samples pending windows through disabled controls', () => {
   const source = fs.readFileSync(path.resolve(__dirname, '..', 'scripts', 'verify-relations-release.mjs'), 'utf8');
 
   assert.match(source, /requestAnimationFrame\(sample\)/);
   assert.match(source, /preReadySearchRequestCount/);
   assert.match(source, /queueMicrotask\(\(\) =>/);
+  assert.match(source, /document\.getElementById\('node-search-button'\)\?\.click\(\)/);
+  assert.match(source, /guard\.pendingSubmitDispatched = true;\s+button\.click\(\)/);
   assert.match(source, /while \(refreshButton\.disabled\)/);
   assert.match(source, /refreshLoadingGuard\.searchRequestCount/);
   assert.match(source, /pendingSubmitDispatched/);
+  assert.match(source,
+    /snapshot\?\.focusedLinkCount === snapshot\?\.selectedLinkCount[\s\S]{0,300}snapshot\?\.focusedArrowObjectCount === snapshot\?\.focusedDirectedLinkCount/,
+    'selected scene capture must wait for logical links, rendered objects, and arrows to synchronize');
+  assert.doesNotMatch(source,
+    /selected main hospital with synchronized scene objects'[\s\S]{0,250}selectedSnapshot = readSnapshot\(\)/,
+    'a later animation-frame sample must not overwrite the synchronized selected snapshot');
   assert.match(source, /legacyIdentityLinkCount = graphLinks\.filter/);
   assert.match(source, /hasEmailKey !== false/);
   assert.match(source, /selectedRelationCountText\.replace\(\/\[,，\]\/g/);
@@ -521,6 +534,63 @@ test('browser probe continuously samples pending windows and submits guarded sea
   assert.match(source, /__relationsReleaseInitialGraphCapture/);
   assert.doesNotMatch(source, /const graphResponse = await fetch/);
   assert.doesNotMatch(source, /previousDebugHandle/);
+  assert.equal((source.match(/requestSubmit/g) || []).length, 2,
+    'requestSubmit is limited to the enabled search interaction and its fallback capability check');
+  assert.doesNotMatch(source,
+    /queueMicrotask\(\(\) =>[\s\S]{0,500}requestSubmit/,
+    'initial loading guard must not bypass disabled controls with requestSubmit');
+});
+
+test('page readiness failures stop before unrelated graph and interaction assertions', async () => {
+  const {summarizeRelationsProbe, assertRelationsProbe} = await verifier();
+  const result = passingResult();
+  result.pageState.ready = false;
+  result.pageState.loadingGuard.completed = false;
+  result.interaction = null;
+
+  assert.throws(() => assertRelationsProbe(summarizeRelationsProbe(result)), error => {
+    assert.match(error.message, /administrator relations page did not become ready/);
+    assert.match(error.message, /loading guard failed before the graph became ready/);
+    assert.doesNotMatch(error.message, /graph API returned no nodes/);
+    assert.doesNotMatch(error.message, /hospital search API/);
+    return true;
+  });
+});
+
+test('failure evidence records reload loops and successful graph responses without sensitive payloads', async () => {
+  const {relationsFailureEvidence} = await verifier();
+  const evidence = relationsFailureEvidence({
+    gateway: 'riven',
+    pageState: {
+      href: 'https://rhospital.cc/relations?',
+      pathname: '/relations',
+      ready: false,
+      loadingGuard: {completed: false}
+    },
+    preReadySearchRequestCount: 0,
+    responses: [
+      {url: 'https://rhospital.cc/relations', status: 200},
+      {url: 'https://rhospital.cc/relations?', status: 200},
+      {url: 'https://rhospital.cc/api/admin/relations?refresh=false', status: 200}
+    ],
+    failures: [],
+    runtimeErrors: []
+  });
+
+  assert.deepEqual(evidence, {
+    gateway: 'riven',
+    finalUrl: 'https://rhospital.cc/relations?',
+    pathname: '/relations',
+    pageReady: false,
+    loadingGuard: {completed: false},
+    relationDocumentResponses: 2,
+    graphResponses: 1,
+    graphStatuses: [200],
+    preReadySearchRequestCount: 0,
+    networkFailures: 0,
+    runtimeErrors: 0
+  });
+  assert.doesNotMatch(JSON.stringify(evidence), /@|token/i);
 });
 
 test('dataset snapshot fallback completes a refresh cycle without a runtime debug handle', async () => {

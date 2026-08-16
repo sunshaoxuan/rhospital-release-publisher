@@ -242,11 +242,18 @@ export function relationsInteractionExpression(timeoutMs) {
         return snapshot?.mainNodeId === selected.nodeId
           && snapshot?.selectedNodeId === selected.nodeId
           && snapshot?.sceneObjectsReady === true
+          && snapshot?.selectedLinkCount > 0
+          && snapshot?.focusedLinkCount === snapshot?.selectedLinkCount
+          && snapshot?.focusedLinkObjectCount === snapshot?.focusedLinkCount
+          && snapshot?.focusedDirectedLinkCount <= snapshot?.focusedLinkCount
+          && snapshot?.focusedArrowObjectCount === snapshot?.focusedDirectedLinkCount
+          && snapshot?.overviewLinkCount === snapshot?.apiLinkCount
+          && snapshot?.overviewGeometrySegmentCount === snapshot?.apiLinkCount
+          && snapshot?.overviewLineObjectCount === 1
+          && snapshot?.spriteLabelCount === snapshot?.expectedSpriteLabelCount
           ? snapshot
           : null;
       }, 'selected main hospital with synchronized scene objects');
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-      selectedSnapshot = readSnapshot();
       const selectedRelationCountText = String(
         document.getElementById('selected-relation-count')?.textContent || '').trim();
       const normalizedSelectedRelationCount = selectedRelationCountText.replace(/[,，]/g, '');
@@ -328,8 +335,7 @@ export function relationsInteractionExpression(timeoutMs) {
           if (readSnapshot()?.mainNodeId !== selected.nodeId) refreshLoadingGuard.mainNodePreserved = false;
           if (!refreshLoadingGuard.pendingSubmitDispatched) {
             refreshLoadingGuard.pendingSubmitDispatched = true;
-            if (typeof searchForm.requestSubmit === 'function') searchForm.requestSubmit();
-            else searchForm.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}));
+            document.getElementById('node-search-button')?.click();
           }
           await sleep(25);
         }
@@ -542,11 +548,10 @@ export async function runRelationsProbe({
         };
         sample();
         queueMicrotask(() => {
-          if (!input || !form) return;
+          if (!input || !button || !form) return;
           input.value = 'relations-loading-guard';
           guard.pendingSubmitDispatched = true;
-          if (typeof form.requestSubmit === 'function') form.requestSubmit();
-          else form.dispatchEvent(new Event('submit', {bubbles: true, cancelable: true}));
+          button.click();
         });
         }, {once: true});
       })();`
@@ -773,6 +778,7 @@ export function assertRelationsProbe(summary) {
   if (!summary.initialLoadingGuardValid) {
     errors.push('hospital search loading guard failed before the graph became ready');
   }
+  if (errors.length > 0) throw new Error(errors.join('; '));
   if (summary.graphApi?.status !== 200 || !summary.graphApi?.json) {
     errors.push('graph API did not return HTTP 200 JSON');
   }
@@ -862,6 +868,35 @@ export function safeErrorMessage(error) {
     .slice(0, 500);
 }
 
+export function relationsFailureEvidence(result) {
+  const responses = Array.isArray(result?.responses) ? result.responses : [];
+  const pageResponses = responses.filter(entry => {
+    try {
+      const url = new URL(entry?.url || '');
+      return url.pathname === RELATIONS_ROUTE;
+    } catch {
+      return false;
+    }
+  });
+  const graphResponses = responses.filter(entry => String(entry?.url || '')
+    .includes('/api/admin/relations?refresh=false'));
+  return {
+    gateway: result?.gateway || '',
+    finalUrl: result?.pageState?.href || '',
+    pathname: result?.pageState?.pathname || '',
+    pageReady: result?.pageState?.ready === true,
+    loadingGuard: result?.pageState?.loadingGuard || null,
+    relationDocumentResponses: pageResponses.length,
+    graphResponses: graphResponses.length,
+    graphStatuses: [...new Set(graphResponses.map(entry => Number(entry?.status || 0)))],
+    preReadySearchRequestCount: Number(result?.preReadySearchRequestCount || 0),
+    networkFailures: (result?.failures || []).filter(entry =>
+      !entry?.canceled && !isIgnoredTelemetryEntry(entry)).length,
+    runtimeErrors: (result?.runtimeErrors || []).filter(entry =>
+      !isIgnoredTelemetryEntry(entry)).length
+  };
+}
+
 async function runProbeWithInfrastructureRetry(options, {
   probeRunner,
   infrastructureRetries,
@@ -870,7 +905,12 @@ async function runProbeWithInfrastructureRetry(options, {
   for (let attempt = 1; attempt <= infrastructureRetries + 1; attempt += 1) {
     try {
       const result = await probeRunner(options);
-      return {result, summary: assertRelationsProbe(summarizeRelationsProbe(result)), attempts: attempt};
+      try {
+        return {result, summary: assertRelationsProbe(summarizeRelationsProbe(result)), attempts: attempt};
+      } catch (error) {
+        error.relationsReleaseEvidence = relationsFailureEvidence(result);
+        throw error;
+      }
     } catch (error) {
       const retryable = isBrowserInfrastructureFailure({error});
       if (!retryable || attempt > infrastructureRetries) throw error;
@@ -945,6 +985,9 @@ export async function runRelationsRelease(args, {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   runRelationsRelease(parseArgs(process.argv.slice(2))).catch(error => {
+    if (error?.relationsReleaseEvidence) {
+      console.error(`relations_release_failure_evidence=${JSON.stringify(error.relationsReleaseEvidence)}`);
+    }
     console.error(`relations_release_validation=FAIL reason=${JSON.stringify(safeErrorMessage(error))}`);
     process.exitCode = 1;
   });
