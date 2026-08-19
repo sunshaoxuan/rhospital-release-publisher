@@ -230,7 +230,7 @@
     fields.catalogSchemaVersion.textContent = isForum
       ? '论坛发布不适用'
       : config.catalogSchemaVersion ? `v${config.catalogSchemaVersion}，来自目标提交` : '等待计划解析';
-    fields.serverName.textContent = config.dockerServerName || config.serverName || '';
+    fields.serverName.textContent = config.dockerServerName || config.dockerContext || config.serverName || '';
     fields.sshTarget.textContent = config.remoteSshTarget || config.serverName || '';
     renderDockerContextResolution(config.dockerContextResolution);
     renderIdeaDockerServer(config.ideaDockerServerResolution, config.dockerCommandTarget);
@@ -238,10 +238,11 @@
     fields.dockerfile.textContent = config.dockerfile || '';
     fields.volumePath.textContent = config.volumeHostPath || '';
     fields.remoteComposePath.textContent = config.remoteComposeDir || '';
-    dockerContext.value = dockerContext.value || config.dockerServerName || config.serverName || '';
+    dockerContext.value = dockerContext.value || config.dockerServerName || config.dockerContext || config.serverName || '';
     remoteSshTarget.value = remoteSshTarget.value
       || config.remoteSshTarget
       || config.dockerServerName
+      || config.dockerContext
       || config.serverName
       || '';
     remoteComposeDir.value = !previousTarget || previousTarget !== config.releaseTarget
