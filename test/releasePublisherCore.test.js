@@ -16,6 +16,7 @@ const {
   executePlan,
   resolveDockerContextDetails,
   resolvePublisherDockerServerDetails,
+  resolveReleaseTargetDockerServerName,
   resolveIdeaDockerServerDetails,
   listGitBranches,
   listGitCommits,
@@ -1491,6 +1492,57 @@ test('resolves repository Docker Server details directly', () => {
   assert.equal(result.dockerHost, 'ssh://root@178.239.117.99:22');
 });
 
+test('resolves separate default Docker servers for game and forum releases', () => {
+  const configPath = tempPublisherConfig();
+  const env = {
+    RELEASE_PUBLISHER_CONFIG: configPath,
+    RELEASE_PUBLISHER_DOCKER_CONTEXT: 'SSH178',
+    RELEASE_PUBLISHER_SSH_TARGET: 'SSH178'
+  };
+
+  assert.equal(resolveReleaseTargetDockerServerName('game', 'SSH178', env), 'SSH178');
+  assert.equal(resolveReleaseTargetDockerServerName('forum', 'SSH178', env), 'FORUM_PRD2');
+
+  const root = tempProject(sampleXml);
+  const forumPlan = createPlan(root, {
+    releaseTarget: 'forum',
+    forumImageMode: 'reuse',
+    appTag: '20260817-prd2',
+    dryRun: true,
+    includeStackDeploy: false
+  }, {
+    ...env,
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true'
+  });
+
+  assert.equal(forumPlan.config.dockerContext, 'FORUM_PRD2');
+  assert.equal(forumPlan.config.remoteSshTarget, 'FORUM_PRD2');
+  assert.equal(forumPlan.config.remoteImageTarget.host, '92.113.124.185');
+  assert.equal(forumPlan.config.remoteImageTarget.keyPath, 'C:\\workspace\\Secure\\sunsxaws.pem');
+});
+
+test('keeps explicit forum release server overrides above configured defaults', () => {
+  const root = tempProject(sampleXml);
+  const configPath = tempPublisherConfig();
+  const plan = createPlan(root, {
+    releaseTarget: 'forum',
+    forumImageMode: 'reuse',
+    appTag: '20260817-prd2',
+    dockerContext: 'SSH178',
+    remoteSshTarget: 'root@override.example',
+    dryRun: true,
+    includeStackDeploy: false
+  }, {
+    RELEASE_PUBLISHER_CONFIG: configPath,
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true'
+  });
+
+  assert.equal(plan.config.dockerContext, 'SSH178');
+  assert.equal(plan.config.remoteSshTarget, 'root@override.example');
+});
+
 test('resolves IDEA Docker Server details directly', () => {
   const optionsDir = tempJetBrainsOptions();
   const result = resolveIdeaDockerServerDetails('SSH178', {
@@ -2430,6 +2482,12 @@ test('release console exposes game and forum targets with target-aware API paylo
   assert.match(css, /word-break:\s*break-all/);
   assert.match(css, /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
   assert.match(app, /api\/config\?releaseTarget=/);
+  assert.match(app, /dockerContext\.value = ''/);
+  assert.match(app, /remoteSshTarget\.value = ''/);
+  assert.match(app, /config\.dockerServerName/);
+  assert.match(app, /fields\.serverName\.textContent = config\.dockerServerName/);
+  assert.match(server, /resolveReleaseTargetDockerServerName\(releaseTarget/);
+  assert.match(server, /resolveReleaseTargetSshTarget\(releaseTarget/);
   assert.match(app, /执行论坛 Compose 发布/);
   assert.match(app, /function compactBranchLabel/);
   assert.match(app, /option\.title = branch\.name/);
@@ -2670,7 +2728,19 @@ function tempPublisherConfig() {
         keyPath: 'C:\\workspace\\Secure\\sunsxaws.pem',
         dockerExePath: '/usr/bin/docker',
         dockerComposeExePath: '/usr/bin/docker'
+      },
+      FORUM_PRD2: {
+        host: '92.113.124.185',
+        username: 'root',
+        port: '22',
+        keyPath: 'C:\\workspace\\Secure\\sunsxaws.pem',
+        dockerExePath: '/usr/bin/docker',
+        dockerComposeExePath: '/usr/bin/docker'
       }
+    },
+    releaseTargets: {
+      game: {dockerServer: 'SSH178'},
+      forum: {dockerServer: 'FORUM_PRD2'}
     }
   }, null, 2), 'utf8');
   return configPath;

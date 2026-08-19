@@ -25,6 +25,8 @@ const {
   resolveSshTargetDetails,
   resolveDockerContextDetails,
   resolveReleaseDockerServerDetails,
+  resolveReleaseTargetDockerServerName,
+  resolveReleaseTargetSshTarget,
   resolveDockerCommandTarget,
   readRemoteComposeImageTag,
   analyzeReleaseChanges,
@@ -92,14 +94,13 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/config' && req.method === 'GET') {
       const releaseTarget = validateReleaseTarget(requestUrl.searchParams.get('releaseTarget') || 'game');
       const config = readReleaseConfig(projectRoot, releaseTarget, DEFAULT_RUN_CONFIG);
-      const remoteSshTarget = process.env.RELEASE_PUBLISHER_SSH_TARGET
-        || process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT
-        || config.serverName;
-      const dockerServerName = process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT || config.serverName;
+      const dockerServerName = resolveReleaseTargetDockerServerName(releaseTarget, config.serverName, process.env);
+      const remoteSshTarget = resolveReleaseTargetSshTarget(releaseTarget, dockerServerName, process.env);
       const dockerContextResolution = resolveDockerContextDetails(dockerServerName, process.env);
       const ideaDockerServerResolution = resolveReleaseDockerServerDetails(dockerServerName, process.env);
       return sendJson(res, 200, {
         ...config,
+        dockerServerName,
         suggestedTag: proposeNextTag(config.appTag),
         remoteSshTarget,
         remoteComposeDir: releaseTarget === 'forum'
@@ -119,15 +120,13 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/remote-tag' && req.method === 'GET') {
       const releaseTarget = validateReleaseTarget(requestUrl.searchParams.get('releaseTarget') || 'game');
       const config = readReleaseConfig(projectRoot, releaseTarget, DEFAULT_RUN_CONFIG);
+      const dockerServerName = resolveReleaseTargetDockerServerName(releaseTarget, config.serverName, process.env);
       const remoteSshTarget = requestUrl.searchParams.get('remoteSshTarget')
-        || process.env.RELEASE_PUBLISHER_SSH_TARGET
-        || process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT
-        || config.serverName;
+        || resolveReleaseTargetSshTarget(releaseTarget, dockerServerName, process.env);
       const remoteComposeDir = requestUrl.searchParams.get('remoteComposeDir')
         || (releaseTarget === 'forum'
           ? process.env.RELEASE_PUBLISHER_FORUM_REMOTE_COMPOSE_DIR || DEFAULT_FORUM_REMOTE_COMPOSE_DIR
           : process.env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR);
-      const dockerServerName = process.env.RELEASE_PUBLISHER_DOCKER_CONTEXT || config.serverName;
       const serverResolution = resolveReleaseDockerServerDetails(dockerServerName, process.env);
       const target = serverResolution && serverResolution.resolved
         ? {

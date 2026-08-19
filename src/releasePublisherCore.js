@@ -179,8 +179,10 @@ function createPlan(projectRoot, request, env = process.env) {
   const appTag = validateTag(request.appTag || config.appTag);
   const imageName = config.imageName || DEFAULT_IMAGE_NAME;
   const imageTag = `${imageName}:${appTag}`;
-  const dockerContext = request.dockerContext || env.RELEASE_PUBLISHER_DOCKER_CONTEXT || config.serverName;
-  const remoteSshTarget = request.remoteSshTarget || env.RELEASE_PUBLISHER_SSH_TARGET || dockerContext;
+  const dockerContext = request.dockerContext
+    || resolveReleaseTargetDockerServerName('game', config.serverName, env);
+  const remoteSshTarget = request.remoteSshTarget
+    || resolveReleaseTargetSshTarget('game', dockerContext, env);
   const remoteComposeDir = request.remoteComposeDir || env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR;
   const sshResolution = resolveSshTargetDetails(remoteSshTarget, env);
   const dockerContextResolution = resolveDockerContextDetails(dockerContext, env);
@@ -807,8 +809,10 @@ function createForumPlan(projectRoot, request, env = process.env) {
   const forumImageModeLabel = forumImageMode === 'reuse' ? '复用生产已有镜像' : '构建并上传新镜像';
   const appTag = validateTag(request.appTag || proposeNextTag(''));
   const imageTag = `${config.imageName}:${appTag}`;
-  const dockerContext = request.dockerContext || env.RELEASE_PUBLISHER_DOCKER_CONTEXT || config.serverName;
-  const remoteSshTarget = request.remoteSshTarget || env.RELEASE_PUBLISHER_SSH_TARGET || dockerContext;
+  const dockerContext = request.dockerContext
+    || resolveReleaseTargetDockerServerName('forum', config.serverName, env);
+  const remoteSshTarget = request.remoteSshTarget
+    || resolveReleaseTargetSshTarget('forum', dockerContext, env);
   const remoteComposeDir = request.remoteComposeDir
     || env.RELEASE_PUBLISHER_FORUM_REMOTE_COMPOSE_DIR
     || DEFAULT_FORUM_REMOTE_COMPOSE_DIR;
@@ -2706,6 +2710,46 @@ function resolveReleaseDockerServerDetails(serverName, env = process.env) {
   return resolveIdeaDockerServerDetails(serverName, env);
 }
 
+function resolveReleaseTargetDockerServerName(releaseTarget, fallbackServerName, env = process.env) {
+  const target = validateReleaseTarget(releaseTarget);
+  const targetEnvironmentName = target === 'forum'
+    ? env.RELEASE_PUBLISHER_FORUM_DOCKER_SERVER
+    : env.RELEASE_PUBLISHER_GAME_DOCKER_SERVER;
+  if (targetEnvironmentName) {
+    return String(targetEnvironmentName);
+  }
+  const configuredName = configuredReleaseTargetDockerServerName(target, env);
+  if (configuredName) return configuredName;
+  if (env.RELEASE_PUBLISHER_DOCKER_CONTEXT) return String(env.RELEASE_PUBLISHER_DOCKER_CONTEXT);
+  return fallbackServerName || '';
+}
+
+function resolveReleaseTargetSshTarget(releaseTarget, dockerServerName, env = process.env) {
+  const target = validateReleaseTarget(releaseTarget);
+  const targetEnvironmentName = target === 'forum'
+    ? env.RELEASE_PUBLISHER_FORUM_SSH_TARGET
+    : env.RELEASE_PUBLISHER_GAME_SSH_TARGET;
+  if (targetEnvironmentName) return String(targetEnvironmentName);
+  const configuredName = configuredReleaseTargetDockerServerName(target, env);
+  if (configuredName) return configuredName;
+  if (env.RELEASE_PUBLISHER_SSH_TARGET) return String(env.RELEASE_PUBLISHER_SSH_TARGET);
+  return dockerServerName || '';
+}
+
+function configuredReleaseTargetDockerServerName(releaseTarget, env = process.env) {
+  const configPath = publisherConfigPath(env);
+  if (!fs.existsSync(configPath)) return '';
+  try {
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    const configuredName = config.releaseTargets
+      && config.releaseTargets[releaseTarget]
+      && config.releaseTargets[releaseTarget].dockerServer;
+    return configuredName ? String(configuredName) : '';
+  } catch {
+    return '';
+  }
+}
+
 function resolvePublisherDockerServerDetails(serverName, env = process.env) {
   const configPath = publisherConfigPath(env);
   const result = {
@@ -4207,6 +4251,8 @@ module.exports = {
   resolveSshTargetDetails,
   resolveDockerContextDetails,
   resolveReleaseDockerServerDetails,
+  resolveReleaseTargetDockerServerName,
+  resolveReleaseTargetSshTarget,
   resolvePublisherDockerServerDetails,
   resolveIdeaDockerServerDetails,
   resolveDockerCommandTarget,

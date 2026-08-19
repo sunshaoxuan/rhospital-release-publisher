@@ -10,6 +10,22 @@
       "keyPath": "C:\\workspace\\Secure\\sunsxaws.pem",
       "dockerExePath": "/usr/bin/docker",
       "dockerComposeExePath": "/usr/bin/docker"
+    },
+    "FORUM_PRD2": {
+      "host": "92.113.124.185",
+      "username": "root",
+      "port": "22",
+      "keyPath": "C:\\workspace\\Secure\\sunsxaws.pem",
+      "dockerExePath": "/usr/bin/docker",
+      "dockerComposeExePath": "/usr/bin/docker"
+    }
+  },
+  "releaseTargets": {
+    "game": {
+      "dockerServer": "SSH178"
+    },
+    "forum": {
+      "dockerServer": "FORUM_PRD2"
     }
   }
 }

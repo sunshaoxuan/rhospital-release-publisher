@@ -357,7 +357,7 @@ Dry run 只在当前页面展示结果，不写入构造历史。`.release-jobs.
 
 执行流程会先显示 Git 状态检查节点，再执行 `git fetch --prune origin`。如果选择 `最新提交`，发布器会切换到所选分支的最新提交；如果选择具体提交，发布器会执行 `git checkout <commit>`，并用 `git merge-base --is-ancestor <commit> <branch>` 校验该提交属于所选分支。
 
-当前发布配置中的 `server-name="SSH178"` 是发布 Docker Server 名称。发布器会优先读取仓库内的 `release-publisher.config.json`：
+当前发布配置中的 `server-name="SSH178"` 是游戏发布 Docker Server 名称。发布器会优先读取仓库内的 `release-publisher.config.json`，并通过 `releaseTargets` 为游戏与论坛选择各自的生产主机：
 
 ```json
 {
@@ -367,7 +367,17 @@ Dry run 只在当前页面展示结果，不写入构造历史。`.release-jobs.
       "username": "root",
       "port": "22",
       "keyPath": "C:\\workspace\\Secure\\sunsxaws.pem"
+    },
+    "FORUM_PRD2": {
+      "host": "92.113.124.185",
+      "username": "root",
+      "port": "22",
+      "keyPath": "C:\\workspace\\Secure\\sunsxaws.pem"
     }
+  },
+  "releaseTargets": {
+    "game": {"dockerServer": "SSH178"},
+    "forum": {"dockerServer": "FORUM_PRD2"}
   }
 }
 ```
@@ -387,10 +397,12 @@ Dry run 只在当前页面展示结果，不写入构造历史。`.release-jobs.
 docker build -f Dockerfile --build-arg APP_TAG=2026070702 -t hospital-backend:2026070702 .
 ```
 
-如果本机存在同名 Docker CLI context，发布器也会显示该 context 信息。若需要手工指定 Docker 目标名称，可在页面里修改 `Docker context`，也可以通过环境变量指定：
+如果本机存在同名 Docker CLI context，发布器也会显示该 context 信息。若需要手工指定 Docker 目标名称，可在页面里修改 `Docker context`，也可以通过目标专用环境变量指定。全局变量用于未配置 `releaseTargets` 的兼容场景：
 
 ```powershell
 $env:RELEASE_PUBLISHER_DOCKER_CONTEXT='SSH178'
+$env:RELEASE_PUBLISHER_GAME_DOCKER_SERVER='SSH178'
+$env:RELEASE_PUBLISHER_FORUM_DOCKER_SERVER='FORUM_PRD2'
 ```
 
 页面会用只读命令解析 Docker CLI context：
@@ -401,17 +413,21 @@ docker context inspect SSH178
 
 如果本机 Docker 没有这个 context，页面会显示 `Docker 未找到 context SSH178`。这只表示 Docker CLI context 不存在。只要发布 Docker Server 能解析到 SSH 主机和密钥，发布器仍可执行镜像上传和热发布。
 
-SSH 热发布默认也使用 `SSH178` 作为 SSH 目标。如果你的 SSH 目标不同，可在页面里修改 `SSH 目标`，也可以通过环境变量指定：
+SSH 热发布默认使用当前发布目标对应的 Docker Server。页面切换目标时会同步刷新该值。如果 SSH 目标不同，可在页面里修改 `SSH 目标`，也可以通过目标专用或全局环境变量指定：
 
 ```powershell
 $env:RELEASE_PUBLISHER_SSH_TARGET='SSH178'
+$env:RELEASE_PUBLISHER_GAME_SSH_TARGET='SSH178'
+$env:RELEASE_PUBLISHER_FORUM_SSH_TARGET='FORUM_PRD2'
 ```
 
 页面会显示 SSH 目标来源。默认来源顺序如下：
 
-1. `RELEASE_PUBLISHER_SSH_TARGET`
-2. `RELEASE_PUBLISHER_DOCKER_CONTEXT`
-3. 本地发布配置文件里的 `server-name`
+1. 页面请求中的显式目标
+2. `RELEASE_PUBLISHER_GAME_SSH_TARGET` 或 `RELEASE_PUBLISHER_FORUM_SSH_TARGET`
+3. `releaseTargets` 选中的 Docker Server
+4. `RELEASE_PUBLISHER_SSH_TARGET`
+5. Docker Server 解析结果或本地发布配置文件里的 `server-name`
 
 页面还会执行本地只读解析：
 
