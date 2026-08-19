@@ -70,6 +70,7 @@
   };
 
   let latestConfig = null;
+  let configLoadRequestId = 0;
   let gitBranches = [];
   let gitCommits = [];
   let historyPage = 1;
@@ -698,6 +699,7 @@
   }
 
   async function loadConfig(resetTargetValues = false, allowAutomaticTarget = true) {
+    const requestId = ++configLoadRequestId;
     setStatus('读取配置中', '');
     renderPlanLoading();
     renderProductionImage({});
@@ -711,25 +713,32 @@
         appTagEdited = false;
       }
       const config = await requestJson(`/api/config?releaseTarget=${encodeURIComponent(releaseTarget.value)}`);
+      if (requestId !== configLoadRequestId) return;
       renderConfig(config);
       setStatus('流程已生成，正在读取分支和历史', '');
       const results = await Promise.allSettled([
         loadBranches(),
         loadHistory()
       ]);
+      if (requestId !== configLoadRequestId) return;
       const failed = results.find(result => result.status === 'rejected');
       if (failed) {
         throw failed.reason;
       }
       const targetSwitched = await loadChangeAnalysis(allowAutomaticTarget);
+      if (requestId !== configLoadRequestId) return;
       if (targetSwitched) {
         return;
       }
       await plan();
+      if (requestId !== configLoadRequestId) return;
       await loadRemoteTag(config);
+      if (requestId !== configLoadRequestId) return;
       setStatus('配置已读取', 'success');
     } finally {
-      forumImageMode.disabled = releaseTarget.value !== 'forum';
+      if (requestId === configLoadRequestId) {
+        forumImageMode.disabled = releaseTarget.value !== 'forum';
+      }
     }
   }
 

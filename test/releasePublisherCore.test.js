@@ -2485,6 +2485,8 @@ test('release console exposes game and forum targets with target-aware API paylo
   assert.match(app, /dockerContext\.value = ''/);
   assert.match(app, /remoteSshTarget\.value = ''/);
   assert.match(app, /config\.dockerServerName/);
+  assert.match(app, /const requestId = \+\+configLoadRequestId/);
+  assert.match(app, /requestId !== configLoadRequestId/);
   assert.match(app, /fields\.serverName\.textContent = config\.dockerServerName/);
   assert.match(server, /resolveReleaseTargetDockerServerName\(releaseTarget/);
   assert.match(server, /resolveReleaseTargetSshTarget\(releaseTarget/);
