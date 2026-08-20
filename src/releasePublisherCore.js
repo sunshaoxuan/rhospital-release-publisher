@@ -175,6 +175,7 @@ function createPlan(projectRoot, request, env = process.env) {
   if (validateReleaseTarget(request.releaseTarget || 'game') === 'forum') {
     return createForumPlan(projectRoot, request, env);
   }
+  assertReleaseTargetDirection(request.changeAnalysis, 'game');
   const config = readConfig(projectRoot, request.runConfigPath || DEFAULT_RUN_CONFIG);
   const appTag = validateTag(request.appTag || config.appTag);
   const imageName = config.imageName || DEFAULT_IMAGE_NAME;
@@ -804,6 +805,7 @@ function gameStaticAssetArtifactCommand(mode, imageTag, appTag, configPath, dock
 function createForumPlan(projectRoot, request, env = process.env) {
   const config = readReleaseConfig(projectRoot, 'forum', request.runConfigPath || DEFAULT_RUN_CONFIG);
   const forumImageMode = validateForumImageMode(request.forumImageMode || config.forumImageMode);
+  assertReleaseTargetDirection(request.changeAnalysis, 'forum', forumImageMode);
   const forumImageModeLabel = forumImageMode === 'reuse' ? '复用生产已有镜像' : '构建并上传新镜像';
   const appTag = validateTag(request.appTag || proposeNextTag(''));
   const imageTag = `${config.imageName}:${appTag}`;
@@ -2403,6 +2405,23 @@ function gitFileOrEmpty(projectRoot, commit, filePath) {
 
 function assertReleaseTargetChanged(analysis, releaseTarget, forumImageMode = 'build') {
   const target = validateReleaseTarget(releaseTarget);
+  const validatedForumImageMode = target === 'forum' ? validateForumImageMode(forumImageMode) : 'build';
+  assertReleaseTargetDirection(analysis, target, validatedForumImageMode);
+  if (target === 'forum' && validatedForumImageMode === 'reuse') {
+    return true;
+  }
+  const detail = analysis && analysis.targets && analysis.targets[target];
+  if (!detail || !detail.baselineCommit) {
+    return true;
+  }
+  if (!detail.changed) {
+    throw new Error(`目标提交没有${target === 'game' ? '游戏' : '论坛'}运行文件变化，无需发布该镜像`);
+  }
+  return true;
+}
+
+function assertReleaseTargetDirection(analysis, releaseTarget, forumImageMode = 'build') {
+  const target = validateReleaseTarget(releaseTarget);
   if (target === 'forum' && validateForumImageMode(forumImageMode) === 'reuse') {
     return true;
   }
@@ -2410,11 +2429,12 @@ function assertReleaseTargetChanged(analysis, releaseTarget, forumImageMode = 'b
   if (!detail || !detail.baselineCommit) {
     return true;
   }
-  if (detail.direction === 'rollback' || detail.direction === 'diverged') {
-    throw new Error(`${target === 'game' ? '游戏' : '论坛'}目标提交不是当前生产基线的后续提交，已阻止降级发布`);
+  const targetLabel = target === 'game' ? '游戏' : '论坛';
+  if (detail.direction === 'rollback') {
+    throw new Error(`${targetLabel}目标提交早于当前生产基线，已阻止降级发布`);
   }
-  if (!detail.changed) {
-    throw new Error(`目标提交没有${target === 'game' ? '游戏' : '论坛'}运行文件变化，无需发布该镜像`);
+  if (detail.direction === 'diverged') {
+    throw new Error(`${targetLabel}目标提交与当前生产基线分叉，无法直接发布；请选择生产基线的后续提交`);
   }
   return true;
 }

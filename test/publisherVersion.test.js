@@ -118,6 +118,7 @@ test('idle publisher process exits after a clean runtime commit', {timeout: 2000
       cwd: root,
       env: {
         ...process.env,
+        GIT_OPTIONAL_LOCKS: '0',
         RELEASE_PUBLISHER_HOST: '127.0.0.1',
         RELEASE_PUBLISHER_PORT: '0',
         RELEASE_PUBLISHER_VERSION_CHECK_INTERVAL_MS: '100',
@@ -152,6 +153,7 @@ test('restart drain rejects a release request that finishes after the repository
       cwd: root,
       env: {
         ...process.env,
+        GIT_OPTIONAL_LOCKS: '0',
         RELEASE_PUBLISHER_HOST: '127.0.0.1',
         RELEASE_PUBLISHER_PORT: '0',
         RELEASE_PUBLISHER_VERSION_CHECK_INTERVAL_MS: '100',

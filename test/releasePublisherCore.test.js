@@ -2120,6 +2120,45 @@ test('detects deployable target changes and blocks unchanged or rollback release
   assert.equal(assertReleaseTargetChanged(rollback, 'forum', 'reuse'), true);
 });
 
+test('blocks diverged game plans before resolving migration blobs missing from the target', () => {
+  const root = tempProject(sampleXml);
+  const request = releaseImpactPlanRequest(
+    '19199bfacee6e172b95b99d834b0e7ecd8c1f435',
+    '72bb8c036248fd0dd4857ae8036cf89a7e94df58',
+    ['scripts/migration/20260813_add_toilet_preference_penalties.sql'],
+    []
+  );
+  request.changeAnalysis.targets.game.direction = 'diverged';
+
+  assert.throws(() => createPlan(root, request), error => {
+    assert.match(error.message, /游戏目标提交与当前生产基线分叉/);
+    assert.doesNotMatch(error.message, /does not exist|不存在于目标提交/);
+    return true;
+  });
+});
+
+test('blocks diverged forum build plans before reading target release files', () => {
+  const root = tempProject(sampleXml);
+  const request = {
+    releaseTarget: 'forum',
+    forumImageMode: 'build',
+    changeAnalysis: {
+      targets: {
+        forum: {
+          changed: false,
+          baselineCommit: '72bb8c036248fd0dd4857ae8036cf89a7e94df58',
+          direction: 'diverged',
+          changedPaths: [],
+          ignoredPaths: []
+        }
+      }
+    }
+  };
+
+  assert.throws(() => createPlan(root, request), /论坛目标提交与当前生产基线分叉/);
+  assert.equal(assertReleaseTargetChanged(request.changeAnalysis, 'forum', 'reuse'), true);
+});
+
 test('uses an observing committed game target as the next production baseline', () => {
   const root = tempGitProject();
   const branch = runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
