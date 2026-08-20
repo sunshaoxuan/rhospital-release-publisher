@@ -2563,7 +2563,7 @@ function isRemoteBranch(branch) {
 
 function listGitBranches(projectRoot, env = process.env, gitRunner = spawnSync) {
   if (env.RELEASE_PUBLISHER_DISABLE_GIT_LIST === 'true') {
-    return {branches: [], defaultBranch: env.RELEASE_PUBLISHER_GIT_BRANCH || 'origin/master'};
+    return {branches: [], defaultBranch: 'master'};
   }
   const current = runGit(projectRoot, ['rev-parse', '--abbrev-ref', 'HEAD'], gitRunner).trim();
   const output = runGit(projectRoot, [
@@ -2595,9 +2595,10 @@ function listGitBranches(projectRoot, env = process.env, gitRunner = spawnSync) 
     }
     return a.name.localeCompare(b.name);
   });
-  const defaultBranch = current && current !== 'HEAD' && seen.has(current)
-    ? current
-    : branches.find(branch => branch.name === 'origin/master')?.name || branches[0]?.name || 'origin/master';
+  const defaultBranch = branches.find(branch => branch.name === 'master')?.name
+    || branches.find(branch => branch.name === 'origin/master')?.name
+    || branches[0]?.name
+    || 'master';
   return {branches, defaultBranch};
 }
 

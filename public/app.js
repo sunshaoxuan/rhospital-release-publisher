@@ -837,12 +837,12 @@
     }
   }
 
-  async function loadBranches() {
+  async function loadBranches(preserveSelection = false) {
     const result = await requestJson('/api/git/branches');
     gitBranches = result.branches || [];
-    const currentValue = gitBranch.dataset.loaded === 'true' && gitBranch.value
+    const currentValue = preserveSelection && gitBranch.dataset.loaded === 'true' && gitBranch.value
       ? gitBranch.value
-      : result.defaultBranch || 'origin/master';
+      : result.defaultBranch || 'master';
     gitBranch.innerHTML = '';
     for (const branch of gitBranches) {
       const option = document.createElement('option');
@@ -893,7 +893,7 @@
     setStatus('正在刷新远端提交', '');
     try {
       await requestJson('/api/git/refresh', {method: 'POST'});
-      await loadBranches();
+      await loadBranches(true);
       await refreshPlanForGitSelection();
       setStatus('提交列表已刷新', 'success');
     } finally {

@@ -2275,11 +2275,22 @@ test('lists branches and commits from a git project', () => {
 
   const branches = listGitBranches(root, {});
   assert.ok(branches.branches.some(branch => branch.name === 'release/demo' && branch.current));
+  assert.equal(branches.defaultBranch, 'master');
 
   const commits = listGitCommits(root, 'release/demo', 10);
   assert.equal(commits.branch, 'release/demo');
   assert.ok(commits.commits.length >= 1);
   assert.match(commits.commits[0].subject, /release commit/);
+});
+
+test('page defaults every target load to master and only preserves a branch during commit refresh', () => {
+  const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+
+  assert.match(app, /async function loadBranches\(preserveSelection = false\)/);
+  assert.match(app, /preserveSelection\s*&&\s*gitBranch\.dataset\.loaded === 'true'/);
+  assert.match(app, /await loadBranches\(true\);/);
+  assert.match(html, /<option value="master">读取中<\/option>/);
 });
 
 test('refreshes origin refs before reloading commits', () => {
