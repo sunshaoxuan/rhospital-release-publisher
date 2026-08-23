@@ -50,6 +50,8 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-static-delivery',
     'verify-tradepool-release',
     'verify-relations-release',
+    'game-prd2-migration-readiness',
+    'game-prd2-runtime-contract',
     'game-fatal-rollback-decision'
   ]),
   forum: new Set([
@@ -416,6 +418,25 @@ function createPlan(projectRoot, request, env = process.env) {
         : sshResolution.note || 'SSH 目标未解析',
       actionType: 'local-check'
     }));
+    if (remoteImageTarget.host === '92.113.124.185') {
+      steps.push(releaseStep({
+        key: 'game-prd2-migration-readiness',
+        title: '验证 Prd2 迁移发布门禁',
+        summary: '确认新生产数据库角色、论坛、SnailJob、New Relic、持久化防火墙和生产 Secret 已就绪',
+        command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
+          `test "$(docker exec postgresql psql -U hospital -d hospital -Atc 'select pg_is_in_recovery();')" = f`,
+          `curl -fsS --max-time 10 http://127.0.0.1:40020 >/dev/null`,
+          `docker ps --format '{{.Names}}' | grep -Fxq snail-job`,
+          `docker ps --format '{{.Names}}' | grep -Eq 'newrelic|new-relic'`,
+          `iptables -C DOCKER-USER -j RH-GAME-PRD2`,
+          `test "$(docker secret ls --format '{{.Name}}' | grep -Ec '^(game_|firebase_service_account|forum_sso_secret|support_mail_password)')" -ge 20`,
+          `echo game_prd2_migration_readiness=PASS`
+        ])),
+        validation: '新生产必须为唯一可写主库，论坛、调度、监控、防火墙和全部运行时 Secret 均通过',
+        actionType: 'remote-check',
+        executable: true
+      }));
+    }
     steps.push(releaseStep({
       key: 'read-remote-compose',
       title: '读取生产编排当前版本',
@@ -590,6 +611,30 @@ function createPlan(projectRoot, request, env = process.env) {
       finalCheck: true,
       timeoutSeconds: 1860
     }));
+    if (remoteImageTarget.host === '92.113.124.185') {
+      steps.push(releaseStep({
+        key: 'game-prd2-runtime-contract',
+        title: '验证 Prd2 登录、支付、调度与监控合同',
+        summary: '确认 Firebase 初始化、论坛 SSO 开关、未签名支付回调拒绝、SnailJob 和 New Relic 运行状态',
+        command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
+          `service_name=${shellToken(`${config.stackName}_${config.containerName}`)}`,
+          `docker service logs --tail 500 "$service_name" 2>&1 | grep -Fq 'FirebaseApp initialized'`,
+          `test "$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' | grep '^FORUM_SSO_ENABLED=' | cut -d= -f2)" = true`,
+          `stripe_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8190/api/payment/webhook -H 'Content-Type: application/json' --data '{}')`,
+          `paddle_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8190/api/paddle/webhook -H 'Content-Type: application/json' --data '{}')`,
+          `echo "$stripe_code" | grep -Eq '^(400|401|403)$'`,
+          `echo "$paddle_code" | grep -Eq '^(400|401|403)$'`,
+          `docker ps --format '{{.Names}}' | grep -Fxq snail-job`,
+          `docker ps --format '{{.Names}}' | grep -Eq 'newrelic|new-relic'`,
+          `echo game_prd2_runtime_contract=PASS stripe_unsigned=$stripe_code paddle_unsigned=$paddle_code`
+        ])),
+        validation: 'Firebase、论坛 SSO、Stripe 与 Paddle 拒绝门禁、SnailJob 和 New Relic 必须全部通过；平台签名测试事件在迁移证据门禁中另行执行',
+        actionType: 'remote-check',
+        executable: true,
+        finalCheck: true,
+        timeoutSeconds: 180
+      }));
+    }
     steps.push(releaseStep({
       key: 'verify-game-static-delivery',
       title: '验证双前置游戏静态资源交付',

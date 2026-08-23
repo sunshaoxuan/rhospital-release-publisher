@@ -2742,6 +2742,14 @@ function tempPublisherConfig() {
         dockerExePath: '/usr/bin/docker',
         dockerComposeExePath: '/usr/bin/docker'
       },
+      GAME_PRD2: {
+        host: '92.113.124.185',
+        username: 'root',
+        port: '22',
+        keyPath: 'C:\\workspace\\Secure\\sunsxaws.pem',
+        dockerExePath: '/usr/bin/docker',
+        dockerComposeExePath: '/usr/bin/docker'
+      },
       FORUM_PRD2: {
         host: '92.113.124.185',
         username: 'root',
@@ -2758,3 +2766,18 @@ function tempPublisherConfig() {
   }, null, 2), 'utf8');
   return configPath;
 }
+
+test('registers GAME_PRD2 and migration-specific runtime gates', () => {
+  const configPath = tempPublisherConfig();
+  const details = resolvePublisherDockerServerDetails('GAME_PRD2', {
+    RELEASE_PUBLISHER_CONFIG: configPath
+  });
+  const core = fs.readFileSync(path.resolve(__dirname, '..', 'src', 'releasePublisherCore.js'), 'utf8');
+
+  assert.equal(details.resolved, true);
+  assert.equal(details.host, '92.113.124.185');
+  assert.match(core, /game-prd2-migration-readiness/);
+  assert.match(core, /game-prd2-runtime-contract/);
+  assert.match(core, /stripe_unsigned/);
+  assert.match(core, /paddle_unsigned/);
+});
