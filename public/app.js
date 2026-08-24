@@ -397,7 +397,7 @@
         'update-remote-compose', 'deploy-stack', 'deploy-forum-compose'
       ] },
       { key: 'observe', title: '全链路观察', members: [
-        'commit-game-cutover', 'final-runtime-check', 'verify-game-static-delivery',
+        'commit-game-cutover', 'final-runtime-check', 'game-prd2-runtime-contract', 'verify-game-static-delivery',
         'verify-relations-release', 'verify-tradepool-release'
       ] },
       { key: 'cleanup', title: '清理游戏发布历史容器', members: [

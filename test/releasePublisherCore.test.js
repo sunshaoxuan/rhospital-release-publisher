@@ -2095,15 +2095,35 @@ test('pipeline phases follow execution order when game build starts', () => {
   const buildMembers = app.match(/key: 'build'[\s\S]*?members: \[([\s\S]*?)\]\s*},\s*\{ key: 'delivery'/);
   const deliveryMembers = app.match(/key: 'delivery'[\s\S]*?members: \[([\s\S]*?)\]\s*},\s*\{ key: 'static'/);
   const dataMembers = app.match(/key: 'data'[\s\S]*?members: \[([\s\S]*?)\]\s*},\s*\{ key: 'switch'/);
+  const observeMembers = app.match(/key: 'observe'[\s\S]*?members: \[([\s\S]*?)\]\s*},\s*\{ key: 'cleanup'/);
 
   assert.ok(sourceMembers);
   assert.ok(buildMembers);
   assert.ok(deliveryMembers);
   assert.ok(dataMembers);
+  assert.ok(observeMembers);
   assert.match(buildMembers[1], /test-game-backend[\s\S]*build-image/);
   assert.match(deliveryMembers[1], /resolve-ssh-target[\s\S]*game-prd2-migration-readiness[\s\S]*read-remote-compose[\s\S]*game-database-preflight[\s\S]*publish-image/);
   assert.doesNotMatch(dataMembers[1], /game-database-preflight|forum-preflight/);
+  assert.match(observeMembers[1], /final-runtime-check[\s\S]*game-prd2-runtime-contract[\s\S]*verify-game-static-delivery/);
   assert.match(app, /key: 'cleanup'[\s\S]*cleanup-game-release-containers[\s\S]*key: 'recovery'/);
+
+  const phaseBlock = app.match(/const phaseDefinitions = \[([\s\S]*?)\n    \];/);
+  assert.ok(phaseBlock);
+  const assignedKeys = new Set([...phaseBlock[1].matchAll(/members:\s*\[([\s\S]*?)\]/g)]
+    .flatMap(match => [...match[1].matchAll(/'([^']+)'/g)].map(item => item[1])));
+  const root = tempProject(sampleXml);
+  const env = {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+  };
+  const gamePlan = createPlan(root, {appTag: '2026070702', includeStackDeploy: true}, env);
+  const forumPlan = createPlan(root, {
+    releaseTarget: 'forum', forumImageMode: 'build', appTag: '2026071501', includeStackDeploy: true
+  }, env);
+  assert.deepEqual(gamePlan.steps.filter(step => !assignedKeys.has(step.key)).map(step => step.key), []);
+  assert.deepEqual(forumPlan.steps.filter(step => !assignedKeys.has(step.key)).map(step => step.key), []);
 });
 
 test('PowerShell runner accepts scripts beyond the Windows command-line limit through stdin', {
