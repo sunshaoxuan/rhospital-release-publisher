@@ -2,7 +2,7 @@
 
 ## 2026-08-24
 
-1. `GAME_PRD2` 成为唯一游戏生产发布目标，`FORUM_PRD2` 继续作为唯一论坛生产发布目标，两者指向 `92.113.124.185`。发布器删除退役主机注册、请求级目标覆盖、路径覆盖、目标环境变量 fallback、IDEA Run Configuration 读取写回和保存 TAG API。页面改为只读展示生产连接参数，配置缺失、映射不一致、目标主机偏离当前生产或请求携带目标字段时失败关闭。游戏 Compose 和最终服务必须把 `SNAIL_JOB_SERVER_HOST`、`SNAIL_JOB_HOST` 与 `HOST_IP` 明确设为当前生产。Prd2 发布门禁继续覆盖数据库主角色、论坛、生产 Secret、持久化防火墙、Firebase 初始化、论坛 SSO、支付回调拒绝、SnailJob 和 New Relic。Windows 自动重启测试保留 Git `index.lock` 有界重试。
+1. `GAME_PRD2` 成为唯一游戏生产发布目标，`FORUM_PRD2` 继续作为唯一论坛生产发布目标，两者指向 `92.113.124.185`。发布器删除退役主机注册、请求级目标覆盖、路径覆盖、目标环境变量 fallback、IDEA Run Configuration 读取写回和保存 TAG API。页面改为只读展示生产连接参数，配置缺失、映射不一致、目标主机偏离当前生产或请求携带目标字段时失败关闭。游戏 Compose 和最终服务必须把 `SNAIL_JOB_SERVER_HOST`、`SNAIL_JOB_HOST` 与 `HOST_IP` 明确设为当前生产。本地历史通过版本化、幂等、可回滚的 v2 migration 清除退役连接标识并保留其余审计字段。Prd2 发布门禁继续覆盖数据库主角色、论坛、生产 Secret、持久化防火墙、Firebase 初始化、论坛 SSO、支付回调拒绝、SnailJob 和 New Relic。Windows 自动重启测试保留 Git `index.lock` 有界重试。
 
 ## 2026-08-20
 
