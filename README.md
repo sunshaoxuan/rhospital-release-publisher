@@ -215,6 +215,14 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 Windows 执行器通过 PowerShell 标准输入传递发布脚本，避免备份、迁移和恢复命令超过系统命令行长度上限。总进度阶段按实际依赖顺序分组，Prd2、Compose 和数据库只读预检归入镜像交付前置阶段，备份与迁移归入数据安全阶段，历史容器清理位于恢复判定之前。
 
+发布器提供隔离全流程验收命令 `npm run acceptance:full-flow -- <参数>`。它使用真实 PowerShell 执行器依次执行游戏和论坛计划中的全部可执行动作、校验命令和恢复命令，单步失败会记录并继续整轮。隔离工具链接管 Git、Docker、SSH、SCP 和 Node 外部动作，SSH 中通过 stdin 传递的 Base64 脚本会解码并执行 `bash -n`。验收报告明确区分 `ISOLATED_REAL`、`SIMULATED_DESTRUCTIVE` 和 `METADATA_ONLY`。该命令不上传镜像，不改动生产数据库、Compose、服务镜像或 Swarm 运行状态。
+
+```powershell
+npm run acceptance:full-flow -- --project-root C:\workspace\hospital-backend --game-commit <game-commit> --forum-commit <forum-commit> --game-tag <game-tag> --forum-tag <forum-tag> --output docs\investigations\full-flow-acceptance.json
+```
+
+远程 Bash 脚本在 Windows 上使用 PowerShell 单引号字面量保存 Base64，再通过 stdin 交给 `ssh`。论坛源码校验优先使用 `GIT_BASH_PATH`，未设置时再从 Git 可执行文件位置解析 `bin\bash.exe`。
+
 游戏发布会比较目标提交和最近一次成功游戏发布提交。差异中的 `scripts/migration/*.sql` 属于运行时变更，发布器会从已经锁定的目标提交读取路径，并在统一 CRLF 为 LF 后计算预期 SHA256。所有迁移脚本必须构建进目标镜像 `/app/migrations`，镜像必须包含可完整验证的 `SHA256SUMS`。发布器禁止把本地 Git SQL 正文编码后注入生产机；它会在目标镜像加载后创建不启动的临时容器，从镜像复制迁移包，依次核对镜像清单、目标提交预期 SHA256 和实际脚本 SHA256，再执行迁移。迁移脚本必须包含 `ON_ERROR_STOP`、事务、锁等待上限、语句执行上限和提交后的只读验收查询，并禁止删除表、字段、索引、约束及其他破坏旧版本兼容性的操作。数据删除默认失败关闭；当前仅允许先固化到任务专用临时表、完成重复匹配检查、按日志主键锁行后，再通过临时表中的唯一日志主键删除三类原玩家日志，其他持久表删除和未受控日志删除均会被拒绝。存在迁移时，发布器会在镜像切换前额外执行完整 `hospital` 数据库自定义格式备份，并保存目标镜像 ID、脚本校验和及执行回执。JPA 实体持久化结构发生变化却没有迁移脚本时，计划生成会直接失败。
 
 热滚前设置独立的 `发布前 CheckList 总验收`。该步骤统一确认目标镜像、当前健康服务、备份文件及 SHA256、迁移执行回执和回滚 Compose，所有检查输出 PASS 后才允许修改生产 Compose。热滚开始后的检查失败会先执行只读的自动回滚最小触发复核。只有目标镜像不健康、运行版本不符或仍有旧版本并行运行等明确证据时，任务才进入 `RECOVERING`，自动暂停在售 ADMIN 挂单、恢复发布前 Compose，并等待旧版本重新健康。目标版本仍满足最小健康条件或复核自身异常时，发布器禁止自动回滚，保留目标版本与现场并记录为 `RECOVERY_REQUIRED`。恢复成功记为 `ROLLED_BACK`，恢复本身失败也记为 `RECOVERY_REQUIRED`。

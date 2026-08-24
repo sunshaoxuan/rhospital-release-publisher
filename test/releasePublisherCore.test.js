@@ -39,8 +39,14 @@ const {
   readRemoteComposeImageTag,
   tradePoolCatalogLogCheckCommands,
   gamePostReleaseCleanupCommand,
-  runPowerShell
+  runPowerShell,
+  remoteSshCommand
 } = require('../src/releasePublisherCore');
+const {
+  ACCEPTANCE_FLAG,
+  createAcceptanceIsolation,
+  executeReleasePlanAcceptance
+} = require('../src/releaseFlowAcceptance');
 
 const sampleXml = `<component name="ProjectRunConfigurationManager">
   <configuration default="false" name="192.0.2.10" type="docker-deploy" factoryName="dockerfile" server-name="GAME_PRD2">
@@ -85,7 +91,7 @@ const sampleXml = `<component name="ProjectRunConfigurationManager">
 </component>`;
 
 function decodedRemoteScript(command) {
-  const match = String(command).match(/printf %s "([0-9A-Za-z+/=]+)" \| base64 -d \| (?:bash|sh)/);
+  const match = String(command).match(/(?:printf %s ["']|\$remoteScript = ["'])([0-9A-Za-z+/=]+)["']/);
   assert.ok(match, `command does not contain an encoded remote script: ${command}`);
   return Buffer.from(match[1], 'base64').toString('utf8');
 }
@@ -93,7 +99,7 @@ function decodedRemoteScript(command) {
 function decodedScriptTree(command) {
   const decoded = [];
   const pending = [String(command)];
-  const pattern = /printf %s ["']([0-9A-Za-z+/=]+)["'] \| base64 -d/g;
+  const pattern = /(?:printf %s ["']|\$remoteScript = ["'])([0-9A-Za-z+/=]+)["']/g;
   while (pending.length > 0) {
     const value = pending.shift();
     decoded.push(value);
@@ -487,7 +493,8 @@ test('creates dry run command plan without production execution enabled', () => 
   const gameRollback = plan.steps.find(step => step.key === 'game-rollback-command');
   const gameRollbackDecision = plan.steps.find(step => step.key === 'game-rollback-decision');
   assert.ok(gameRollbackDecision);
-  assert.equal(gameRollbackDecision.executable, false);
+  assert.equal(gameRollbackDecision.executable, true);
+  assert.equal(gameRollbackDecision.recoveryOnly, true);
   const rollbackDecisionScript = decodedRemoteScript(gameRollbackDecision.command);
   assert.ok(rollbackDecisionScript.includes('automatic_rollback_evidence'));
   assert.ok(rollbackDecisionScript.includes('automatic_rollback_decision=HOLD_TARGET'));
@@ -495,7 +502,8 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(rollbackDecisionScript.includes('active_other'));
   assert.ok(rollbackDecisionScript.includes('healthy_target'));
   assert.ok(gameRollback);
-  assert.equal(gameRollback.executable, false);
+  assert.equal(gameRollback.executable, true);
+  assert.equal(gameRollback.recoveryOnly, true);
   const rollbackScript = decodedRemoteScript(gameRollback.command);
   const rollbackScriptTree = decodedScriptTree(gameRollback.command);
   assert.ok(rollbackScript.includes('base64 -d | docker exec -i'));
@@ -1148,6 +1156,7 @@ test('creates reusable forum compose release plan with backup validation and rol
     && step.command.includes('ForumFlarumImageAssetTest,ForumSearchMigrationContractTest,ForumDeploymentConfigTest')
     && step.command.includes('git status --porcelain --untracked-files=all -- integrations/flarum')
     && step.command.includes('Select-Object -First 1')
+    && step.command.includes('$gitBash = $env:GIT_BASH_PATH')
     && step.command.includes("$gitBash = Join-Path $gitRoot 'bin\\bash.exe'")
     && step.command.includes("& $gitBash -o pipefail -c 'git show HEAD:integrations/flarum/04-rhospital-secret.sh | bash -n'")
     && step.command.includes("& $gitBash -o pipefail -c 'git show HEAD:integrations/flarum/05-rhospital-env.sh | bash -n'")
@@ -1197,7 +1206,8 @@ test('creates reusable forum compose release plan with backup validation and rol
     && decodedRemoteScript(step.command).includes('forum_runtime_validation=PASS')));
   const rollback = plan.steps.find(step => step.key === 'forum-rollback-command');
   assert.ok(rollback);
-  assert.equal(rollback.executable, false);
+  assert.equal(rollback.executable, true);
+  assert.equal(rollback.recoveryOnly, true);
   assert.ok(decodedRemoteScript(rollback.command).includes('.last-forum-release-backup'));
   assertStepType(plan, 'backup-forum-release', 'production', true);
   assertStepType(plan, 'deploy-forum-compose', 'production', true);
@@ -2139,6 +2149,62 @@ test('PowerShell runner accepts scripts beyond the Windows command-line limit th
   await assert.rejects(() => runPowerShell(process.cwd(), 'Write-Error "expected"; exit 7', {
     RELEASE_PUBLISHER_TEST_MODE: 'false'
   }, null, null, null, 30), /expected/);
+});
+
+test('SSH runner streams oversized remote scripts through stdin instead of argv', {
+  skip: process.platform !== 'win32'
+}, async () => {
+  const isolation = createAcceptanceIsolation(path.join(__dirname, '..'));
+  try {
+    const encoded = Buffer.from(`set -e\n# ${'x'.repeat(50000)}\necho PASS\n`, 'utf8').toString('base64');
+    const command = remoteSshCommand({target: 'fake@example', port: '22'},
+      `printf %s "${encoded}" | base64 -d | bash`);
+    const output = await runPowerShell(process.cwd(), command, isolation.env, null, null, null, 30);
+
+    assert.match(command, /\$remoteScript \| & (?:'ssh'|ssh)/);
+    assert.doesNotMatch(command, /'printf %s/);
+    assert.match(output, /isolated_ssh=PASS bash_syntax=PASS remote_script_chars=5002[0-9]/);
+  } finally {
+    isolation.cleanup();
+  }
+});
+
+test('full-flow acceptance invokes every executable command and continues after failures', async () => {
+  const commands = [];
+  const plan = {
+    releaseTarget: 'game',
+    appTag: '20260825',
+    steps: [
+      {key: 'metadata', title: 'Metadata', executable: false, command: 'description'},
+      {key: 'first', title: 'First', executable: true, command: 'first-command',
+        validationCommand: 'first-validation', actionType: 'local-check'},
+      {key: 'upload', title: 'Upload', executable: true, command: 'upload-command',
+        productionAction: true, actionType: 'production'},
+      {key: 'rollback', title: 'Rollback', executable: true, command: 'rollback-command',
+        recoveryOnly: true, actionType: 'local-check'}
+    ]
+  };
+  const runCommand = async (_cwd, command) => {
+    commands.push(command);
+    if (command === 'first-command') throw new Error('expected isolated failure');
+    return 'acceptance=PASS\n';
+  };
+  const result = await executeReleasePlanAcceptance(plan, process.cwd(), {
+    [ACCEPTANCE_FLAG]: 'isolated'
+  }, {runCommand});
+
+  assert.deepEqual(commands, ['first-command', 'first-validation', 'upload-command', 'rollback-command']);
+  assert.equal(result.status, 'FAIL');
+  assert.equal(result.executorInvocationCount, 4);
+  assert.equal(result.failedStepCount, 1);
+  assert.equal(result.steps.find(step => step.key === 'metadata').status, 'METADATA');
+  assert.equal(result.steps.find(step => step.key === 'upload').mode, 'SIMULATED_DESTRUCTIVE');
+  assert.equal(result.steps.find(step => step.key === 'rollback').status, 'PASS');
+});
+
+test('full-flow acceptance rejects execution without the isolated safety flag', async () => {
+  await assert.rejects(() => executeReleasePlanAcceptance({steps: []}, process.cwd(), {}),
+    /FULL_FLOW_ACCEPTANCE=isolated/);
 });
 
 test('release history supports pagination and deletion', () => {

@@ -1,0 +1,935 @@
+{
+  "schemaVersion": 1,
+  "startedAt": "2026-08-24T23:10:04.489Z",
+  "finishedAt": "2026-08-24T23:11:38.347Z",
+  "safety": {
+    "productionRuntimeChanged": false,
+    "imageUploaded": false,
+    "productionImageReplaced": false,
+    "productionDatabaseChanged": false,
+    "productionComposeChanged": false,
+    "executor": "real-powershell-with-isolated-toolchain",
+    "modes": [
+      "ISOLATED_REAL",
+      "SIMULATED_DESTRUCTIVE",
+      "METADATA_ONLY"
+    ]
+  },
+  "status": "PASS",
+  "projectRoot": "C:\\workspace\\hospital-backend",
+  "requestedCommits": {
+    "game": "ea21e74d261c563cf202f794176ca8bf8e096a92",
+    "forum": "e7b67154625f4ec1021c82c01067c14a9c516f47"
+  },
+  "resolvedCommits": {
+    "game": "ea21e74d261c563cf202f794176ca8bf8e096a92",
+    "forum": "e7b67154625f4ec1021c82c01067c14a9c516f47"
+  },
+  "targets": {
+    "game": {
+      "releaseTarget": "game",
+      "appTag": "20260825",
+      "stepCount": 34,
+      "executableStepCount": 32,
+      "metadataStepCount": 2,
+      "executorInvocationCount": 38,
+      "failedStepCount": 0,
+      "status": "PASS",
+      "steps": [
+        {
+          "key": "git-status-before-update",
+          "title": "检查本地代码状态",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "2f0b3c95f233acae198ae22a7178b1c0db8aeb55731481041b38cd7fa213ec53",
+              "commandLength": 104,
+              "durationMs": 854,
+              "output": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "key": "validate-release-input",
+          "title": "读取配置并校验 TAG",
+          "mode": "METADATA_ONLY",
+          "status": "METADATA",
+          "invocations": []
+        },
+        {
+          "key": "validate-game-static-delivery-prerequisites",
+          "title": "校验登录验收运行条件",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "f7e5917f60e1483258679646829e972491e600f7120d120b55a9bc76fc166605",
+              "commandLength": 202,
+              "durationMs": 732,
+              "output": "isolated_node=PASS"
+            }
+          ]
+        },
+        {
+          "key": "git-fetch",
+          "title": "获取远端代码",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "ce8432965e13e517a002c972e54c679c2f3d6cd00ebea98f85f22c52bcba321e",
+              "commandLength": 24,
+              "durationMs": 888,
+              "output": "[OK]"
+            }
+          ]
+        },
+        {
+          "key": "git-update",
+          "title": "切换到指定提交",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "f84a141682b3939853355504a65f9b44802e53328521a00310bbc4856465305e",
+              "commandLength": 53,
+              "durationMs": 769,
+              "output": "[OK]"
+            }
+          ]
+        },
+        {
+          "key": "capture-release-commit",
+          "title": "记录发布提交",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "fae14f493859be33721175c29c76f2ae246686328c399c80b6a589a85f1b5b69",
+              "commandLength": 106,
+              "durationMs": 943,
+              "output": "0123456789abcdef0123456789abcdef01234567\n0123456\t2026-08-25 00:00:00 +0900\tIsolated acceptance"
+            }
+          ]
+        },
+        {
+          "key": "validate-release-impact-checklist",
+          "title": "校验本次发版影响与 CheckList",
+          "mode": "METADATA_ONLY",
+          "status": "METADATA",
+          "invocations": []
+        },
+        {
+          "key": "validate-game-sso-source",
+          "title": "校验游戏 SSO 发布基线",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "fa7d1cb4db1cfe1e8db87a7dd6f9b910c3f5e9afdfd47538ab7c4a5a413958e3",
+              "commandLength": 967,
+              "durationMs": 1250,
+              "output": "[OK]"
+            }
+          ]
+        },
+        {
+          "key": "test-game-backend",
+          "title": "批量测试并编译后端产物",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "d168f6af24daa2bf7b5fd4d522e7ade5f7d764fc0e2f520dc6df707beb47aa81",
+              "commandLength": 112,
+              "durationMs": 799,
+              "output": "isolated_docker=PASS"
+            },
+            {
+              "kind": "validation",
+              "status": "PASS",
+              "commandHash": "dc575103391345248f632aaed291e3dac2a2bd7b2f0167afbd066a3eebe144e5",
+              "commandLength": 90,
+              "durationMs": 796,
+              "output": "isolated_docker=PASS"
+            }
+          ]
+        },
+        {
+          "key": "build-image",
+          "title": "制作 Docker 镜像",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "e21fcf7396b241d7a93ed62186333d8dd603b288e9b9195e45eaa1445f815e43",
+              "commandLength": 86,
+              "durationMs": 797,
+              "output": "isolated_docker=PASS"
+            },
+            {
+              "kind": "validation",
+              "status": "PASS",
+              "commandHash": "26b8603b656b49a3d5840addb52b1ea45e17c17a533e06b100c76736eac8b193",
+              "commandLength": 79,
+              "durationMs": 778,
+              "output": "isolated_docker=PASS"
+            }
+          ]
+        },
+        {
+          "key": "build-game-static-assets",
+          "title": "构建内容寻址静态资源交付物",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "667878291ec881bcefc1171d654d29b2228e0f68fbfacfd0a775b0796e9a7019",
+              "commandLength": 127,
+              "durationMs": 815,
+              "output": "isolated_docker=PASS"
+            },
+            {
+              "kind": "validation",
+              "status": "PASS",
+              "commandHash": "e8dfbe261b65196803912658b9d201980fa1f4407599e1fc23b0d4f545032267",
+              "commandLength": 230,
+              "durationMs": 786,
+              "output": "isolated_node=PASS"
+            }
+          ]
+        },
+        {
+          "key": "validate-game-image",
+          "title": "验证游戏镜像版本、迁移包与交易池能力",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "bfe4435db6a21aaba0f0216f0edd5cff5f7d2a84ce91167465eeafdd19060c91",
+              "commandLength": 4093,
+              "durationMs": 751,
+              "output": "isolated_docker=PASS"
+            }
+          ]
+        },
+        {
+          "key": "resolve-ssh-target",
+          "title": "确认 SSH 连接配置",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "2b811ecd6cad0aa4b2f501c8d74a1dba55d230d34282686aded060644647b813",
+              "commandLength": 28,
+              "durationMs": 1471,
+              "output": "isolated_ssh=PASS"
+            }
+          ]
+        },
+        {
+          "key": "game-prd2-migration-readiness",
+          "title": "验证 Prd2 迁移发布门禁",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "4c4851da686d9c94fdfe1b376cbfed67d2bc6a44045eceaf988fc42dcfb3fdab",
+              "commandLength": 851,
+              "durationMs": 1487,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=505"
+            }
+          ]
+        },
+        {
+          "key": "read-remote-compose",
+          "title": "读取生产编排当前版本",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "6c129a52128c2ddf655107404795b2a788d959b3d261158933a7fbdb39944a2a",
+              "commandLength": 2943,
+              "durationMs": 1289,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=2074"
+            }
+          ]
+        },
+        {
+          "key": "game-database-preflight",
+          "title": "盘点交易池数据库升级前状态",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "575de46756067ae330a84073287daf4f2a6ba24d379158526551bf3bc5c963c4",
+              "commandLength": 30491,
+              "durationMs": 1222,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=22736"
+            }
+          ]
+        },
+        {
+          "key": "publish-image",
+          "title": "发布到目标镜像池",
+          "mode": "SIMULATED_DESTRUCTIVE",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "b9de784dd7dcfc72abfd8a138371256d51d5aa1b53387b5765a2f4efbbf9923f",
+              "commandLength": 728,
+              "durationMs": 1395,
+              "output": "isolated_docker=PASS\nisolated_scp=PASS\nisolated_ssh=PASS"
+            },
+            {
+              "kind": "validation",
+              "status": "PASS",
+              "commandHash": "ee8c7bedeec9e9d96260d72df032385be3d940d25328114013c655310bb72934",
+              "commandLength": 153,
+              "durationMs": 1161,
+              "output": "isolated_ssh=PASS"
+            }
+          ]
+        },
+        {
+          "key": "stage-game-static-assets",
+          "title": "预置双前置不可变静态资源",
+          "mode": "SIMULATED_DESTRUCTIVE",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "a6e5683d8cfc49c9523a7d6d143e760e52a8bebcd68a2fee5e660aebc2df753c",
+              "commandLength": 227,
+              "durationMs": 849,
+              "output": "isolated_node=PASS"
+            }
+          ]
+        },
+        {
+          "key": "verify-game-static-assets-predeploy",
+          "title": "应用切换前逐文件验证双前置资源",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "c02cb642b85e7b28dcf8a22edb5605fd84b7a331aeec099b18e985d945fa0f94",
+              "commandLength": 228,
+              "durationMs": 783,
+              "output": "isolated_node=PASS"
+            }
+          ]
+        },
+        {
+          "key": "backup-game-release",
+          "title": "备份游戏编排与交易池数据",
+          "mode": "SIMULATED_DESTRUCTIVE",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "ba2cb24f1f9290e69492e7b676637164e39ef32139990e2eeef216c373a25ac4",
+              "commandLength": 33183,
+              "durationMs": 1727,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=24756"
+            }
+          ]
+        },
+        {
+          "key": "apply-database-migrations",
+          "title": "执行目标提交数据库迁移",
+          "mode": "SIMULATED_DESTRUCTIVE",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "6a1710b20ac5e1415f5d8a2e3526b1e7d41512b24e65c0541d80bdbc21b43c7c",
+              "commandLength": 6223,
+              "durationMs": 1259,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=4535"
+            }
+          ]
+        },
+        {
+          "key": "pre-deploy-checklist",
+          "title": "发布前 CheckList 总验收",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "5f411b94f40ed560629b5301b7deff45b9be8902d7ac09fadef5f4f1529e0754",
+              "commandLength": 2911,
+              "durationMs": 1238,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=2052"
+            }
+          ]
+        },
+        {
+          "key": "update-remote-compose",
+          "title": "备份并替换生产编排 TAG",
+          "mode": "SIMULATED_DESTRUCTIVE",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "6c0279fc58b46e7cbf274d400186534b31bd04ca537eeb361430ce2d2b5b249e",
+              "commandLength": 3887,
+              "durationMs": 1553,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=2784"
+            },
+            {
+              "kind": "validation",
+              "status": "PASS",
+              "commandHash": "bb69684a8897da1dd34d7011a9aaee54356d225cd9fc535a77c1d7b6d0b2b5f1",
+              "commandLength": 3091,
+              "durationMs": 1269,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=2186"
+            }
+          ]
+        },
+        {
+          "key": "deploy-stack",
+          "title": "执行 Docker Stack 热发布",
+          "mode": "SIMULATED_DESTRUCTIVE",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "5e19c37d640307363be7299156754d34e09f632431d7008656fe52f5f689a2cc",
+              "commandLength": 323,
+              "durationMs": 1261,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=109"
+            },
+            {
+              "kind": "validation",
+              "status": "PASS",
+              "commandHash": "c3d7f1ac80912d8a8e91cf870b39d66f90079def200b73df5a4d64cb0745ecde",
+              "commandLength": 235,
+              "durationMs": 1218,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=44"
+            }
+          ]
+        },
+        {
+          "key": "commit-game-cutover",
+          "title": "进入新版本观察期",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "90bc5b1ec0960a69a3f5edad2f7a6730585c34d35b50ab6eb8a556cc08e4b90a",
+              "commandLength": 6467,
+              "durationMs": 1232,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=4717"
+            }
+          ]
+        },
+        {
+          "key": "final-runtime-check",
+          "title": "最终运行校验",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "6c6f63fdcf4b0b00ead888e84030bfde4021361dd931bd8a24ee488a70aa3ca3",
+              "commandLength": 6407,
+              "durationMs": 1270,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=4672"
+            }
+          ]
+        },
+        {
+          "key": "game-prd2-runtime-contract",
+          "title": "验证 Prd2 登录、支付、调度与监控合同",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "1c70bfd6bc090508e9519b2939a938c1473af368186a6e941e73fc5057c13b88",
+              "commandLength": 2159,
+              "durationMs": 1227,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=1486"
+            }
+          ]
+        },
+        {
+          "key": "verify-game-static-delivery",
+          "title": "验证双前置游戏静态资源交付",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "a39d5a4d2b36deb76760c8d5e584302917a6dd35759371535d217b7e952861d2",
+              "commandLength": 180,
+              "durationMs": 932,
+              "output": "isolated_node=PASS"
+            }
+          ]
+        },
+        {
+          "key": "verify-relations-release",
+          "title": "验证管理员关系图发布结果",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "23bff0d5b70f4fb582868284689077ac49687567058a6b4f355aca3fcbeb8eab",
+              "commandLength": 177,
+              "durationMs": 818,
+              "output": "isolated_node=PASS"
+            }
+          ]
+        },
+        {
+          "key": "verify-tradepool-release",
+          "title": "验证管理员交易池发布结果",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "807fffc6a161827914f53397c71417795f932fe71e83750f7ede4a2bc5a8a591",
+              "commandLength": 33199,
+              "durationMs": 1529,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=24768"
+            }
+          ]
+        },
+        {
+          "key": "cleanup-game-release-containers",
+          "title": "清理游戏发布历史容器",
+          "mode": "SIMULATED_DESTRUCTIVE",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "db79670fcf3922848c36c4007ab7a414d3694f924f3283aff3b8cc6b360b3b42",
+              "commandLength": 3775,
+              "durationMs": 1266,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=2699"
+            }
+          ]
+        },
+        {
+          "key": "game-rollback-decision",
+          "title": "记录自动回滚最小触发复核",
+          "mode": "SIMULATED_DESTRUCTIVE",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "1901d9e6ed84e978445e63ef4d33f3c412e1295086888fd6b7ae4f0248160fa0",
+              "commandLength": 3451,
+              "durationMs": 1272,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=2457"
+            }
+          ]
+        },
+        {
+          "key": "game-fatal-rollback-decision",
+          "title": "复核全链路致命故障",
+          "mode": "SIMULATED_DESTRUCTIVE",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "fc994fe21bd02d49c2d3f86804addc61d092d6b97413de91fc898c1d29f31db3",
+              "commandLength": 512,
+              "durationMs": 909,
+              "output": "isolated_node=PASS"
+            }
+          ]
+        },
+        {
+          "key": "game-rollback-command",
+          "title": "记录游戏回滚命令",
+          "mode": "SIMULATED_DESTRUCTIVE",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "6fde118196969373a966e27e4de3aa9a56f283bfc2a5817febf0ed7b888ebbef",
+              "commandLength": 5647,
+              "durationMs": 1522,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=4103"
+            }
+          ]
+        }
+      ]
+    },
+    "forum": {
+      "releaseTarget": "forum",
+      "appTag": "20260806",
+      "stepCount": 17,
+      "executableStepCount": 16,
+      "metadataStepCount": 1,
+      "executorInvocationCount": 20,
+      "failedStepCount": 0,
+      "status": "PASS",
+      "steps": [
+        {
+          "key": "git-status-before-update",
+          "title": "检查本地代码状态",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "2f0b3c95f233acae198ae22a7178b1c0db8aeb55731481041b38cd7fa213ec53",
+              "commandLength": 104,
+              "durationMs": 1076,
+              "output": "0123456789abcdef0123456789abcdef01234567"
+            }
+          ]
+        },
+        {
+          "key": "git-fetch",
+          "title": "获取远端代码",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "ce8432965e13e517a002c972e54c679c2f3d6cd00ebea98f85f22c52bcba321e",
+              "commandLength": 24,
+              "durationMs": 842,
+              "output": "[OK]"
+            }
+          ]
+        },
+        {
+          "key": "git-update",
+          "title": "切换到指定提交",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "25648f3a4201dfcb8f382f3f76cfff2dbaa81399f7c41a1be5f33f8f47b84df5",
+              "commandLength": 53,
+              "durationMs": 882,
+              "output": "[OK]"
+            }
+          ]
+        },
+        {
+          "key": "capture-release-commit",
+          "title": "记录发布提交",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "fae14f493859be33721175c29c76f2ae246686328c399c80b6a589a85f1b5b69",
+              "commandLength": 106,
+              "durationMs": 933,
+              "output": "0123456789abcdef0123456789abcdef01234567\n0123456\t2026-08-25 00:00:00 +0900\tIsolated acceptance"
+            }
+          ]
+        },
+        {
+          "key": "validate-release-input",
+          "title": "校验论坛发布 TAG",
+          "mode": "METADATA_ONLY",
+          "status": "METADATA",
+          "invocations": []
+        },
+        {
+          "key": "validate-forum-source",
+          "title": "校验论坛发布源码",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "55440e0231347406eb00f53b0449a0998bfc2a75b6bad9c1f94a3aa31d224c29",
+              "commandLength": 1080,
+              "durationMs": 29374,
+              "output": "[OK]"
+            }
+          ]
+        },
+        {
+          "key": "build-image",
+          "title": "制作论坛 Docker 镜像",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "5a64a8c26d555a6e2c633f58bb6ba3e814c81b7a57ac77dba1b7ca2e26ae6271",
+              "commandLength": 112,
+              "durationMs": 1046,
+              "output": "isolated_docker=PASS"
+            },
+            {
+              "kind": "validation",
+              "status": "PASS",
+              "commandHash": "ca93f89f81f4e2513efc8f13d509e834cf4f0eea13f0d8c7b226148e9be63bfa",
+              "commandLength": 83,
+              "durationMs": 817,
+              "output": "isolated_docker=PASS"
+            }
+          ]
+        },
+        {
+          "key": "validate-forum-image",
+          "title": "验证论坛镜像运行边界",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "f553a2f4000dc278a71c5c545981b2e05fe6ef071aa9ad18133745f247c98084",
+              "commandLength": 1765,
+              "durationMs": 800,
+              "output": "isolated_docker=PASS"
+            }
+          ]
+        },
+        {
+          "key": "resolve-ssh-target",
+          "title": "确认 SSH 连接配置",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "2b811ecd6cad0aa4b2f501c8d74a1dba55d230d34282686aded060644647b813",
+              "commandLength": 28,
+              "durationMs": 1453,
+              "output": "isolated_ssh=PASS"
+            }
+          ]
+        },
+        {
+          "key": "read-remote-compose",
+          "title": "读取论坛生产编排当前镜像",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "a82e1881db7a68d2525ad0be6cde5c30897041a88db6132e144d95df1104ce90",
+              "commandLength": 343,
+              "durationMs": 1525,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=124"
+            }
+          ]
+        },
+        {
+          "key": "forum-preflight",
+          "title": "检查论坛生产发布前状态",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "acf6f508ad954781a3972208cbd579d029c08464b6331da9aa563b0137109cde",
+              "commandLength": 899,
+              "durationMs": 1245,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=541"
+            }
+          ]
+        },
+        {
+          "key": "publish-image",
+          "title": "发布论坛镜像到生产镜像池",
+          "mode": "SIMULATED_DESTRUCTIVE",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "a10061a64878e9b95cdca6a67bbb403bd03483cff9a3d74de985cf58b561f4b9",
+              "commandLength": 748,
+              "durationMs": 1463,
+              "output": "isolated_docker=PASS\nisolated_scp=PASS\nisolated_ssh=PASS"
+            },
+            {
+              "kind": "validation",
+              "status": "PASS",
+              "commandHash": "1f00056eca1a21d6e1db579a1f4ec67f99120294418ac7476371fdeef0f48ddd",
+              "commandLength": 157,
+              "durationMs": 1215,
+              "output": "isolated_ssh=PASS"
+            }
+          ]
+        },
+        {
+          "key": "backup-forum-release",
+          "title": "生成论坛发布备份点",
+          "mode": "SIMULATED_DESTRUCTIVE",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "84c84ad5c160ed4d78c344bc705aa6128e9587d55e2076f7ccb5fa832dbacc3a",
+              "commandLength": 1711,
+              "durationMs": 1561,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=1150"
+            }
+          ]
+        },
+        {
+          "key": "update-remote-compose",
+          "title": "替换论坛生产编排 TAG",
+          "mode": "SIMULATED_DESTRUCTIVE",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "78c9ddc8a3278df6cc5e96c43ccf6895c12df9b250c6cdefca3309f67043cccc",
+              "commandLength": 559,
+              "durationMs": 1307,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=288"
+            },
+            {
+              "kind": "validation",
+              "status": "PASS",
+              "commandHash": "8372d86ca5099dcf732f2e34981a02cac9acb5c843515764a53b6344731f3f49",
+              "commandLength": 399,
+              "durationMs": 1257,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=166"
+            }
+          ]
+        },
+        {
+          "key": "deploy-forum-compose",
+          "title": "替换论坛容器",
+          "mode": "SIMULATED_DESTRUCTIVE",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "4cb2facbe7159084bd4580606ab1fb516d4e185b0ed458e78809faa50746c3ee",
+              "commandLength": 303,
+              "durationMs": 1278,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=96"
+            },
+            {
+              "kind": "validation",
+              "status": "PASS",
+              "commandHash": "ce25270e5bb2096bfd2793b08e04bedc1178a1a7cf4ac377adbb6102e182d54d",
+              "commandLength": 555,
+              "durationMs": 1238,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=283"
+            }
+          ]
+        },
+        {
+          "key": "final-runtime-check",
+          "title": "论坛最终运行校验",
+          "mode": "ISOLATED_REAL",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "a4e47dc5de34545462b6f267b29c735596f16847047abdd7c15f95dd8ed192cb",
+              "commandLength": 4571,
+              "durationMs": 1201,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=3296"
+            }
+          ]
+        },
+        {
+          "key": "forum-rollback-command",
+          "title": "记录论坛回滚命令",
+          "mode": "SIMULATED_DESTRUCTIVE",
+          "status": "PASS",
+          "invocations": [
+            {
+              "kind": "command",
+              "status": "PASS",
+              "commandHash": "d0685c438db94ffc3868cbe9dfe81760127bacebcbff8f451ee7eef27c612374",
+              "commandLength": 1003,
+              "durationMs": 1225,
+              "output": "isolated_ssh=PASS bash_syntax=PASS remote_script_chars=621"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "toolTraceSummary": {
+    "invocationCount": 71,
+    "byTool": {
+      "git": 19,
+      "node": 7,
+      "docker": 11,
+      "ssh": 32,
+      "scp": 2
+    },
+    "remoteBashSyntaxChecks": 26,
+    "longestRemoteScriptChars": 24768
+  }
+}

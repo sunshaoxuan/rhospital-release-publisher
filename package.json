@@ -10,6 +10,7 @@
     "service:status": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/status-windows-service.ps1",
     "service:uninstall": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/uninstall-windows-service.ps1",
     "history:migrate:v2": "node scripts/migrate-release-history-v2.mjs --direction apply",
+    "acceptance:full-flow": "node scripts/validate-full-release-flow.mjs",
     "test": "node --test --test-concurrency=1 test/*.test.js"
   },
   "engines": {

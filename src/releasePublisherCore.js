@@ -382,7 +382,8 @@ function createPlan(projectRoot, request, env = process.env) {
         : sshResolution.resolved
         ? `HostName=${sshResolution.hostName || '未解析'}, User=${sshResolution.user || '未解析'}, Port=${sshResolution.port || '未解析'}`
         : sshResolution.note || 'SSH 目标未解析',
-      actionType: 'local-check'
+      actionType: 'local-check',
+      executable: true
     }));
     if (remoteImageTarget.host === '92.113.124.185') {
       steps.push(releaseStep({
@@ -662,7 +663,8 @@ function createPlan(projectRoot, request, env = process.env) {
       )),
       validation: '只有 automatic_rollback_decision=ROLLBACK_CONFIRMED 才允许执行自动回滚；HOLD_TARGET 和复核异常均保留现场',
       actionType: 'remote-check',
-      recoveryOnly: true
+      recoveryOnly: true,
+      executable: true
     }));
     steps.push(releaseStep({
       key: 'game-fatal-rollback-decision',
@@ -678,6 +680,7 @@ function createPlan(projectRoot, request, env = process.env) {
       validation: '只有双前置、发布器直连和生产主机本地业务心跳连续三轮全部失败且数据库读写正常，才允许自动回退；单点、未知原因、发布器网络异常和数据库故障均保留目标版本',
       actionType: 'remote-check',
       recoveryOnly: true,
+      executable: true,
       timeoutSeconds: 420
     }));
     steps.push(releaseStep({
@@ -689,7 +692,8 @@ function createPlan(projectRoot, request, env = process.env) {
       )),
       validation: '自动恢复必须输出 automatic_rollback_validation=PASS；失败时任务进入 RECOVERY_REQUIRED 并保留现场',
       actionType: 'local-check',
-      recoveryOnly: true
+      recoveryOnly: true,
+      executable: true
     }));
   } else {
     steps.push(publishImageStep);
@@ -976,7 +980,8 @@ function createForumPlan(projectRoot, request, env = process.env) {
         : sshResolution.resolved
           ? `HostName=${sshResolution.hostName || '未解析'}, User=${sshResolution.user || '未解析'}, Port=${sshResolution.port || '未解析'}`
           : sshResolution.note || 'SSH 目标未解析',
-      actionType: 'local-check'
+      actionType: 'local-check',
+      executable: true
     }));
     steps.push(releaseStep({
       key: 'read-remote-compose',
@@ -1073,7 +1078,9 @@ function createForumPlan(projectRoot, request, env = process.env) {
       summary: '保留上一个 Compose 和备份目录的回滚入口，发布流程不会自动执行回滚',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(forumRollbackCommand(remoteComposeDir))),
       validation: '仅在验收失败且人工确认后执行；数据库和 data 完整恢复另行确认',
-      actionType: 'local-check'
+      actionType: 'local-check',
+      recoveryOnly: true,
+      executable: true
     }));
   }
 
@@ -2499,10 +2506,12 @@ function chainPowerShellCommands(commands) {
 function forumSourceScriptValidationCommands() {
   return [
     sourceCleanPowerShellCommand('forumReleaseChanges', ['integrations/flarum']),
-    '$gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1; '
+    '$gitBash = $env:GIT_BASH_PATH; '
+      + 'if ([string]::IsNullOrWhiteSpace($gitBash)) { '
+      + '$gitCommand = Get-Command git -CommandType Application -ErrorAction Stop | Select-Object -First 1; '
       + '$gitExecutable = $gitCommand.Source; '
       + '$gitRoot = Split-Path (Split-Path $gitExecutable -Parent) -Parent; '
-      + "$gitBash = Join-Path $gitRoot 'bin\\bash.exe'; "
+      + "$gitBash = Join-Path $gitRoot 'bin\\bash.exe' }; "
       + "if (!(Test-Path -LiteralPath $gitBash -PathType Leaf)) { throw 'Git Bash executable is unavailable' }",
     ...DEFAULT_FORUM_INIT_SCRIPTS.map(scriptPath =>
       `& $gitBash -o pipefail -c ${shellToken(`git show HEAD:${scriptPath} | bash -n`)}`)
@@ -3716,6 +3725,17 @@ function remoteSshCommand(target, remoteCommand) {
   if (!ssh.length) {
     throw new Error('缺少 SSH 目标');
   }
+  const encodedScript = String(remoteCommand).match(
+    /^printf %s "([0-9A-Za-z+/=]+)" \| base64 -d \| bash$/
+  );
+  if (encodedScript) {
+    const sshInvocation = ssh.map(shellToken).join(' ');
+    return [
+      `$remoteScript = '${escapePowerShell(encodedScript[1])}'`,
+      `$remoteScript | & ${sshInvocation} ${shellToken('base64 -d | bash')}`,
+      'if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }'
+    ].join('; ');
+  }
   return ssh.concat(remoteCommand).map(shellToken).join(' ');
 }
 
@@ -4221,5 +4241,6 @@ module.exports = {
   resolveCatalogSchemaVersion,
   tradePoolCatalogLogCheckCommands,
   gamePostReleaseCleanupCommand,
-  runPowerShell
+  runPowerShell,
+  remoteSshCommand
 };
