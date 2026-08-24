@@ -6,5 +6,6 @@ test-results/
 screenshots/
 .service/
 .release-history.json
+.release-history-migrations.json
 .release-jobs.json
 .release-worktrees/
