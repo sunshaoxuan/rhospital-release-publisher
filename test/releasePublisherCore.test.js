@@ -38,7 +38,8 @@ const {
   assertReleaseTargetChanged,
   readRemoteComposeImageTag,
   tradePoolCatalogLogCheckCommands,
-  gamePostReleaseCleanupCommand
+  gamePostReleaseCleanupCommand,
+  runPowerShell
 } = require('../src/releasePublisherCore');
 
 const sampleXml = `<component name="ProjectRunConfigurationManager">
@@ -2092,10 +2093,32 @@ test('pipeline phases follow execution order when game build starts', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const sourceMembers = app.match(/key: 'source'[\s\S]*?members: \[([\s\S]*?)\]\s*},\s*\{ key: 'build'/);
   const buildMembers = app.match(/key: 'build'[\s\S]*?members: \[([\s\S]*?)\]\s*},\s*\{ key: 'delivery'/);
+  const deliveryMembers = app.match(/key: 'delivery'[\s\S]*?members: \[([\s\S]*?)\]\s*},\s*\{ key: 'static'/);
+  const dataMembers = app.match(/key: 'data'[\s\S]*?members: \[([\s\S]*?)\]\s*},\s*\{ key: 'switch'/);
 
   assert.ok(sourceMembers);
   assert.ok(buildMembers);
+  assert.ok(deliveryMembers);
+  assert.ok(dataMembers);
   assert.match(buildMembers[1], /test-game-backend[\s\S]*build-image/);
+  assert.match(deliveryMembers[1], /resolve-ssh-target[\s\S]*game-prd2-migration-readiness[\s\S]*read-remote-compose[\s\S]*game-database-preflight[\s\S]*publish-image/);
+  assert.doesNotMatch(dataMembers[1], /game-database-preflight|forum-preflight/);
+  assert.match(app, /key: 'cleanup'[\s\S]*cleanup-game-release-containers[\s\S]*key: 'recovery'/);
+});
+
+test('PowerShell runner accepts scripts beyond the Windows command-line limit through stdin', {
+  skip: process.platform !== 'win32'
+}, async () => {
+  const payload = 'x'.repeat(50000);
+  const command = `# ${payload}\nWrite-Output ${payload.length}`;
+  const output = await runPowerShell(process.cwd(), command, {
+    RELEASE_PUBLISHER_TEST_MODE: 'false'
+  }, null, null, null, 30);
+
+  assert.match(output, /50000/);
+  await assert.rejects(() => runPowerShell(process.cwd(), 'Write-Error "expected"; exit 7', {
+    RELEASE_PUBLISHER_TEST_MODE: 'false'
+  }, null, null, null, 30), /expected/);
 });
 
 test('release history supports pagination and deletion', () => {
@@ -2375,7 +2398,8 @@ test('step backgrounds communicate execution status instead of final-check type'
 test('forum pipeline groups backup before cutover and labels its normal recovery evidence accurately', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
 
-  assert.match(app, /'pre-deploy-checklist', 'forum-preflight', 'backup-forum-release'/);
+  assert.match(app, /key: 'delivery'[\s\S]*'forum-preflight'[\s\S]*'publish-image'/);
+  assert.match(app, /key: 'data'[\s\S]*'backup-forum-release'[\s\S]*key: 'switch'/);
   assert.match(app, /members\.every\(step => step\.key === 'forum-rollback-command'\)/);
   assert.match(app, /'记录论坛恢复入口'/);
 });

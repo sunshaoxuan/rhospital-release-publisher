@@ -3998,10 +3998,13 @@ function runPowerShell(cwd, command, env, onChunk, onHeartbeat, signal, timeoutS
     let heartbeat = null;
     let timeoutHandle = null;
     let settled = false;
-    const child = spawn('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command], {
+    const child = spawn('powershell', [
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', '-'
+    ], {
       cwd,
       env: {...process.env, ...env},
-      windowsHide: true
+      windowsHide: true,
+      stdio: ['pipe', 'pipe', 'pipe']
     });
     const cleanup = () => {
       if (heartbeat) {
@@ -4073,6 +4076,16 @@ function runPowerShell(cwd, command, env, onChunk, onHeartbeat, signal, timeoutS
       }
       resolve(output.trim() || '[OK]');
     });
+    child.stdin.on('error', error => {
+      if (settled || error.code === 'EPIPE') {
+        return;
+      }
+      settled = true;
+      cleanup();
+      killProcessTree(child);
+      reject(error);
+    });
+    child.stdin.end(`${command}\n`);
     if (onHeartbeat) {
       heartbeat = setInterval(() => {
         onHeartbeat(Math.max(1, Math.round((Date.now() - startedAt) / 1000)));
@@ -4207,5 +4220,6 @@ module.exports = {
   validateGitCommit,
   resolveCatalogSchemaVersion,
   tradePoolCatalogLogCheckCommands,
-  gamePostReleaseCleanupCommand
+  gamePostReleaseCleanupCommand,
+  runPowerShell
 };

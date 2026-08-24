@@ -383,14 +383,15 @@
         'validate-forum-image'
       ] },
       { key: 'delivery', title: '交付镜像与连接校验', members: [
-        'publish-image', 'resolve-ssh-target', 'read-remote-compose'
+        'resolve-ssh-target', 'game-prd2-migration-readiness', 'read-remote-compose',
+        'game-database-preflight', 'forum-preflight', 'validate-existing-forum-image', 'publish-image'
       ] },
       { key: 'static', title: '批量预置前置资源', members: [
         'rehearse-game-static-assets', 'stage-game-static-assets', 'verify-game-static-assets-predeploy'
       ] },
       { key: 'data', title: '数据安全与迁移', members: [
-        'game-database-preflight', 'backup-game-release', 'apply-database-migrations',
-        'pre-deploy-checklist', 'forum-preflight', 'backup-forum-release'
+        'backup-game-release', 'apply-database-migrations', 'pre-deploy-checklist',
+        'backup-forum-release'
       ] },
       { key: 'switch', title: '切换生产版本', members: [
         'update-remote-compose', 'deploy-stack', 'deploy-forum-compose'
@@ -398,6 +399,9 @@
       { key: 'observe', title: '全链路观察', members: [
         'commit-game-cutover', 'final-runtime-check', 'verify-game-static-delivery',
         'verify-relations-release', 'verify-tradepool-release'
+      ] },
+      { key: 'cleanup', title: '清理游戏发布历史容器', members: [
+        'cleanup-game-release-containers'
       ] },
       { key: 'recovery', title: '致命故障恢复', members: [
         'game-rollback-decision', 'game-fatal-rollback-decision', 'game-rollback-command',
