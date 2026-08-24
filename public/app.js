@@ -10,9 +10,6 @@
   const gitBranch = document.getElementById('git-branch');
   const gitCommit = document.getElementById('git-commit');
   const gitRefresh = document.getElementById('git-refresh');
-  const dockerContext = document.getElementById('docker-context');
-  const remoteSshTarget = document.getElementById('remote-ssh-target');
-  const remoteComposeDir = document.getElementById('remote-compose-dir');
   const dryRun = document.getElementById('dry-run');
   const remoteRehearsal = document.getElementById('remote-rehearsal');
   const remoteRehearsalNote = document.getElementById('remote-rehearsal-note');
@@ -182,9 +179,6 @@
       appTag: appTag.value.trim(),
       gitBranch: gitBranch.value,
       gitCommit: gitCommit.value,
-      dockerContext: dockerContext.value.trim(),
-      remoteSshTarget: remoteSshTarget.value.trim(),
-      remoteComposeDir: remoteComposeDir.value.trim(),
       releaseChangedOnly: true,
       dryRun: dryRun.checked,
       remoteRehearsal: remoteRehearsal.checked,
@@ -203,7 +197,6 @@
   }
 
   function renderConfig(config) {
-    const previousTarget = latestConfig && latestConfig.releaseTarget;
     latestConfig = config;
     releaseTarget.value = config.releaseTarget || releaseTarget.value || 'game';
     const isForum = releaseTarget.value === 'forum';
@@ -238,16 +231,6 @@
     fields.dockerfile.textContent = config.dockerfile || '';
     fields.volumePath.textContent = config.volumeHostPath || '';
     fields.remoteComposePath.textContent = config.remoteComposeDir || '';
-    dockerContext.value = dockerContext.value || config.dockerServerName || config.dockerContext || config.serverName || '';
-    remoteSshTarget.value = remoteSshTarget.value
-      || config.remoteSshTarget
-      || config.dockerServerName
-      || config.dockerContext
-      || config.serverName
-      || '';
-    remoteComposeDir.value = !previousTarget || previousTarget !== config.releaseTarget
-      ? config.remoteComposeDir || ''
-      : remoteComposeDir.value || config.remoteComposeDir || '';
     appTag.value = appTag.value || config.suggestedTag || config.appTag || '';
     deployToggleLabel.textContent = isForum
       ? '执行论坛 Compose 发布'
@@ -396,7 +379,7 @@
         'validate-game-sso-source', 'validate-forum-source'
       ] },
       { key: 'build', title: '批量测试与构建', members: [
-        'test-game-backend', 'save-run-config', 'build-image', 'build-game-static-assets', 'validate-game-image',
+        'test-game-backend', 'build-image', 'build-game-static-assets', 'validate-game-image',
         'validate-forum-image'
       ] },
       { key: 'delivery', title: '交付镜像与连接校验', members: [
@@ -585,7 +568,6 @@
     const labels = {
       'local-check': '本地校验',
       'local-code': '本地代码',
-      'local-config': '本地配置',
       build: '构建动作',
       production: '生产动作',
       rehearsal: '远程演练',
@@ -708,9 +690,6 @@
     try {
       if (resetTargetValues) {
         appTag.value = '';
-        dockerContext.value = '';
-        remoteSshTarget.value = '';
-        remoteComposeDir.value = '';
         appTagEdited = false;
       }
       const config = await requestJson(`/api/config?releaseTarget=${encodeURIComponent(releaseTarget.value)}`);
@@ -785,9 +764,7 @@
   async function refreshProductionImageOnly() {
     const config = latestConfig || {};
     const params = new URLSearchParams({
-      releaseTarget: releaseTarget.value,
-      remoteSshTarget: remoteSshTarget.value.trim() || config.remoteSshTarget || config.serverName || '',
-      remoteComposeDir: remoteComposeDir.value.trim() || config.remoteComposeDir || ''
+      releaseTarget: releaseTarget.value
     });
     const remote = await requestJson(`/api/remote-tag?${params.toString()}`);
     latestConfig = {
@@ -801,9 +778,7 @@
 
   async function loadRemoteTagValue(config) {
     const params = new URLSearchParams({
-      releaseTarget: releaseTarget.value,
-      remoteSshTarget: remoteSshTarget.value.trim() || config.remoteSshTarget || config.serverName || '',
-      remoteComposeDir: remoteComposeDir.value.trim() || config.remoteComposeDir || ''
+      releaseTarget: releaseTarget.value
     });
     const remote = await requestJson(`/api/remote-tag?${params.toString()}`);
     latestConfig = {
@@ -1112,15 +1087,6 @@
   gitCommit.addEventListener('change', () => {
     renderConfig(latestConfig || {});
     refreshPlanForGitSelection().catch(error => setStatus(error.message, 'error'));
-  });
-  dockerContext.addEventListener('change', () => {
-    plan().catch(error => setStatus(error.message, 'error'));
-  });
-  remoteSshTarget.addEventListener('change', () => {
-    plan().catch(error => setStatus(error.message, 'error'));
-  });
-  remoteComposeDir.addEventListener('change', () => {
-    plan().catch(error => setStatus(error.message, 'error'));
   });
   dryRun.addEventListener('change', () => {
     if (!dryRun.checked) {

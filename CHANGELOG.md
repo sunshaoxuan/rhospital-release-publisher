@@ -2,11 +2,11 @@
 
 ## 2026-08-24
 
-1. 注册 `GAME_PRD2` 发布服务器 `92.113.124.185` 并在迁移提交后设为默认游戏目标。新目标增加数据库主角色、论坛、生产 Secret、持久化防火墙、Firebase 初始化、论坛 SSO、Stripe 与 Paddle 无签名拒绝、SnailJob 和 New Relic 门禁。旧目标 `SSH178` 仅保留给 72 小时致命故障恢复门禁，普通发布恢复继续限定在当前目标主机，跨主机恢复由环境知识库的三轮致命故障门禁管理。Windows 自动重启测试对版本监视与测试提交并发产生的短暂 Git `index.lock` 增加有界重试，保持实际门禁断言不变。
+1. `GAME_PRD2` 成为唯一游戏生产发布目标，`FORUM_PRD2` 继续作为唯一论坛生产发布目标，两者指向 `92.113.124.185`。发布器删除退役主机注册、请求级目标覆盖、路径覆盖、目标环境变量 fallback、IDEA Run Configuration 读取写回和保存 TAG API。页面改为只读展示生产连接参数，配置缺失、映射不一致、目标主机偏离当前生产或请求携带目标字段时失败关闭。游戏 Compose 和最终服务必须把 `SNAIL_JOB_SERVER_HOST`、`SNAIL_JOB_HOST` 与 `HOST_IP` 明确设为当前生产。Prd2 发布门禁继续覆盖数据库主角色、论坛、生产 Secret、持久化防火墙、Firebase 初始化、论坛 SSO、支付回调拒绝、SnailJob 和 New Relic。Windows 自动重启测试保留 Git `index.lock` 有界重试。
 
 ## 2026-08-20
 
-1. 发布器新增按发布目标选择生产 Docker Server 的仓库配置。游戏继续使用 `SSH178` 指向 `178.239.117.99`，论坛默认使用 `FORUM_PRD2` 指向已完成迁移的 `92.113.124.185`，Compose 目录保持 `/opt/1panel/apps/flarum/flarum`。页面切换游戏与论坛时会同步刷新 Docker Server、SSH 目标和目标服务器摘要，配置加载序号门禁会阻止较早请求覆盖当前目标。显式页面参数和目标专用环境变量优先于仓库默认值，历史全局环境变量在目标未配置时继续兜底。
+1. 发布器新增按游戏与论坛目标选择生产 Docker Server 的仓库配置。论坛目标使用 `FORUM_PRD2` 和 `92.113.124.185`，Compose 目录为 `/opt/1panel/apps/flarum/flarum`。页面切换目标时同步刷新 Docker Server、SSH 目标和目标服务器摘要，配置加载序号门禁阻止较早请求覆盖当前目标。
 
 ## 2026-08-16
 

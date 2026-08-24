@@ -1,17 +1,16 @@
 # RHospital Release Console
 
-RHospital 发布控制台，用于替代 IDEA 中的 `148.135.9.123` Docker Run Configuration。
+RHospital 发布控制台使用仓库内受控配置生成游戏与论坛发布计划。
 
 ## 作用
 
-- 读取开发环境中的 `hospital-backend/.run/148.135.9.123.run.xml`
+- 从 `release-publisher.config.json` 读取唯一生产目标
 - 在同一控制台选择“游戏后端”或“论坛”发布目标
 - 对比目标提交与游戏、论坛各自最近一次成功生产发布提交，自动识别需要发布的目标
 - 支持从分支列表选择发布分支，并从该分支提交列表选择最新提交或指定提交
 - 发布提交下拉框旁提供刷新按钮，执行 `git fetch --prune origin` 后重新读取当前分支提交
-- 解析当前 `hospital-backend:<TAG>` 和 `APP_TAG`
+- 读取生产 Compose 中当前运行的镜像 TAG
 - 默认把页面 TAG 输入框初始化为建议 `APP_TAG`
-- 同步更新本地发布配置中的镜像 TAG 和 `APP_TAG`
 - 生成应用编译命令
 - 生成 Docker 镜像制作命令
 - 使用 `docker save`、`scp`、`docker load` 发布到生产 Docker 镜像池
@@ -220,7 +219,7 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 游戏发布固定执行 `validate-game-static-delivery-prerequisites`，并至少保留 `test-game-backend`、`verify-game-static-assets-predeploy`、`pre-deploy-checklist`、`final-runtime-check` 和 `verify-game-static-delivery`。正式游戏部署计划还会执行 `verify-relations-release`，该步骤已注册为业务影响评估可引用的检查。论坛构建发布至少保留 `validate-forum-source`、`forum-preflight` 和 `final-runtime-check`，源码门禁包含论坛镜像、搜索迁移和部署配置契约测试。实体、Repository、DAO 或迁移脚本变化时必须声明数据库影响；存在游戏迁移脚本时还必须选择 `apply-database-migrations`。现有步骤无法覆盖新增风险时，应先在本仓库增加可执行检查和测试，再由业务仓库的影响评估引用该步骤。论坛生产 Compose 修改开始后，失败、取消或发布器重启会进入 `RECOVERY_REQUIRED`，保留备份与回滚入口供人工复核。
 
-`GAME_PRD2` 是切换提交后的默认游戏目标。发布计划增加 `game-prd2-migration-readiness` 与 `game-prd2-runtime-contract`，检查新主库角色、论坛、生产 Secret、防火墙、Firebase 初始化、论坛 SSO、Stripe 与 Paddle 无签名拒绝、SnailJob 和 New Relic。旧目标 `SSH178` 只保留给环境知识库定义的 72 小时致命故障恢复门禁，普通发布和普通恢复不得选择旧目标。
+`GAME_PRD2` 是唯一游戏生产发布目标。发布计划增加 `game-prd2-migration-readiness` 与 `game-prd2-runtime-contract`，检查主库角色、论坛、生产 Secret、防火墙、Firebase 初始化、论坛 SSO、Stripe 与 Paddle 无签名拒绝、SnailJob 和 New Relic。Compose 与最终 Swarm 服务还必须显式把 SnailJob 服务地址和 `HOST_IP` 设为当前生产主机。跨主机灾难恢复属于环境知识库管理范围，发布器不注册其他生产主机。
 
 游戏静态资源采用应用切换前交付：
 
@@ -316,24 +315,21 @@ node scripts\verify-relations-release.mjs --app-tag 20260810 --auth-token-file C
 
 页面中的步骤徽标按动作性质区分：
 
-- `本地代码`、`本地配置`、`本地校验`：只影响本机仓库、配置或读取本机状态
+- `本地代码`、`本地校验`：只影响本机仓库或读取本机状态
 - `构建动作`：编译应用产物或制作 Docker 镜像
 - `生产动作`：从发布到目标镜像池开始，包含生产编排 TAG 替换和 `docker stack deploy`
 - `远端只读校验`、`最终校验`：只读取生产侧状态，不标为生产动作
 
-页面中的 `APP_TAG` 输入框就是本次发布 TAG 的来源。点击 `执行流程` 后，流程会先按当前输入值进入 `更新本地发布配置` 节点：
-
-- dry run 下只预览写入结果，不改真实配置文件
-- 正式执行时会写回 `.run/148.135.9.123.run.xml`
+页面中的 `APP_TAG` 输入框是本次发布 TAG 的唯一输入。发布器不会读取或写回 IDEA Run Configuration。
 
 TAG 建议规则以当天日期为基础，例如 2026 年 7 月 9 日的基础 TAG 是 `20260709`：
 
-- 如果本地配置和远程已上线 TAG 都早于当天基础 TAG，建议使用 `20260709`
+- 如果远程已上线 TAG 早于当天基础 TAG，建议使用 `20260709`
 - 如果远程已上线 TAG 已经是 `20260709`，建议使用 `2026070901`
 - 如果远程已上线 TAG 是 `2026070901`，建议使用 `2026070902`
 - 如果远程已上线 TAG 超过当天基础 TAG，也进入 `20260709nn` 格式，`nn` 从 `01` 开始取最新可用号码
 
-页面首屏先按本地配置给出建议 TAG。随后后台只读 SSH 读取生产 compose 当前 `hospital-backend:<TAG>`，如果你还没有手动修改输入框，页面会自动按远程已上线 TAG 修正建议值并刷新流程图。
+页面首屏先按当天日期给出建议 TAG。随后后台只读 SSH 读取生产 Compose 当前镜像，如果你还没有手动修改输入框，页面会自动按远程已上线 TAG 修正建议值并刷新流程图。
 
 页面底部的 `构造历史` 会展示最近执行记录。历史文件保存在发布器本地：
 
@@ -360,13 +356,13 @@ Dry run 只在当前页面展示结果，不写入构造历史。`.release-jobs.
 
 执行流程会先显示 Git 状态检查节点，再执行 `git fetch --prune origin`。如果选择 `最新提交`，发布器会切换到所选分支的最新提交；如果选择具体提交，发布器会执行 `git checkout <commit>`，并用 `git merge-base --is-ancestor <commit> <branch>` 校验该提交属于所选分支。
 
-当前发布配置中的 `server-name="SSH178"` 是游戏发布 Docker Server 名称。发布器会优先读取仓库内的 `release-publisher.config.json`，并通过 `releaseTargets` 为游戏与论坛选择各自的生产主机：
+生产目标由仓库内的 `release-publisher.config.json` 唯一决定。游戏与论坛使用独立名称并指向当前生产主机：
 
 ```json
 {
   "dockerServers": {
-    "SSH178": {
-      "host": "178.239.117.99",
+    "GAME_PRD2": {
+      "host": "92.113.124.185",
       "username": "root",
       "port": "22",
       "keyPath": "C:\\workspace\\Secure\\sunsxaws.pem"
@@ -379,7 +375,7 @@ Dry run 只在当前页面展示结果，不写入构造历史。`.release-jobs.
     }
   },
   "releaseTargets": {
-    "game": {"dockerServer": "SSH178"},
+    "game": {"dockerServer": "GAME_PRD2"},
     "forum": {"dockerServer": "FORUM_PRD2"}
   }
 }
@@ -387,82 +383,41 @@ Dry run 只在当前页面展示结果，不写入构造历史。`.release-jobs.
 
 这个文件只保存连接参数和私钥路径，不保存私钥内容。私钥文件仍应放在本机安全目录中，例如 `C:\workspace\Secure\sunsxaws.pem`。
 
-如果仓库配置文件不存在，发布器才会兜底读取 JetBrains 用户配置：
-
-```text
-%APPDATA%\JetBrains\IntelliJIdea2026.1\options\remote-servers.xml
-%APPDATA%\JetBrains\IntelliJIdea2026.1\options\sshConfigs.xml
-```
-
-如果能解析到发布 Docker Server，镜像上传会使用 `scp` 和 `ssh docker load`。构建始终使用本机 Docker，例如：
+配置缺失、目标未注册或游戏与论坛映射不完整时，发布器会停止生成计划。页面请求、环境变量和 JetBrains 用户配置不能覆盖生产目标。镜像上传使用配置中的 `scp` 和 `ssh docker load` 参数，构建使用本机 Docker，例如：
 
 ```powershell
 docker build -f Dockerfile --build-arg APP_TAG=2026070702 -t hospital-backend:2026070702 .
 ```
 
-如果本机存在同名 Docker CLI context，发布器也会显示该 context 信息。若需要手工指定 Docker 目标名称，可在页面里修改 `Docker context`，也可以通过目标专用环境变量指定。全局变量用于未配置 `releaseTargets` 的兼容场景：
+页面会用只读命令解析当前目标对应的 Docker CLI context：
 
 ```powershell
-$env:RELEASE_PUBLISHER_DOCKER_CONTEXT='SSH178'
-$env:RELEASE_PUBLISHER_GAME_DOCKER_SERVER='SSH178'
-$env:RELEASE_PUBLISHER_FORUM_DOCKER_SERVER='FORUM_PRD2'
+docker context inspect GAME_PRD2
 ```
 
-页面会用只读命令解析 Docker CLI context：
-
-```powershell
-docker context inspect SSH178
-```
-
-如果本机 Docker 没有这个 context，页面会显示 `Docker 未找到 context SSH178`。这只表示 Docker CLI context 不存在。只要发布 Docker Server 能解析到 SSH 主机和密钥，发布器仍可执行镜像上传和热发布。
-
-SSH 热发布默认使用当前发布目标对应的 Docker Server。页面切换目标时会同步刷新该值。如果 SSH 目标不同，可在页面里修改 `SSH 目标`，也可以通过目标专用或全局环境变量指定：
-
-```powershell
-$env:RELEASE_PUBLISHER_SSH_TARGET='SSH178'
-$env:RELEASE_PUBLISHER_GAME_SSH_TARGET='SSH178'
-$env:RELEASE_PUBLISHER_FORUM_SSH_TARGET='FORUM_PRD2'
-```
-
-页面会显示 SSH 目标来源。默认来源顺序如下：
-
-1. 页面请求中的显式目标
-2. `RELEASE_PUBLISHER_GAME_SSH_TARGET` 或 `RELEASE_PUBLISHER_FORUM_SSH_TARGET`
-3. `releaseTargets` 选中的 Docker Server
-4. `RELEASE_PUBLISHER_SSH_TARGET`
-5. Docker Server 解析结果或本地发布配置文件里的 `server-name`
+如果本机没有同名 Docker context，构建继续使用本机默认 Docker，镜像交付仍使用仓库配置中解析出的 SSH 主机和密钥。SSH 目标与 Docker Server 必须使用同一个 `releaseTargets` 映射，出现不一致时计划失败关闭。
 
 页面还会执行本地只读解析：
 
 ```powershell
-ssh -G SSH178
+ssh -G GAME_PRD2
 ```
 
 这个命令只展开本机 SSH 配置，不会登录生产机。页面会显示解析出的 `HostName`、`User`、`Port`、`IdentityFile` 和 `~/.ssh/config` 是否存在。如果没有 `~/.ssh/config`，页面会明确显示该文件不存在，并展示 `ssh -G` 能展开的默认值或系统配置。
 
-生产编排目录默认是：
+游戏生产编排目录固定为：
 
 ```text
 /opt/1panel/docker/compose/hospital-stack
 ```
 
-也可以通过环境变量覆盖：
-
-```powershell
-$env:RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR='/opt/1panel/docker/compose/hospital-stack'
-```
-
-论坛生产编排目录默认是：
+论坛生产编排目录固定为：
 
 ```text
 /opt/1panel/apps/flarum/flarum
 ```
 
-也可以单独覆盖：
-
-```powershell
-$env:RELEASE_PUBLISHER_FORUM_REMOTE_COMPOSE_DIR='/opt/1panel/apps/flarum/flarum'
-```
+页面和 API 不接受生产编排目录覆盖。目录调整必须修改发布器代码、补充文档和测试，并通过发布门禁后提交。
 
 当前 `Dockerfile` 是多阶段构建。第一阶段使用 Maven 编译，第二阶段制作运行镜像。发布器会在本机 Docker 完成构建，再把镜像保存为 tar，通过 SSH 上传到目标 Docker 主机并执行 `docker load`。页面会把它拆成三个独立节点显示。
 
@@ -482,14 +437,14 @@ docker build -f Dockerfile --build-arg APP_TAG=2026070702 -t hospital-backend:20
 
 ```powershell
 docker save -o $env:TEMP\hospital-backend-2026070702.tar hospital-backend:2026070702
-scp -i C:\workspace\Secure\sunsxaws.pem -P 22 $env:TEMP\hospital-backend-2026070702.tar root@178.239.117.99:/tmp/hospital-backend-2026070702.tar
-ssh -i C:\workspace\Secure\sunsxaws.pem -p 22 root@178.239.117.99 'docker load -i /tmp/hospital-backend-2026070702.tar && rm -f /tmp/hospital-backend-2026070702.tar'
+scp -i C:\workspace\Secure\sunsxaws.pem -P 22 $env:TEMP\hospital-backend-2026070702.tar root@92.113.124.185:/tmp/hospital-backend-2026070702.tar
+ssh -i C:\workspace\Secure\sunsxaws.pem -p 22 root@92.113.124.185 'docker load -i /tmp/hospital-backend-2026070702.tar && rm -f /tmp/hospital-backend-2026070702.tar'
 ```
 
 勾选 SSH 热发布计划时，页面会生成 SSH 远端脚本投递命令。命令外层形如：
 
 ```powershell
-ssh SSH178 'printf %s "<base64-script>" | base64 -d | bash'
+ssh GAME_PRD2 'printf %s "<base64-script>" | base64 -d | bash'
 ```
 
 这样可以避免 Windows PowerShell、本机 OpenSSH 和远端 bash 三层引号转义互相干扰。解码后的远端读取脚本类似：

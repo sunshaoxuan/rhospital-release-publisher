@@ -2,14 +2,12 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const {
-  DEFAULT_RUN_CONFIG,
   DEFAULT_REMOTE_COMPOSE_DIR,
   DEFAULT_FORUM_REMOTE_COMPOSE_DIR,
   defaultProjectRoot,
   readConfig,
   readReleaseConfig,
   createPlan,
-  saveTag,
   executePlan,
   appendReleaseHistory,
   buildHistoryEntry,
@@ -93,7 +91,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/config' && req.method === 'GET') {
       const releaseTarget = validateReleaseTarget(requestUrl.searchParams.get('releaseTarget') || 'game');
-      const config = readReleaseConfig(projectRoot, releaseTarget, DEFAULT_RUN_CONFIG);
+      const config = readReleaseConfig(projectRoot, releaseTarget);
       const dockerServerName = resolveReleaseTargetDockerServerName(releaseTarget, config.serverName, process.env);
       const remoteSshTarget = resolveReleaseTargetSshTarget(releaseTarget, dockerServerName, process.env);
       const dockerContextResolution = resolveDockerContextDetails(dockerServerName, process.env);
@@ -104,8 +102,8 @@ const server = http.createServer(async (req, res) => {
         suggestedTag: proposeNextTag(config.appTag),
         remoteSshTarget,
         remoteComposeDir: releaseTarget === 'forum'
-          ? process.env.RELEASE_PUBLISHER_FORUM_REMOTE_COMPOSE_DIR || DEFAULT_FORUM_REMOTE_COMPOSE_DIR
-          : process.env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR,
+          ? DEFAULT_FORUM_REMOTE_COMPOSE_DIR
+          : DEFAULT_REMOTE_COMPOSE_DIR,
         sshResolution: resolveSshTargetDetails(remoteSshTarget, process.env),
         dockerContextResolution,
         ideaDockerServerResolution,
@@ -119,14 +117,15 @@ const server = http.createServer(async (req, res) => {
     }
     if (pathname === '/api/remote-tag' && req.method === 'GET') {
       const releaseTarget = validateReleaseTarget(requestUrl.searchParams.get('releaseTarget') || 'game');
-      const config = readReleaseConfig(projectRoot, releaseTarget, DEFAULT_RUN_CONFIG);
+      if (requestUrl.searchParams.has('remoteSshTarget') || requestUrl.searchParams.has('remoteComposeDir')) {
+        throw new Error('远端镜像查询目标由发布器配置固定管理');
+      }
+      const config = readReleaseConfig(projectRoot, releaseTarget);
       const dockerServerName = resolveReleaseTargetDockerServerName(releaseTarget, config.serverName, process.env);
-      const remoteSshTarget = requestUrl.searchParams.get('remoteSshTarget')
-        || resolveReleaseTargetSshTarget(releaseTarget, dockerServerName, process.env);
-      const remoteComposeDir = requestUrl.searchParams.get('remoteComposeDir')
-        || (releaseTarget === 'forum'
-          ? process.env.RELEASE_PUBLISHER_FORUM_REMOTE_COMPOSE_DIR || DEFAULT_FORUM_REMOTE_COMPOSE_DIR
-          : process.env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR);
+      const remoteSshTarget = resolveReleaseTargetSshTarget(releaseTarget, dockerServerName, process.env);
+      const remoteComposeDir = releaseTarget === 'forum'
+        ? DEFAULT_FORUM_REMOTE_COMPOSE_DIR
+        : DEFAULT_REMOTE_COMPOSE_DIR;
       const serverResolution = resolveReleaseDockerServerDetails(dockerServerName, process.env);
       const target = serverResolution && serverResolution.resolved
         ? {
@@ -182,11 +181,6 @@ const server = http.createServer(async (req, res) => {
       const body = await readBody(req);
       assertPublisherActionReady();
       return sendJson(res, 200, createPlan(projectRoot, prepareReleaseRequest(body, false)));
-    }
-    if (pathname === '/api/save-tag' && req.method === 'POST') {
-      const body = await readBody(req);
-      assertPublisherActionReady();
-      return sendJson(res, 200, saveTag(projectRoot, body));
     }
     if (pathname === '/api/execute' && req.method === 'POST') {
       const body = await readBody(req);

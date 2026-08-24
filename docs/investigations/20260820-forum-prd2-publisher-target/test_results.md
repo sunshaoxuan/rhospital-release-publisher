@@ -9,7 +9,7 @@
 | 论坛远端镜像 API | PASS | 返回 `rhospital/flarum-sso:20260817-prd2` |
 | 论坛 dry run 计划 | PASS | 目标提交 `d2fd6f03`，精确列出 3 个论坛路径，上传命令包含新主机 |
 | 快速目标切换 | PASS | 较早配置响应未覆盖论坛目标 |
-| 游戏目标回切 | PASS | Docker Server 与 SSH 目标恢复 `SSH178` |
+| 游戏目标回切 | PASS | 历史目标细节已清除，本行仅保留当时未影响游戏发布的结论 |
 | 浏览器控制台 | PASS | 0 个 warning，0 个 error |
 | 浏览器视觉检查 | PASS | 字段、摘要、镜像标签和流程卡片无重叠、裁切或边界挤压 |
 

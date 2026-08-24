@@ -22,7 +22,6 @@ const {
   listGitCommits,
   refreshGitRefs,
   parseSshGOutput,
-  parseIdeaRunConfig,
   readReleaseConfig,
   proposeNextTag,
   readReleaseHistory,
@@ -31,8 +30,6 @@ const {
   clearReleaseHistory,
   appendReleaseHistory,
   buildHistoryEntry,
-  saveTag,
-  updateIdeaRunConfigTag,
   validateTag,
   validateGitBranch,
   validateGitCommit,
@@ -45,7 +42,7 @@ const {
 } = require('../src/releasePublisherCore');
 
 const sampleXml = `<component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="148.135.9.123" type="docker-deploy" factoryName="dockerfile" server-name="SSH178">
+  <configuration default="false" name="192.0.2.10" type="docker-deploy" factoryName="dockerfile" server-name="GAME_PRD2">
     <deployment type="dockerfile">
       <settings>
         <option name="imageTag" value="hospital-backend:2026070701" />
@@ -67,7 +64,7 @@ const sampleXml = `<component name="ProjectRunConfigurationManager">
             </DockerEnvVarImpl>
             <DockerEnvVarImpl>
               <option name="name" value="HOST_IP" />
-              <option name="value" value="148.135.9.123" />
+              <option name="value" value="192.0.2.10" />
             </DockerEnvVarImpl>
           </list>
         </option>
@@ -228,17 +225,6 @@ test('trade-pool log gate rejects unexpected container log command failures', ()
   assert.match(result.stdout, /container log collection failed with exit 125/);
 });
 
-test('parses IDEA Docker run config release values', () => {
-  const config = parseIdeaRunConfig(sampleXml);
-
-  assert.equal(config.serverName, 'SSH178');
-  assert.equal(config.imageTag, 'hospital-backend:2026070701');
-  assert.equal(config.appTag, '2026070701');
-  assert.equal(config.hostIp, '148.135.9.123');
-  assert.equal(config.volumeHostPath, '/usr/local/software/rhospital');
-  assert.equal(config.buildOnly, true);
-});
-
 test('suggests next tag from current date and sequence', () => {
   const now = new Date(2026, 6, 9);
 
@@ -247,13 +233,6 @@ test('suggests next tag from current date and sequence', () => {
   assert.equal(proposeNextTag('hospital-backend:20260709', now), '2026070901');
   assert.equal(proposeNextTag(['20260708', '2026070901'], now), '2026070902');
   assert.equal(proposeNextTag(['20260710'], now), '2026070901');
-});
-
-test('updates image tag and APP_TAG together', () => {
-  const updated = updateIdeaRunConfigTag(sampleXml, 'hospital-backend:2026070702', '2026070702');
-
-  assert.match(updated, /imageTag" value="hospital-backend:2026070702"/);
-  assert.match(updated, /value="APP_TAG"[\s\S]*?name="value" value="2026070702"/);
 });
 
 test('reads Catalog schema version from the selected release source', () => {
@@ -271,7 +250,6 @@ test('creates dry run command plan without production execution enabled', () => 
   const plan = createPlan(root, {
     appTag: '2026070702',
     dryRun: true,
-    dockerContext: 'SSH178',
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -337,7 +315,10 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('IMAGE_TAG')
     && decodedRemoteScript(step.command).includes('update_config failure_action must be pause')
     && decodedRemoteScript(step.command).includes('FORUM_SSO_ENABLED=true is missing or duplicated')
-    && decodedRemoteScript(step.command).includes('FORUM_SSO_SECRET_FILE is missing or duplicated')));
+    && decodedRemoteScript(step.command).includes('FORUM_SSO_SECRET_FILE is missing or duplicated')
+    && decodedRemoteScript(step.command).includes('SNAIL_JOB_SERVER_HOST must select current production')
+    && decodedRemoteScript(step.command).includes('SNAIL_JOB_HOST must select current production')
+    && decodedRemoteScript(step.command).includes('HOST_IP must select current production')));
   assert.ok(plan.steps.some(step => step.key === 'game-database-preflight'
     && decodedScriptTree(step.command).includes('RELEASE_DB_AUDIT_MODE=inspect')
     && decodedScriptTree(step.command).includes('RELEASE_EXPECTED_CATALOG_VERSION=20')
@@ -523,7 +504,6 @@ test('creates dry run command plan without production execution enabled', () => 
   assertStepType(plan, 'test-game-backend', 'build', false);
   assertStepType(plan, 'validate-release-input', 'local-check', false);
   assertStepType(plan, 'validate-game-static-delivery-prerequisites', 'local-check', false);
-  assertStepType(plan, 'save-run-config', 'local-config', false);
   assertStepType(plan, 'build-image', 'build', false);
   assertStepType(plan, 'build-game-static-assets', 'build', false);
   assertStepType(plan, 'validate-game-image', 'build', false);
@@ -1132,8 +1112,6 @@ test('creates reusable forum compose release plan with backup validation and rol
     releaseTarget: 'forum',
     appTag: '2026071501',
     dryRun: true,
-    dockerContext: 'SSH178',
-    remoteSshTarget: 'root@178.239.117.99',
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1153,7 +1131,6 @@ test('creates reusable forum compose release plan with backup validation and rol
   assert.equal(plan.forumImageModeLabel, '构建并上传新镜像');
   assert.equal(plan.imageTag, 'rhospital/flarum-sso:2026071501');
   assert.equal(plan.config.remoteComposeDir, DEFAULT_FORUM_REMOTE_COMPOSE_DIR);
-  assert.equal(plan.steps.some(step => step.key === 'save-run-config'), false);
   assert.equal(plan.steps.some(step => step.key === 'compile-artifact'), false);
   assert.ok(plan.steps.some(step => step.key === 'validate-forum-source'
     && step.command.includes('ForumFlarumImageAssetTest,ForumSearchMigrationContractTest,ForumDeploymentConfigTest')
@@ -1218,8 +1195,6 @@ test('reuses an existing production forum image without rebuilding or uploading 
     forumImageMode: 'reuse',
     appTag: '20260715',
     dryRun: true,
-    dockerContext: 'SSH178',
-    remoteSshTarget: 'root@178.239.117.99',
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1255,7 +1230,6 @@ test('creates specified branch latest update plan', () => {
     dryRun: true,
     gitBranch: 'origin/release/20260707',
     gitCommit: 'latest',
-    dockerContext: 'SSH178',
     includeStackDeploy: false
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1281,7 +1255,6 @@ test('creates specified branch commit update plan', () => {
     dryRun: true,
     gitBranch: 'origin/release/20260707',
     gitCommit: commit,
-    dockerContext: 'SSH178',
     includeStackDeploy: false
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1304,7 +1277,6 @@ test('local branch latest update command is compatible with Windows PowerShell',
     dryRun: true,
     gitBranch: 'master',
     gitCommit: 'latest',
-    dockerContext: 'SSH178',
     includeStackDeploy: false
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1320,14 +1292,11 @@ test('local branch latest update command is compatible with Windows PowerShell',
   assert.equal(updateStep.command.includes(' && '), false);
 });
 
-test('uses explicit SSH target and remote compose directory in hot deploy plan', () => {
+test('uses authoritative production target and compose directory in hot deploy plan', () => {
   const root = tempProject(sampleXml);
   const plan = createPlan(root, {
     appTag: '2026070702',
     dryRun: true,
-    dockerContext: 'docker-prod',
-    remoteSshTarget: 'root@148.135.9.123',
-    remoteComposeDir: '/opt/1panel/docker/compose/hospital-stack',
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1335,18 +1304,18 @@ test('uses explicit SSH target and remote compose directory in hot deploy plan',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
   });
 
-  assert.equal(plan.config.dockerContext, 'docker-prod');
-  assert.equal(plan.config.remoteSshTarget, 'root@148.135.9.123');
-  assert.equal(plan.config.remoteComposeDir, '/opt/1panel/docker/compose/hospital-stack');
-  assert.ok(plan.steps.some(step => step.command.includes("ssh 'root@148.135.9.123'")));
+  assert.equal(plan.config.dockerContext, 'GAME_PRD2');
+  assert.equal(plan.config.remoteSshTarget, 'GAME_PRD2');
+  assert.equal(plan.config.remoteComposeDir, DEFAULT_REMOTE_COMPOSE_DIR);
+  assert.ok(plan.steps.some(step => step.command.includes("root@92.113.124.185")));
   assert.ok(plan.steps.some(step => step.command.includes('base64 -d | bash')
-    && decodedRemoteScript(step.command).includes('cd /opt/1panel/docker/compose/hospital-stack')));
+    && decodedRemoteScript(step.command).includes(`cd ${DEFAULT_REMOTE_COMPOSE_DIR}`)));
 });
 
 test('reads remote compose image tag through SSH output', () => {
   const calls = [];
   const result = readRemoteComposeImageTag({
-    host: '178.239.117.99',
+    host: '92.113.124.185',
     user: 'root',
     port: '22',
     keyPath: 'C:\\workspace\\Secure\\sunsxaws.pem'
@@ -1368,7 +1337,7 @@ test('reads remote compose image tag through SSH output', () => {
 });
 
 test('reads namespaced forum image tag from the forum compose', () => {
-  const result = readRemoteComposeImageTag('root@178.239.117.99', DEFAULT_FORUM_REMOTE_COMPOSE_DIR,
+  const result = readRemoteComposeImageTag('root@92.113.124.185', DEFAULT_FORUM_REMOTE_COMPOSE_DIR,
     'rhospital/flarum-sso', {}, () => ({
       status: 0,
       stdout: '34:        image: rhospital/flarum-sso:20260715\n',
@@ -1381,16 +1350,16 @@ test('reads namespaced forum image tag from the forum compose', () => {
 });
 
 test('parses ssh -G output for display', () => {
-  const parsed = parseSshGOutput(`host SSH178
+  const parsed = parseSshGOutput(`host GAME_PRD2
 user root
-hostname 148.135.9.123
+hostname 192.0.2.10
 port 22
 identityfile C:/Users/user/.ssh/id_ed25519
 identityfile C:/Users/user/.ssh/id_rsa
 identitiesonly yes`);
 
   assert.equal(parsed.user, 'root');
-  assert.equal(parsed.hostname, '148.135.9.123');
+  assert.equal(parsed.hostname, '192.0.2.10');
   assert.equal(parsed.port, '22');
   assert.deepEqual(parsed.identityfile, [
     'C:/Users/user/.ssh/id_ed25519',
@@ -1400,26 +1369,26 @@ identitiesonly yes`);
 });
 
 test('resolves docker context inspect output for display', () => {
-  const result = resolveDockerContextDetails('SSH178', {}, () => ({
+  const result = resolveDockerContextDetails('GAME_PRD2', {}, () => ({
     status: 0,
     stdout: JSON.stringify([{
-      Name: 'SSH178',
+      Name: 'GAME_PRD2',
       Metadata: {Description: 'prod docker'},
-      Endpoints: {docker: {Host: 'ssh://root@148.135.9.123'}}
+      Endpoints: {docker: {Host: 'ssh://root@192.0.2.10'}}
     }]),
     stderr: ''
   }));
 
   assert.equal(result.resolved, true);
   assert.equal(result.description, 'prod docker');
-  assert.equal(result.dockerEndpoint, 'ssh://root@148.135.9.123');
+  assert.equal(result.dockerEndpoint, 'ssh://root@192.0.2.10');
 });
 
 test('reports missing docker context for display', () => {
-  const result = resolveDockerContextDetails('SSH178', {}, () => ({
+  const result = resolveDockerContextDetails('GAME_PRD2', {}, () => ({
     status: 1,
     stdout: '',
-    stderr: 'context "SSH178": context not found'
+    stderr: 'context "GAME_PRD2": context not found'
   }));
 
   assert.equal(result.resolved, false);
@@ -1433,7 +1402,6 @@ test('resolves IDEA Docker Server for SSH image upload while building locally', 
   const plan = createPlan(root, {
     appTag: '2026070702',
     dryRun: true,
-    dockerContext: 'SSH178',
     includeStackDeploy: false
   }, {
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
@@ -1442,18 +1410,18 @@ test('resolves IDEA Docker Server for SSH image upload while building locally', 
   });
 
   assert.equal(plan.config.ideaDockerServerResolution.resolved, true);
-  assert.equal(plan.config.ideaDockerServerResolution.host, '178.239.117.99');
+  assert.equal(plan.config.ideaDockerServerResolution.host, '92.113.124.185');
   assert.equal(plan.config.ideaDockerServerResolution.keyPath, 'C:\\workspace\\Secure\\sunsxaws.pem');
   assert.equal(plan.config.dockerCommandTarget.mode, 'local');
   assert.equal(plan.config.dockerCommandTarget.description, '本机 Docker');
-  assert.equal(plan.config.remoteImageTarget.host, '178.239.117.99');
+  assert.equal(plan.config.remoteImageTarget.host, '92.113.124.185');
   assert.equal(plan.config.remoteImageTarget.keyPath, 'C:\\workspace\\Secure\\sunsxaws.pem');
   assert.ok(plan.steps.some(step => step.key === 'build-image'
     && step.command.includes('docker build')
-    && !step.command.includes('178.239.117.99')));
+    && !step.command.includes('92.113.124.185')));
   assert.ok(plan.steps.some(step => step.key === 'publish-image'
     && step.command.includes("scp -i 'C:\\workspace\\Secure\\sunsxaws.pem' -P 22")
-    && step.command.includes("ssh -i 'C:\\workspace\\Secure\\sunsxaws.pem' -p 22 'root@178.239.117.99'")
+    && step.command.includes("ssh -i 'C:\\workspace\\Secure\\sunsxaws.pem' -p 22 'root@92.113.124.185'")
     && step.command.includes('docker load -i')));
 });
 
@@ -1463,7 +1431,6 @@ test('resolves release Docker Server from repository config without JetBrains op
   const plan = createPlan(root, {
     appTag: '2026070702',
     dryRun: true,
-    dockerContext: 'SSH178',
     includeStackDeploy: false
   }, {
     RELEASE_PUBLISHER_CONFIG: configPath,
@@ -1474,34 +1441,32 @@ test('resolves release Docker Server from repository config without JetBrains op
 
   assert.equal(plan.config.ideaDockerServerResolution.source, 'release-publisher.config.json');
   assert.equal(plan.config.ideaDockerServerResolution.resolved, true);
-  assert.equal(plan.config.remoteImageTarget.host, '178.239.117.99');
+  assert.equal(plan.config.remoteImageTarget.host, '92.113.124.185');
   assert.equal(plan.config.remoteImageTarget.keyPath, 'C:\\workspace\\Secure\\sunsxaws.pem');
   assert.ok(plan.steps.some(step => step.key === 'publish-image'
     && step.command.includes("scp -i 'C:\\workspace\\Secure\\sunsxaws.pem' -P 22")
-    && step.command.includes("ssh -i 'C:\\workspace\\Secure\\sunsxaws.pem' -p 22 'root@178.239.117.99'")));
+    && step.command.includes("ssh -i 'C:\\workspace\\Secure\\sunsxaws.pem' -p 22 'root@92.113.124.185'")));
 });
 
 test('resolves repository Docker Server details directly', () => {
   const configPath = tempPublisherConfig();
-  const result = resolvePublisherDockerServerDetails('SSH178', {
+  const result = resolvePublisherDockerServerDetails('GAME_PRD2', {
     RELEASE_PUBLISHER_CONFIG: configPath
   });
 
   assert.equal(result.resolved, true);
   assert.equal(result.source, 'release-publisher.config.json');
-  assert.equal(result.dockerHost, 'ssh://root@178.239.117.99:22');
+  assert.equal(result.dockerHost, 'ssh://root@92.113.124.185:22');
 });
 
-test('resolves separate default Docker servers for game and forum releases', () => {
+test('resolves authoritative Docker servers for game and forum releases', () => {
   const configPath = tempPublisherConfig();
   const env = {
-    RELEASE_PUBLISHER_CONFIG: configPath,
-    RELEASE_PUBLISHER_DOCKER_CONTEXT: 'SSH178',
-    RELEASE_PUBLISHER_SSH_TARGET: 'SSH178'
+    RELEASE_PUBLISHER_CONFIG: configPath
   };
 
-  assert.equal(resolveReleaseTargetDockerServerName('game', 'SSH178', env), 'GAME_PRD2');
-  assert.equal(resolveReleaseTargetDockerServerName('forum', 'SSH178', env), 'FORUM_PRD2');
+  assert.equal(resolveReleaseTargetDockerServerName('game', 'GAME_PRD2', env), 'GAME_PRD2');
+  assert.equal(resolveReleaseTargetDockerServerName('forum', 'GAME_PRD2', env), 'FORUM_PRD2');
 
   const root = tempProject(sampleXml);
   const forumPlan = createPlan(root, {
@@ -1522,57 +1487,83 @@ test('resolves separate default Docker servers for game and forum releases', () 
   assert.equal(forumPlan.config.remoteImageTarget.keyPath, 'C:\\workspace\\Secure\\sunsxaws.pem');
 });
 
-test('keeps explicit forum release server overrides above configured defaults', () => {
+test('rejects request-level production target and compose path overrides', () => {
   const root = tempProject(sampleXml);
   const configPath = tempPublisherConfig();
-  const plan = createPlan(root, {
-    releaseTarget: 'forum',
-    forumImageMode: 'reuse',
-    appTag: '20260817-prd2',
-    dockerContext: 'SSH178',
-    remoteSshTarget: 'root@override.example',
-    dryRun: true,
-    includeStackDeploy: false
-  }, {
+  const env = {
     RELEASE_PUBLISHER_CONFIG: configPath,
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true'
-  });
+  };
+  const baseRequest = {
+    releaseTarget: 'forum',
+    forumImageMode: 'reuse',
+    appTag: '20260817-prd2',
+    dryRun: true,
+    includeStackDeploy: false
+  };
 
-  assert.equal(plan.config.dockerContext, 'SSH178');
-  assert.equal(plan.config.remoteSshTarget, 'root@override.example');
+  for (const [field, value] of Object.entries({
+    dockerContext: 'UNREGISTERED_TARGET',
+    remoteSshTarget: 'root@unregistered.invalid',
+    remoteComposeDir: '/unregistered/compose/path'
+  })) {
+    assert.throws(() => createPlan(root, {...baseRequest, [field]: value}, env),
+      /生产目标和编排路径由发布器配置固定管理/);
+  }
+});
+
+test('fails closed when a production target is missing or references an unregistered server', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-invalid-target-'));
+  const missingTargetConfig = path.join(root, 'missing-target.json');
+  const unregisteredTargetConfig = path.join(root, 'unregistered-target.json');
+  const wrongHostConfig = path.join(root, 'wrong-host.json');
+  fs.writeFileSync(missingTargetConfig, JSON.stringify({dockerServers: {}, releaseTargets: {}}), 'utf8');
+  fs.writeFileSync(unregisteredTargetConfig, JSON.stringify({
+    dockerServers: {},
+    releaseTargets: {game: {dockerServer: 'UNREGISTERED_TARGET'}}
+  }), 'utf8');
+  fs.writeFileSync(wrongHostConfig, JSON.stringify({
+    dockerServers: {
+      GAME_PRD2: {
+        host: '192.0.2.20',
+        username: 'root',
+        port: '22',
+        keyPath: 'C:\\workspace\\Secure\\test.pem'
+      }
+    },
+    releaseTargets: {game: {dockerServer: 'GAME_PRD2'}}
+  }), 'utf8');
+
+  assert.throws(() => resolveReleaseTargetDockerServerName('game', '', {
+    RELEASE_PUBLISHER_CONFIG: missingTargetConfig
+  }), /缺少 game 的生产 Docker Server/);
+  assert.throws(() => resolveReleaseTargetDockerServerName('game', '', {
+    RELEASE_PUBLISHER_CONFIG: unregisteredTargetConfig
+  }), /生产 Docker Server 未完整注册/);
+  assert.throws(() => resolveReleaseTargetDockerServerName('game', '', {
+    RELEASE_PUBLISHER_CONFIG: wrongHostConfig
+  }), /生产主机不是当前受控主机/);
 });
 
 test('resolves IDEA Docker Server details directly', () => {
   const optionsDir = tempJetBrainsOptions();
-  const result = resolveIdeaDockerServerDetails('SSH178', {
+  const result = resolveIdeaDockerServerDetails('GAME_PRD2', {
     RELEASE_PUBLISHER_JETBRAINS_OPTIONS_DIR: optionsDir
   });
 
   assert.equal(result.resolved, true);
   assert.equal(result.sshConfigId, 'e4ab0b3b-0051-4923-9eeb-03c207819bed');
   assert.equal(result.dockerExePath, '/usr/bin/docker');
-  assert.equal(result.dockerHost, 'ssh://root@178.239.117.99:22');
-});
-
-test('save tag dry run returns preview and does not mutate file', () => {
-  const root = tempProject(sampleXml);
-  const configPath = path.join(root, '.run', '148.135.9.123.run.xml');
-  const result = saveTag(root, {appTag: '2026070702', dryRun: true});
-
-  assert.equal(result.status, 'DRY_RUN');
-  assert.match(result.preview, /2026070702/);
-  assert.equal(fs.readFileSync(configPath, 'utf8'), sampleXml);
+  assert.equal(result.dockerHost, 'ssh://root@92.113.124.185:22');
 });
 
 test('execute dry run marks every pipeline step checked without mutating files or history', async () => {
   const root = tempProject(sampleXml);
-  const configPath = path.join(root, '.run', '148.135.9.123.run.xml');
   const historyPath = path.join(root, 'history.json');
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: true,
-    dockerContext: 'SSH178',
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1586,7 +1577,6 @@ test('execute dry run marks every pipeline step checked without mutating files o
   assert.ok(result.plan.steps.every(step => step.recoveryOnly
     ? step.status === 'pending'
     : step.status === 'dry-run-checked'));
-  assert.equal(fs.readFileSync(configPath, 'utf8'), sampleXml);
   const history = readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
   assert.equal(history.length, 0);
 });
@@ -1619,7 +1609,6 @@ test('remote rehearsal dry run runs only the isolated rehearsal command', async 
     appTag: '2026070702',
     dryRun: true,
     remoteRehearsal: true,
-    dockerContext: 'SSH178',
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1657,13 +1646,11 @@ test('remote rehearsal dry run runs only the isolated rehearsal command', async 
 
 test('forum dry run returns its target without changing config or history', async () => {
   const root = tempProject(sampleXml);
-  const configPath = path.join(root, '.run', '148.135.9.123.run.xml');
   const historyPath = path.join(root, 'forum-history.json');
   const result = await executePlan(root, {
     releaseTarget: 'forum',
     appTag: '2026071501',
     dryRun: true,
-    dockerContext: 'SSH178',
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1674,8 +1661,6 @@ test('forum dry run returns its target without changing config or history', asyn
 
   assert.equal(result.status, 'DRY_RUN');
   assert.equal(result.plan.releaseTarget, 'forum');
-  assert.equal(result.plan.steps.some(step => step.key === 'save-run-config'), false);
-  assert.equal(fs.readFileSync(configPath, 'utf8'), sampleXml);
   const history = readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
   assert.equal(history.length, 0);
 });
@@ -1688,7 +1673,6 @@ test('execute runs validation commands after executable steps', async () => {
     appTag: '2026070702',
     dryRun: false,
     gitBranch: 'master',
-    dockerContext: 'SSH178',
     includeStackDeploy: false
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1714,7 +1698,6 @@ test('history entry records release commit evidence and step summary', () => {
   const plan = createPlan(root, {
     appTag: '2026070702',
     dryRun: true,
-    dockerContext: 'SSH178',
     includeStackDeploy: false
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1748,13 +1731,11 @@ test('history entry records release commit evidence and step summary', () => {
 
 test('execute without dry run runs without a separate environment authorization flag', async () => {
   const root = tempProject(sampleXml);
-  const configPath = path.join(root, '.run', '148.135.9.123.run.xml');
   const historyPath = path.join(root, 'history.json');
   const runCommand = testCommandRunner();
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
-    dockerContext: 'SSH178',
     includeStackDeploy: false
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1766,7 +1747,6 @@ test('execute without dry run runs without a separate environment authorization 
   });
 
   assert.equal(result.status, 'EXECUTED');
-  assert.match(fs.readFileSync(configPath, 'utf8'), /2026070702/);
   const history = readReleaseHistory(root, 5, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
   assert.equal(history.length, 1);
   assert.equal(history[0].status, 'EXECUTED');
@@ -1781,7 +1761,6 @@ test('execute errors are written to history with partial progress', async () => 
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
-    dockerContext: 'SSH178',
     includeStackDeploy: false
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1833,8 +1812,6 @@ test('forum compose mutation failures require recovery without changing game rec
     forumImageMode: 'reuse',
     appTag: '2026071501',
     dryRun: false,
-    dockerContext: 'SSH178',
-    remoteSshTarget: 'root@178.239.117.99',
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1859,7 +1836,6 @@ test('successful game release cleans exited service containers after every final
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
-    dockerContext: 'SSH178',
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1887,7 +1863,6 @@ test('observing target holds when the fatal full-chain threshold is not met', as
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
-    dockerContext: 'SSH178',
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1921,7 +1896,6 @@ test('three-round fatal full-chain evidence after cutover permits automatic roll
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
-    dockerContext: 'SSH178',
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1942,7 +1916,6 @@ test('confirmed unsafe target evidence before cutover commit permits automatic r
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
-    dockerContext: 'SSH178',
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1964,7 +1937,6 @@ test('rollback decision check failure before cutover commit preserves the target
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
-    dockerContext: 'SSH178',
     includeStackDeploy: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -1985,7 +1957,6 @@ test('test mode blocks operating-system publication commands when no runner is i
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
-    dockerContext: 'SSH178',
     includeStackDeploy: false
   }, {
     RELEASE_PUBLISHER_TEST_MODE: 'true',
@@ -2009,7 +1980,6 @@ test('execute can be cancelled before running commands', async () => {
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
-    dockerContext: 'SSH178',
     includeStackDeploy: false
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -2066,8 +2036,7 @@ test('pipeline phases follow execution order when game build starts', () => {
 
   assert.ok(sourceMembers);
   assert.ok(buildMembers);
-  assert.doesNotMatch(sourceMembers[1], /save-run-config/);
-  assert.match(buildMembers[1], /test-game-backend[\s\S]*save-run-config[\s\S]*build-image/);
+  assert.match(buildMembers[1], /test-game-backend[\s\S]*build-image/);
 });
 
 test('release history supports pagination and deletion', () => {
@@ -2077,7 +2046,6 @@ test('release history supports pagination and deletion', () => {
     const plan = createPlan(root, {
       appTag: `20260707${String(index).padStart(2, '0')}`,
       dryRun: true,
-      dockerContext: 'SSH178',
       includeStackDeploy: false
     }, {
       RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -2493,8 +2461,9 @@ test('release console exposes game and forum targets with target-aware API paylo
   assert.match(css, /word-break:\s*break-all/);
   assert.match(css, /grid-template-columns:\s*minmax\(0,\s*1fr\)/);
   assert.match(app, /api\/config\?releaseTarget=/);
-  assert.match(app, /dockerContext\.value = ''/);
-  assert.match(app, /remoteSshTarget\.value = ''/);
+  assert.doesNotMatch(html, /id="docker-context"|id="remote-ssh-target"|id="remote-compose-dir"/);
+  assert.doesNotMatch(app, /getElementById\('docker-context'\)|getElementById\('remote-ssh-target'\)|getElementById\('remote-compose-dir'\)/);
+  assert.doesNotMatch(app, /dockerContext:\s*dockerContext|remoteSshTarget:\s*remoteSshTarget|remoteComposeDir:\s*remoteComposeDir/);
   assert.match(app, /config\.dockerServerName/);
   assert.match(app, /const requestId = \+\+configLoadRequestId/);
   assert.match(app, /requestId !== configLoadRequestId/);
@@ -2504,8 +2473,9 @@ test('release console exposes game and forum targets with target-aware API paylo
   assert.match(app, /执行论坛 Compose 发布/);
   assert.match(app, /function compactBranchLabel/);
   assert.match(app, /option\.title = branch\.name/);
-  assert.match(app, /previousTarget !== config\.releaseTarget/);
-  assert.match(server, /RELEASE_PUBLISHER_FORUM_REMOTE_COMPOSE_DIR/);
+  assert.doesNotMatch(app, /previousTarget !== config\.releaseTarget/);
+  assert.doesNotMatch(server, /RELEASE_PUBLISHER_FORUM_REMOTE_COMPOSE_DIR/);
+  assert.match(server, /远端镜像查询目标由发布器配置固定管理/);
   assert.match(server, /pathname === '\/api\/version'/);
   assert.match(server, /capturePublisherRuntimeVersion/);
   assert.match(server, /RELEASE_PUBLISHER_REHEARSAL_GATEWAY_STATIC_CONFIG/);
@@ -2517,11 +2487,8 @@ test('release console exposes game and forum targets with target-aware API paylo
   assert.match(server, /removeReleaseWorktree\(projectRoot, publisherRepositoryRoot, job\.id\)/);
 });
 
-function tempProject(xml) {
+function tempProject(_xml) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-'));
-  const runDir = path.join(root, '.run');
-  fs.mkdirSync(runDir, {recursive: true});
-  fs.writeFileSync(path.join(runDir, '148.135.9.123.run.xml'), xml, 'utf8');
   fs.writeFileSync(path.join(root, 'mvnw.cmd'), '@echo off\r\nexit /b 0\r\n', 'utf8');
   const catalogSource = path.join(root, 'src', 'main', 'java', 'com', 'zly', 'hospital', 'service', 'catalog');
   fs.mkdirSync(catalogSource, {recursive: true});
@@ -2706,7 +2673,7 @@ function tempJetBrainsOptions() {
   const optionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-jetbrains-'));
   fs.writeFileSync(path.join(optionsDir, 'remote-servers.xml'), `<application>
   <component name="RemoteServers">
-    <remote-server name="SSH178" type="docker">
+    <remote-server name="GAME_PRD2" type="docker">
       <configuration>
         <entry contributedKey="DockerSshConnectionConfigurator.SshConfigId" value="e4ab0b3b-0051-4923-9eeb-03c207819bed" />
         <option name="customConfiguratorId" value="DockerSshConnectionConfigurator" />
@@ -2719,7 +2686,7 @@ function tempJetBrainsOptions() {
   fs.writeFileSync(path.join(optionsDir, 'sshConfigs.xml'), `<application>
   <component name="SshConfigs">
     <configs>
-      <sshConfig host="178.239.117.99" id="e4ab0b3b-0051-4923-9eeb-03c207819bed" keyPath="C:\\workspace\\Secure\\sunsxaws.pem" port="22" username="root" />
+      <sshConfig host="92.113.124.185" id="e4ab0b3b-0051-4923-9eeb-03c207819bed" keyPath="C:\\workspace\\Secure\\sunsxaws.pem" port="22" username="root" />
     </configs>
   </component>
 </application>`, 'utf8');
@@ -2734,14 +2701,6 @@ function tempPublisherConfig() {
       authTokenFile: 'C:\\ProgramData\\RHospital\\secrets\\game-smoke-token.txt'
     },
     dockerServers: {
-      SSH178: {
-        host: '178.239.117.99',
-        username: 'root',
-        port: '22',
-        keyPath: 'C:\\workspace\\Secure\\sunsxaws.pem',
-        dockerExePath: '/usr/bin/docker',
-        dockerComposeExePath: '/usr/bin/docker'
-      },
       GAME_PRD2: {
         host: '92.113.124.185',
         username: 'root',
@@ -2780,4 +2739,34 @@ test('registers GAME_PRD2 and migration-specific runtime gates', () => {
   assert.match(core, /game-prd2-runtime-contract/);
   assert.match(core, /stripe_unsigned/);
   assert.match(core, /paddle_unsigned/);
+});
+
+test('tracked publisher files contain only current production identifiers', () => {
+  const repositoryRoot = path.resolve(__dirname, '..');
+  const publisherConfig = JSON.parse(fs.readFileSync(
+    path.join(repositoryRoot, 'release-publisher.config.json'), 'utf8'));
+  const retiredIdentifiers = [
+    ['SSH', '178'].join(''),
+    ['178', '239', '117', '99'].join('.'),
+    ['148', '135', '9', '123'].join('.')
+  ];
+  const tracked = spawnSync('git', ['ls-files', '-z'], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    windowsHide: true
+  });
+
+  assert.equal(tracked.status, 0, tracked.stderr);
+  assert.deepEqual(Object.keys(publisherConfig.dockerServers).sort(), ['FORUM_PRD2', 'GAME_PRD2']);
+  assert.deepEqual(publisherConfig.releaseTargets, {
+    game: {dockerServer: 'GAME_PRD2'},
+    forum: {dockerServer: 'FORUM_PRD2'}
+  });
+  for (const relativePath of tracked.stdout.split('\0').filter(Boolean)) {
+    const contents = fs.readFileSync(path.join(repositoryRoot, relativePath)).toString('utf8');
+    for (const identifier of retiredIdentifiers) {
+      assert.equal(contents.includes(identifier), false,
+        `retired production identifier remains in ${relativePath}`);
+    }
+  }
 });

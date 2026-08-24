@@ -4,11 +4,11 @@ const os = require('os');
 const crypto = require('crypto');
 const {spawn, spawnSync} = require('child_process');
 
-const DEFAULT_RUN_CONFIG = '.run/148.135.9.123.run.xml';
 const DEFAULT_IMAGE_NAME = 'hospital-backend';
 const DEFAULT_COMPOSE_FILE = 'docker-compose.yml';
 const DEFAULT_STACK_NAME = 'hospital_stack';
 const DEFAULT_REMOTE_COMPOSE_DIR = '/opt/1panel/docker/compose/hospital-stack';
+const CURRENT_PRODUCTION_HOST = '92.113.124.185';
 const DEFAULT_FORUM_IMAGE_NAME = 'rhospital/flarum-sso';
 const DEFAULT_FORUM_DOCKERFILE = 'integrations/flarum/Dockerfile';
 const DEFAULT_FORUM_BUILD_CONTEXT = 'integrations/flarum';
@@ -97,23 +97,25 @@ function defaultProjectRoot() {
     : path.resolve(__dirname, '..', '..', 'hospital-backend');
 }
 
-function readConfig(projectRoot, runConfigPath = DEFAULT_RUN_CONFIG) {
-  const absolutePath = resolveInside(projectRoot, runConfigPath);
-  const xml = fs.readFileSync(absolutePath, 'utf8');
-  return {
-    runConfigPath,
-    absolutePath,
-    projectRoot: path.resolve(projectRoot),
-    ...parseIdeaRunConfig(xml)
-  };
-}
-
-function readReleaseConfig(projectRoot, releaseTarget = 'game', runConfigPath = DEFAULT_RUN_CONFIG) {
+function readReleaseConfig(projectRoot, releaseTarget = 'game') {
   const target = validateReleaseTarget(releaseTarget);
-  const gameConfig = readConfig(projectRoot, runConfigPath);
   if (target === 'game') {
     return {
-      ...gameConfig,
+      projectRoot: path.resolve(projectRoot),
+      runConfigPath: '',
+      absolutePath: '',
+      serverName: '',
+      imageTag: `${DEFAULT_IMAGE_NAME}:latest`,
+      imageName: DEFAULT_IMAGE_NAME,
+      appTag: '',
+      dockerfile: 'Dockerfile',
+      containerName: DEFAULT_IMAGE_NAME,
+      buildOnly: true,
+      hostIp: '',
+      executorPort: '',
+      volumeHostPath: '',
+      composeFile: DEFAULT_COMPOSE_FILE,
+      stackName: DEFAULT_STACK_NAME,
       releaseTarget: 'game',
       releaseTargetLabel: '游戏',
       deploymentMode: 'swarm',
@@ -122,7 +124,8 @@ function readReleaseConfig(projectRoot, releaseTarget = 'game', runConfigPath = 
     };
   }
   return {
-    ...gameConfig,
+    projectRoot: path.resolve(projectRoot),
+    serverName: '',
     releaseTarget: 'forum',
     releaseTargetLabel: '论坛',
     forumImageMode: 'build',
@@ -143,49 +146,18 @@ function readReleaseConfig(projectRoot, releaseTarget = 'game', runConfigPath = 
   };
 }
 
-function parseIdeaRunConfig(xml) {
-  const configurations = [...xml.matchAll(/<configuration\b[\s\S]*?<\/configuration>/g)].map(match => match[0]);
-  const selected = configurations.find(config => /<option\s+name="buildArgs"/.test(config))
-    || configurations[configurations.length - 1];
-  if (!selected) {
-    throw new Error('发布配置中没有 configuration 节点');
-  }
-
-  const serverName = attr(selected, 'server-name') || '';
-  const imageTag = optionValue(selected, 'imageTag') || `${DEFAULT_IMAGE_NAME}:latest`;
-  const appTag = dockerEnvValue(optionBlock(selected, 'buildArgs'), 'APP_TAG') || tagFromImage(imageTag);
-  const envVars = parseDockerEnvVars(optionBlock(selected, 'envVars'));
-  const volumeHostPath = dockerVolumeHostPath(optionBlock(selected, 'volumeBindings'));
-
-  return {
-    serverName,
-    imageTag,
-    imageName: imageNameFromTag(imageTag),
-    appTag,
-    dockerfile: optionValue(selected, 'sourceFilePath') || 'Dockerfile',
-    containerName: optionValue(selected, 'containerName') || DEFAULT_IMAGE_NAME,
-    buildOnly: optionValue(selected, 'buildOnly') === 'true',
-    hostIp: envVars.HOST_IP || '',
-    executorPort: envVars.EXECUTOR_PORT || '',
-    volumeHostPath,
-    composeFile: DEFAULT_COMPOSE_FILE,
-    stackName: DEFAULT_STACK_NAME
-  };
-}
-
 function createPlan(projectRoot, request, env = process.env) {
+  assertNoReleaseTargetOverrides(request);
   if (validateReleaseTarget(request.releaseTarget || 'game') === 'forum') {
     return createForumPlan(projectRoot, request, env);
   }
-  const config = readConfig(projectRoot, request.runConfigPath || DEFAULT_RUN_CONFIG);
+  const config = readReleaseConfig(projectRoot, 'game');
   const appTag = validateTag(request.appTag || config.appTag);
   const imageName = config.imageName || DEFAULT_IMAGE_NAME;
   const imageTag = `${imageName}:${appTag}`;
-  const dockerContext = request.dockerContext
-    || resolveReleaseTargetDockerServerName('game', config.serverName, env);
-  const remoteSshTarget = request.remoteSshTarget
-    || resolveReleaseTargetSshTarget('game', dockerContext, env);
-  const remoteComposeDir = request.remoteComposeDir || env.RELEASE_PUBLISHER_REMOTE_COMPOSE_DIR || DEFAULT_REMOTE_COMPOSE_DIR;
+  const dockerContext = resolveReleaseTargetDockerServerName('game', config.serverName, env);
+  const remoteSshTarget = resolveReleaseTargetSshTarget('game', dockerContext, env);
+  const remoteComposeDir = DEFAULT_REMOTE_COMPOSE_DIR;
   const sshResolution = resolveSshTargetDetails(remoteSshTarget, env);
   const dockerContextResolution = resolveDockerContextDetails(dockerContext, env);
   const ideaDockerServerResolution = resolveReleaseDockerServerDetails(dockerContext, env);
@@ -232,7 +204,7 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'validate-release-input',
       title: '读取配置并校验 TAG',
       summary: '确认本地发布配置、镜像 TAG 和 APP_TAG 使用同一个版本号',
-      command: `读取 ${config.runConfigPath}`,
+      command: '读取发布器固定游戏构建元数据',
       validation: `APP_TAG=${appTag}, image=${imageTag}`,
       actionType: 'local-check'
     }),
@@ -315,14 +287,6 @@ function createPlan(projectRoot, request, env = process.env) {
       ]),
       actionType: 'build',
       executable: true
-    }),
-    releaseStep({
-      key: 'save-run-config',
-      title: '更新本地发布配置',
-      summary: '把 imageTag 和 APP_TAG 同步替换为本次发版 TAG',
-      command: `${config.runConfigPath}: imageTag=${imageTag}, APP_TAG=${appTag}`,
-      validation: `确认 ${config.runConfigPath} 中同时包含 ${imageTag} 和 APP_TAG=${appTag}`,
-      actionType: 'local-config'
     }),
     releaseStep({
       key: 'build-image',
@@ -620,6 +584,9 @@ function createPlan(projectRoot, request, env = process.env) {
           `service_name=${shellToken(`${config.stackName}_${config.containerName}`)}`,
           `docker service logs --tail 500 "$service_name" 2>&1 | grep -Fq 'FirebaseApp initialized'`,
           `test "$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' | grep '^FORUM_SSO_ENABLED=' | cut -d= -f2)" = true`,
+          `test "$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' | grep '^SNAIL_JOB_SERVER_HOST=' | cut -d= -f2)" = ${CURRENT_PRODUCTION_HOST}`,
+          `test "$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' | grep '^SNAIL_JOB_HOST=' | cut -d= -f2)" = ${CURRENT_PRODUCTION_HOST}`,
+          `test "$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' | grep '^HOST_IP=' | cut -d= -f2)" = ${CURRENT_PRODUCTION_HOST}`,
           `stripe_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8190/api/payment/webhook -H 'Content-Type: application/json' --data '{}')`,
           `paddle_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8190/api/paddle/webhook -H 'Content-Type: application/json' --data '{}')`,
           `echo "$stripe_code" | grep -Eq '^(400|401|403)$'`,
@@ -849,18 +816,14 @@ function gameStaticAssetArtifactCommand(mode, imageTag, appTag, configPath, dock
 }
 
 function createForumPlan(projectRoot, request, env = process.env) {
-  const config = readReleaseConfig(projectRoot, 'forum', request.runConfigPath || DEFAULT_RUN_CONFIG);
+  const config = readReleaseConfig(projectRoot, 'forum');
   const forumImageMode = validateForumImageMode(request.forumImageMode || config.forumImageMode);
   const forumImageModeLabel = forumImageMode === 'reuse' ? '复用生产已有镜像' : '构建并上传新镜像';
   const appTag = validateTag(request.appTag || proposeNextTag(''));
   const imageTag = `${config.imageName}:${appTag}`;
-  const dockerContext = request.dockerContext
-    || resolveReleaseTargetDockerServerName('forum', config.serverName, env);
-  const remoteSshTarget = request.remoteSshTarget
-    || resolveReleaseTargetSshTarget('forum', dockerContext, env);
-  const remoteComposeDir = request.remoteComposeDir
-    || env.RELEASE_PUBLISHER_FORUM_REMOTE_COMPOSE_DIR
-    || DEFAULT_FORUM_REMOTE_COMPOSE_DIR;
+  const dockerContext = resolveReleaseTargetDockerServerName('forum', config.serverName, env);
+  const remoteSshTarget = resolveReleaseTargetSshTarget('forum', dockerContext, env);
+  const remoteComposeDir = DEFAULT_FORUM_REMOTE_COMPOSE_DIR;
   const sshResolution = resolveSshTargetDetails(remoteSshTarget, env);
   const dockerContextResolution = resolveDockerContextDetails(dockerContext, env);
   const ideaDockerServerResolution = resolveReleaseDockerServerDetails(dockerContext, env);
@@ -1178,50 +1141,6 @@ function releaseStep({
   };
 }
 
-function saveTag(projectRoot, request) {
-  const configPath = request.runConfigPath || DEFAULT_RUN_CONFIG;
-  const absolutePath = resolveInside(projectRoot, configPath);
-  const config = readConfig(projectRoot, configPath);
-  const appTag = validateTag(request.appTag || config.appTag);
-  const imageTag = `${config.imageName || DEFAULT_IMAGE_NAME}:${appTag}`;
-  const xml = fs.readFileSync(absolutePath, 'utf8');
-  const updated = updateIdeaRunConfigTag(xml, imageTag, appTag);
-  if (request.dryRun !== false) {
-    return {
-      status: 'DRY_RUN',
-      appTag,
-      imageTag,
-      changed: updated !== xml,
-      preview: updated
-    };
-  }
-  fs.writeFileSync(absolutePath, updated, 'utf8');
-  return {
-    status: 'SAVED',
-    appTag,
-    imageTag,
-    changed: updated !== xml
-  };
-}
-
-function updateIdeaRunConfigTag(xml, imageTag, appTag) {
-  const configurations = [...xml.matchAll(/<configuration\b[\s\S]*?<\/configuration>/g)];
-  const selected = configurations.find(match => /<option\s+name="buildArgs"/.test(match[0]));
-  if (!selected) {
-    throw new Error('没有找到包含 APP_TAG buildArgs 的发布配置');
-  }
-  let block = selected[0];
-  block = block.replace(
-    /(<option\s+name="imageTag"\s+value=")[^"]*("\s*\/>)/,
-    `$1${imageTag}$2`
-  );
-  block = block.replace(
-    /(<DockerEnvVarImpl>[\s\S]*?<option\s+name="name"\s+value="APP_TAG"\s*\/>[\s\S]*?<option\s+name="value"\s+value=")[^"]*("\s*\/>[\s\S]*?<\/DockerEnvVarImpl>)/,
-    `$1${appTag}$2`
-  );
-  return xml.slice(0, selected.index) + block + xml.slice(selected.index + selected[0].length);
-}
-
 async function executePlan(projectRoot, request, env = process.env, options = {}) {
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
   const signal = options.signal;
@@ -1259,14 +1178,7 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
     });
   };
   if (plan.dryRun) {
-    const saved = plan.releaseTarget === 'game'
-      ? saveTag(projectRoot, {
-          appTag: plan.appTag,
-          runConfigPath: request.runConfigPath,
-          dryRun: true
-        })
-      : {status: 'DRY_RUN', appTag: plan.appTag, imageTag: plan.imageTag, changed: false};
-    logs.push(`${saved.status}: ${plan.imageTag}`);
+    logs.push(`DRY_RUN: ${plan.imageTag}`);
     const rehearsalStep = plan.steps.find(step => step.rehearsal);
     if (rehearsalStep) {
       currentStepKey = rehearsalStep.key;
@@ -1313,7 +1225,7 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
     completedStepKeys.push(...dryRunStepKeys);
     const dryRunStepLogs = {};
     for (const step of plan.steps) {
-      dryRunStepLogs[step.key] = step.key === (plan.releaseTarget === 'game' ? 'save-run-config' : 'validate-release-input')
+      dryRunStepLogs[step.key] = step.key === 'validate-release-input'
         ? logs.slice()
         : stepLogs[step.key] || [];
     }
@@ -1343,19 +1255,6 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
       startStepTimer(step.key, stepTiming);
       pushStepLog(step.key, `[START] ${step.title}`);
       updateStep(step.key, 'running');
-      if (step.key === 'save-run-config') {
-        const saved = saveTag(projectRoot, {
-          appTag: plan.appTag,
-          runConfigPath: request.runConfigPath,
-          dryRun: false
-        });
-        pushStepLog(step.key, `${saved.status}: ${plan.imageTag}`);
-        completedStepKeys.push(step.key);
-        const durationMs = finishStepTimer(step.key, stepTiming);
-        pushStepLog(step.key, `[DONE] ${step.title}，用时 ${formatDurationMs(durationMs)}`);
-        updateStep(step.key, 'done');
-        continue;
-      }
       if (step.executable) {
         if (step.recoveryBoundary) {
           recoveryBoundaryEntered = true;
@@ -2758,28 +2657,36 @@ function resolveReleaseDockerServerDetails(serverName, env = process.env) {
 
 function resolveReleaseTargetDockerServerName(releaseTarget, fallbackServerName, env = process.env) {
   const target = validateReleaseTarget(releaseTarget);
-  const targetEnvironmentName = target === 'forum'
-    ? env.RELEASE_PUBLISHER_FORUM_DOCKER_SERVER
-    : env.RELEASE_PUBLISHER_GAME_DOCKER_SERVER;
-  if (targetEnvironmentName) {
-    return String(targetEnvironmentName);
-  }
   const configuredName = configuredReleaseTargetDockerServerName(target, env);
-  if (configuredName) return configuredName;
-  if (env.RELEASE_PUBLISHER_DOCKER_CONTEXT) return String(env.RELEASE_PUBLISHER_DOCKER_CONTEXT);
-  return fallbackServerName || '';
+  if (!configuredName) {
+    throw new Error(`发布器配置缺少 ${target} 的生产 Docker Server，已停止生成发布路径`);
+  }
+  const configuredServer = resolvePublisherDockerServerDetails(configuredName, env);
+  if (!configuredServer.resolved) {
+    throw new Error(`发布器配置中的 ${target} 生产 Docker Server 未完整注册，已停止生成发布路径`);
+  }
+  if (configuredServer.host !== CURRENT_PRODUCTION_HOST) {
+    throw new Error(`发布器配置中的 ${target} 生产主机不是当前受控主机，已停止生成发布路径`);
+  }
+  return configuredName;
 }
 
 function resolveReleaseTargetSshTarget(releaseTarget, dockerServerName, env = process.env) {
   const target = validateReleaseTarget(releaseTarget);
-  const targetEnvironmentName = target === 'forum'
-    ? env.RELEASE_PUBLISHER_FORUM_SSH_TARGET
-    : env.RELEASE_PUBLISHER_GAME_SSH_TARGET;
-  if (targetEnvironmentName) return String(targetEnvironmentName);
   const configuredName = configuredReleaseTargetDockerServerName(target, env);
-  if (configuredName) return configuredName;
-  if (env.RELEASE_PUBLISHER_SSH_TARGET) return String(env.RELEASE_PUBLISHER_SSH_TARGET);
-  return dockerServerName || '';
+  if (!configuredName || dockerServerName !== configuredName) {
+    throw new Error(`发布器配置中的 ${target} Docker Server 与 SSH 目标不一致，已停止生成发布路径`);
+  }
+  return configuredName;
+}
+
+function assertNoReleaseTargetOverrides(request = {}) {
+  const forbiddenFields = ['dockerContext', 'remoteSshTarget', 'remoteComposeDir', 'runConfigPath'];
+  const supplied = forbiddenFields.filter(field => Object.prototype.hasOwnProperty.call(request, field));
+  if (supplied.length > 0) {
+    throw new Error(`生产目标和编排路径由发布器配置固定管理，请移除请求字段：${supplied.join(', ')}`);
+  }
+  return true;
 }
 
 function configuredReleaseTargetDockerServerName(releaseTarget, env = process.env) {
@@ -3481,6 +3388,9 @@ function gameComposeSsoContractCommands() {
     `test "$(sed -n '/^[[:space:]]*update_config:[[:space:]]*$/,/^[[:space:]]*rollback_config:[[:space:]]*$/p' docker-compose.yml | sed -n 's/^[[:space:]]*failure_action:[[:space:]]*//p' | head -n 1)" = pause || { echo 'ERROR: update_config failure_action must be pause so Swarm cannot roll back a committed target'; exit 1; }`,
     `test "$(grep -Ec '^[[:space:]]*-[[:space:]]*FORUM_SSO_ENABLED=true[[:space:]]*$|^[[:space:]]*FORUM_SSO_ENABLED:[[:space:]]*"?true"?[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: FORUM_SSO_ENABLED=true is missing or duplicated'; exit 1; }`,
     `test "$(grep -Ec '^[[:space:]]*-[[:space:]]*FORUM_SSO_SECRET_FILE=/run/secrets/forum_sso_secret[[:space:]]*$|^[[:space:]]*FORUM_SSO_SECRET_FILE:[[:space:]]*"?/run/secrets/forum_sso_secret"?[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: FORUM_SSO_SECRET_FILE is missing or duplicated'; exit 1; }`,
+    `test "$(grep -Ec '^[[:space:]]*-[[:space:]]*SNAIL_JOB_SERVER_HOST=${CURRENT_PRODUCTION_HOST}[[:space:]]*$|^[[:space:]]*SNAIL_JOB_SERVER_HOST:[[:space:]]*"?${CURRENT_PRODUCTION_HOST}"?[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: SNAIL_JOB_SERVER_HOST must select current production'; exit 1; }`,
+    `test "$(grep -Ec '^[[:space:]]*-[[:space:]]*SNAIL_JOB_HOST=${CURRENT_PRODUCTION_HOST}[[:space:]]*$|^[[:space:]]*SNAIL_JOB_HOST:[[:space:]]*"?${CURRENT_PRODUCTION_HOST}"?[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: SNAIL_JOB_HOST must select current production'; exit 1; }`,
+    `test "$(grep -Ec '^[[:space:]]*-[[:space:]]*HOST_IP=${CURRENT_PRODUCTION_HOST}[[:space:]]*$|^[[:space:]]*HOST_IP:[[:space:]]*"?${CURRENT_PRODUCTION_HOST}"?[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: HOST_IP must select current production'; exit 1; }`,
     `test "$(grep -Ec '^[[:space:]]*forum_sso_secret:[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: forum_sso_secret declaration is missing or duplicated'; exit 1; }`
   ];
 }
@@ -3846,9 +3756,7 @@ function resolveSshTargetDetails(target, env = process.env, sshRunner = spawnSyn
   const sshConfigPath = path.join(os.homedir(), '.ssh', 'config');
   const result = {
     target: target || '',
-    targetSource: env.RELEASE_PUBLISHER_SSH_TARGET ? 'RELEASE_PUBLISHER_SSH_TARGET'
-      : env.RELEASE_PUBLISHER_DOCKER_CONTEXT ? 'RELEASE_PUBLISHER_DOCKER_CONTEXT'
-        : 'IDEA server-name',
+    targetSource: 'release-publisher.config.json',
     sshConfigPath,
     sshConfigExists: fs.existsSync(sshConfigPath),
     resolved: false,
@@ -3915,7 +3823,7 @@ function parseSshGOutput(output) {
 function resolveDockerContextDetails(contextName, env = process.env, dockerRunner = spawnSync) {
   const result = {
     name: contextName || 'default',
-    source: env.RELEASE_PUBLISHER_DOCKER_CONTEXT ? 'RELEASE_PUBLISHER_DOCKER_CONTEXT' : 'IDEA server-name',
+    source: 'release-publisher.config.json',
     resolved: false,
     description: '',
     dockerEndpoint: '',
@@ -4196,41 +4104,9 @@ function resolveInside(projectRoot, relativePath) {
   return target;
 }
 
-function optionBlock(xml, name) {
-  const match = xml.match(new RegExp(`<option\\s+name="${escapeRegExp(name)}"[\\s\\S]*?<\\/option>`));
-  return match ? match[0] : '';
-}
-
 function optionValue(xml, name) {
   const match = xml.match(new RegExp(`<option\\s+name="${escapeRegExp(name)}"\\s+value="([^"]*)"\\s*\\/>`));
   return match ? decodeXml(match[1]) : '';
-}
-
-function parseDockerEnvVars(block) {
-  const result = {};
-  for (const match of block.matchAll(/<DockerEnvVarImpl>[\s\S]*?<\/DockerEnvVarImpl>/g)) {
-    const env = match[0];
-    const name = optionValue(env, 'name');
-    const value = optionValue(env, 'value');
-    if (name) {
-      result[name] = value;
-    }
-  }
-  return result;
-}
-
-function dockerEnvValue(block, name) {
-  return parseDockerEnvVars(block)[name] || '';
-}
-
-function dockerVolumeHostPath(block) {
-  const firstVolume = block.match(/<DockerVolumeBindingImpl>[\s\S]*?<\/DockerVolumeBindingImpl>/);
-  return firstVolume ? optionValue(firstVolume[0], 'hostPath') : '';
-}
-
-function imageNameFromTag(imageTag) {
-  const index = String(imageTag || '').lastIndexOf(':');
-  return index > 0 ? imageTag.slice(0, index) : DEFAULT_IMAGE_NAME;
 }
 
 function tagFromImage(imageTag) {
@@ -4277,16 +4153,11 @@ function escapeRegExp(value) {
 }
 
 module.exports = {
-  DEFAULT_RUN_CONFIG,
   DEFAULT_REMOTE_COMPOSE_DIR,
   DEFAULT_FORUM_REMOTE_COMPOSE_DIR,
   defaultProjectRoot,
-  parseIdeaRunConfig,
-  readConfig,
   readReleaseConfig,
   createPlan,
-  saveTag,
-  updateIdeaRunConfigTag,
   executePlan,
   readReleaseHistory,
   readReleaseHistoryPage,
@@ -4299,6 +4170,7 @@ module.exports = {
   resolveReleaseDockerServerDetails,
   resolveReleaseTargetDockerServerName,
   resolveReleaseTargetSshTarget,
+  assertNoReleaseTargetOverrides,
   resolvePublisherDockerServerDetails,
   resolveIdeaDockerServerDetails,
   resolveDockerCommandTarget,

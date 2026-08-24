@@ -93,7 +93,7 @@ test('accepts publisher actions only when runtime and repository match', () => {
 test('server gates release planning and execution while monitoring idle restarts', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 
-  for (const route of ['/api/changes', '/api/plan', '/api/save-tag', '/api/execute']) {
+  for (const route of ['/api/changes', '/api/plan', '/api/execute']) {
     const routeIndex = source.indexOf(`pathname === '${route}'`);
     assert.ok(routeIndex >= 0, `${route} route must exist`);
     const routeSource = source.slice(routeIndex, routeIndex + 240);

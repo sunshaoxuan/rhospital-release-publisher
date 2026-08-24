@@ -19,7 +19,7 @@ node -
 Node 脚本调用 `analyzeReleaseChanges` 和 `createPlan`，目标为 `origin/master` 的 `e7b67154`，论坛模式为 build，包含生产切换步骤。
 
 ```powershell
-ssh -o BatchMode=yes -o ConnectTimeout=15 -i <key> root@178.239.117.99 <read-only-script>
+ssh -o BatchMode=yes -o ConnectTimeout=15 -i <key> root@<historical-forum-host-removed> <read-only-script>
 ```
 
 远端脚本读取 Compose 镜像、容器状态、就绪标记、MySQL 版本、ngram 插件、全文索引定义和磁盘空间。
