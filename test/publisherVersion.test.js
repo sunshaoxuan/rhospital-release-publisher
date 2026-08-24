@@ -340,9 +340,16 @@ function delay(milliseconds) {
 }
 
 function runGit(cwd, args) {
-  const result = spawnSync('git', args, {cwd, encoding: 'utf8', windowsHide: true});
-  if (result.status !== 0) {
-    throw new Error(result.stderr || result.stdout || `git ${args.join(' ')} failed`);
+  for (let attempt = 0; attempt <= 40; attempt += 1) {
+    const result = spawnSync('git', args, {cwd, encoding: 'utf8', windowsHide: true});
+    if (result.status === 0) {
+      return result.stdout;
+    }
+    const message = result.stderr || result.stdout || `git ${args.join(' ')} failed`;
+    if (!message.includes('index.lock') || attempt === 40) {
+      throw new Error(message);
+    }
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
   }
-  return result.stdout;
+  throw new Error(`git ${args.join(' ')} failed`);
 }

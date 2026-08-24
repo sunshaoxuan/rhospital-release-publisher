@@ -30,7 +30,7 @@
   },
   "releaseTargets": {
     "game": {
-      "dockerServer": "SSH178"
+      "dockerServer": "GAME_PRD2"
     },
     "forum": {
       "dockerServer": "FORUM_PRD2"

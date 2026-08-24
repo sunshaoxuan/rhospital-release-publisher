@@ -220,7 +220,7 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 游戏发布固定执行 `validate-game-static-delivery-prerequisites`，并至少保留 `test-game-backend`、`verify-game-static-assets-predeploy`、`pre-deploy-checklist`、`final-runtime-check` 和 `verify-game-static-delivery`。正式游戏部署计划还会执行 `verify-relations-release`，该步骤已注册为业务影响评估可引用的检查。论坛构建发布至少保留 `validate-forum-source`、`forum-preflight` 和 `final-runtime-check`，源码门禁包含论坛镜像、搜索迁移和部署配置契约测试。实体、Repository、DAO 或迁移脚本变化时必须声明数据库影响；存在游戏迁移脚本时还必须选择 `apply-database-migrations`。现有步骤无法覆盖新增风险时，应先在本仓库增加可执行检查和测试，再由业务仓库的影响评估引用该步骤。论坛生产 Compose 修改开始后，失败、取消或发布器重启会进入 `RECOVERY_REQUIRED`，保留备份与回滚入口供人工复核。
 
-`GAME_PRD2` 注册为迁移期显式游戏目标。设置 `RELEASE_PUBLISHER_GAME_DOCKER_SERVER=GAME_PRD2` 和 `RELEASE_PUBLISHER_GAME_SSH_TARGET=GAME_PRD2` 时，发布计划增加 `game-prd2-migration-readiness` 与 `game-prd2-runtime-contract`，检查新主库角色、论坛、生产 Secret、防火墙、Firebase 初始化、论坛 SSO、Stripe 与 Paddle 无签名拒绝、SnailJob 和 New Relic。迁移提交前的默认游戏目标仍为 `SSH178`，72 小时致命恢复材料归档后才提交默认目标变更。
+`GAME_PRD2` 是切换提交后的默认游戏目标。发布计划增加 `game-prd2-migration-readiness` 与 `game-prd2-runtime-contract`，检查新主库角色、论坛、生产 Secret、防火墙、Firebase 初始化、论坛 SSO、Stripe 与 Paddle 无签名拒绝、SnailJob 和 New Relic。旧目标 `SSH178` 只保留给环境知识库定义的 72 小时致命故障恢复门禁，普通发布和普通恢复不得选择旧目标。
 
 游戏静态资源采用应用切换前交付：
 

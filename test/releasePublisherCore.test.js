@@ -1500,7 +1500,7 @@ test('resolves separate default Docker servers for game and forum releases', () 
     RELEASE_PUBLISHER_SSH_TARGET: 'SSH178'
   };
 
-  assert.equal(resolveReleaseTargetDockerServerName('game', 'SSH178', env), 'SSH178');
+  assert.equal(resolveReleaseTargetDockerServerName('game', 'SSH178', env), 'GAME_PRD2');
   assert.equal(resolveReleaseTargetDockerServerName('forum', 'SSH178', env), 'FORUM_PRD2');
 
   const root = tempProject(sampleXml);
@@ -2760,7 +2760,7 @@ function tempPublisherConfig() {
       }
     },
     releaseTargets: {
-      game: {dockerServer: 'SSH178'},
+      game: {dockerServer: 'GAME_PRD2'},
       forum: {dockerServer: 'FORUM_PRD2'}
     }
   }, null, 2), 'utf8');
