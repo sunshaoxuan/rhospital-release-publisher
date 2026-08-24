@@ -20,3 +20,5 @@ PowerShell 超长主脚本、SSH stdin 超长脚本、全流程继续执行和�
 ## 安全结果
 
 镜像上传、生产镜像替换、生产数据库写入、生产 Compose 修改和 Swarm 热滚均未执行。
+
+最终只读复核确认生产仍运行 `hospital-backend:2026082403-prd2`，Swarm 版本索引为 128，更新状态为 completed，任务 ID 为 `i0nb3c4v7p4e`，容器 ID 以 `797904b18c26` 开头且状态为 healthy。Compose 中的镜像、`IMAGE_TAG` 和 `HOST_IP=92.113.124.185` 与运行现场一致。

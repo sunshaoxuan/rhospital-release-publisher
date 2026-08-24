@@ -9,3 +9,10 @@ node scripts/validate-full-release-flow.mjs --project-root C:\workspace\hospital
 ```
 
 完整验收命令执行两轮。第一轮记录论坛 Git Bash 路径失效，并继续执行剩余步骤。修复后的第二轮全部通过。
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/status-windows-service.ps1
+Invoke-RestMethod -Uri http://192.168.20.218:8787/api/version
+```
+
+最终生产只读 SSH 检查了 Swarm 服务镜像、版本索引、更新状态、运行任务、容器健康和 Compose 中的镜像、`IMAGE_TAG`、`HOST_IP`。
