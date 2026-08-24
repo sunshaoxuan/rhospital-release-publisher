@@ -353,21 +353,23 @@ function createPlan(projectRoot, request, env = process.env) {
       validation: `镜像内 IMAGE_TAG=${appTag}，/app/migrations 清单必须完整，Catalog 版本必须等于目标提交的 v${catalogSchemaVersion}，并包含 SSO 和管理员交易池代码`,
       actionType: 'build',
       executable: true
-    }),
-    releaseStep({
-      key: 'publish-image',
-      title: '发布到目标镜像池',
-      summary: '把本机已经构建好的镜像保存为 tar，经 SSH 上传到生产 Docker 主机并执行 docker load',
-      command: publishImageCommand(imageTag, remoteImageTarget),
-      validation: remoteSshCommand(remoteImageTarget,
-        `docker image inspect ${shellToken(imageTag)} --format '{{.Id}} {{.RepoTags}}'`),
-      validationCommand: remoteSshCommand(remoteImageTarget,
-        `docker image inspect ${shellToken(imageTag)} --format '{{.Id}} {{.RepoTags}}'`),
-      actionType: 'production',
-      productionAction: true,
-      executable: true
     })
   ];
+  const publishImageStep = releaseStep({
+    key: 'publish-image',
+    title: '发布到目标镜像池',
+    summary: includeStackDeploy
+      ? '全部独立生产前置检查通过后，把本机镜像经 SSH 上传到生产 Docker 主机并执行 docker load'
+      : '把本机已经构建好的镜像保存为 tar，经 SSH 上传到生产 Docker 主机并执行 docker load',
+    command: publishImageCommand(imageTag, remoteImageTarget),
+    validation: remoteSshCommand(remoteImageTarget,
+      `docker image inspect ${shellToken(imageTag)} --format '{{.Id}} {{.RepoTags}}'`),
+    validationCommand: remoteSshCommand(remoteImageTarget,
+      `docker image inspect ${shellToken(imageTag)} --format '{{.Id}} {{.RepoTags}}'`),
+    actionType: 'production',
+    productionAction: true,
+    executable: true
+  });
 
   if (includeStackDeploy) {
     steps.push(releaseStep({
@@ -415,6 +417,18 @@ function createPlan(projectRoot, request, env = process.env) {
       executable: true
     }));
     steps.push(releaseStep({
+      key: 'game-database-preflight',
+      title: '盘点交易池数据库升级前状态',
+      summary: '使用当前健康容器的 JDBC 驱动执行只读检查，记录 Catalog 标记、目标字段和索引现状',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        gameDatabasePreflightCommand(config.stackName, config.containerName, catalogSchemaVersion)
+      )),
+      validation: `当前运行容器必须只读输出数据库结构状态，数据库版本不得高于目标 v${catalogSchemaVersion}`,
+      actionType: 'remote-check',
+      executable: true
+    }));
+    steps.push(publishImageStep);
+    steps.push(releaseStep({
       key: 'stage-game-static-assets',
       title: '预置双前置不可变静态资源',
       summary: '在应用切换前向 Riven 与 VMISS 增量写入目标提交的内容寻址资源，并逐文件复算 SHA-256',
@@ -434,17 +448,6 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'remote-check',
       executable: true,
       timeoutSeconds: 2100
-    }));
-    steps.push(releaseStep({
-      key: 'game-database-preflight',
-      title: '盘点交易池数据库升级前状态',
-      summary: '使用当前健康容器的 JDBC 驱动执行只读检查，记录 Catalog 标记、目标字段和索引现状',
-      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-        gameDatabasePreflightCommand(config.stackName, config.containerName, catalogSchemaVersion)
-      )),
-      validation: `当前运行容器必须只读输出数据库结构状态，数据库版本不得高于目标 v${catalogSchemaVersion}`,
-      actionType: 'remote-check',
-      executable: true
     }));
     steps.push(releaseStep({
       key: 'backup-game-release',
@@ -688,6 +691,8 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'local-check',
       recoveryOnly: true
     }));
+  } else {
+    steps.push(publishImageStep);
   }
 
   assertReleaseImpactPlanCoverage(releaseImpactAssessment, steps, includeStackDeploy);
@@ -841,6 +846,7 @@ function createForumPlan(projectRoot, request, env = process.env) {
     : null;
   const steps = [];
 
+  let forumPublishImageStep = null;
   if (forumImageMode === 'build') {
     const gitUpdate = gitUpdateStep(gitBranch, gitCommit);
     steps.push(releaseStep({
@@ -930,17 +936,22 @@ function createForumPlan(projectRoot, request, env = process.env) {
       actionType: 'local-check',
       executable: true
     }));
-    steps.push(releaseStep({
+    forumPublishImageStep = releaseStep({
       key: 'publish-image',
       title: '发布论坛镜像到生产镜像池',
-      summary: '把本机论坛镜像保存为 tar，经 SSH 上传到生产 Docker 主机并执行 docker load',
+      summary: includeStackDeploy
+        ? '论坛独立生产前置检查通过后，把本机镜像经 SSH 上传到生产 Docker 主机并执行 docker load'
+        : '把本机论坛镜像保存为 tar，经 SSH 上传到生产 Docker 主机并执行 docker load',
       command: publishImageCommand(imageTag, remoteImageTarget),
       validation: remoteSshCommand(remoteImageTarget, `docker image inspect ${shellToken(imageTag)} --format '{{.Id}} {{.RepoTags}}'`),
       validationCommand: remoteSshCommand(remoteImageTarget, `docker image inspect ${shellToken(imageTag)} --format '{{.Id}} {{.RepoTags}}'`),
       actionType: 'production',
       productionAction: true,
       executable: true
-    }));
+    });
+    if (!includeStackDeploy) {
+      steps.push(forumPublishImageStep);
+    }
   } else {
     steps.push(releaseStep({
       key: 'validate-existing-forum-image',
@@ -988,6 +999,9 @@ function createForumPlan(projectRoot, request, env = process.env) {
       actionType: 'remote-check',
       executable: true
     }));
+    if (forumPublishImageStep) {
+      steps.push(forumPublishImageStep);
+    }
     steps.push(releaseStep({
       key: 'backup-forum-release',
       title: '生成论坛发布备份点',
@@ -3064,9 +3078,13 @@ function gameDatabaseAuditContainerScript() {
     'jar xf /app/app.jar "$properties_entry"',
     'properties_file="$work_dir/$properties_entry"',
     'read_property() { grep -F "$1=" "$properties_file" | head -n 1 | cut -d= -f2- | tr -d "\\r"; }',
+    'read_secret() { secret_file="/run/secrets/$1"; [ -f "$secret_file" ] && tr -d "\\r\\n" < "$secret_file"; }',
     'db_url="${SPRING_DATASOURCE_URL:-$(read_property spring.datasource.url)}"',
     'db_user="${SPRING_DATASOURCE_USERNAME:-$(read_property spring.datasource.username)}"',
     'db_password="${SPRING_DATASOURCE_PASSWORD:-$(read_property spring.datasource.password)}"',
+    '[ -n "$db_url" ] || db_url=$(read_secret spring.datasource.url)',
+    '[ -n "$db_user" ] || db_user=$(read_secret spring.datasource.username)',
+    '[ -n "$db_password" ] || db_password=$(read_secret spring.datasource.password)',
     '[ -n "$db_url" ] && [ -n "$db_user" ] && [ -n "$db_password" ] || { echo "ERROR: database connection settings are incomplete"; exit 1; }',
     'driver_entry=$(jar tf /app/app.jar | grep -E "^BOOT-INF/lib/postgresql-[^/]+\\.jar$" | head -n 1)',
     '[ -n "$driver_entry" ] || { echo "ERROR: PostgreSQL JDBC driver is missing"; exit 1; }',

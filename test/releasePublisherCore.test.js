@@ -310,6 +310,11 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.command.includes('docker save -o')
     && step.command.includes('scp')
     && step.command.includes('docker load -i')));
+  const publishImageIndex = plan.steps.findIndex(step => step.key === 'publish-image');
+  assert.ok(plan.steps.findIndex(step => step.key === 'resolve-ssh-target') < publishImageIndex);
+  assert.ok(plan.steps.findIndex(step => step.key === 'game-prd2-migration-readiness') < publishImageIndex);
+  assert.ok(plan.steps.findIndex(step => step.key === 'read-remote-compose') < publishImageIndex);
+  assert.ok(plan.steps.findIndex(step => step.key === 'game-database-preflight') < publishImageIndex);
   assert.ok(plan.steps.some(step => step.key === 'read-remote-compose'
     && decodedRemoteScript(step.command).includes(`cd ${DEFAULT_REMOTE_COMPOSE_DIR}`)
     && decodedRemoteScript(step.command).includes('IMAGE_TAG')
@@ -322,6 +327,12 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(plan.steps.some(step => step.key === 'game-database-preflight'
     && decodedScriptTree(step.command).includes('RELEASE_DB_AUDIT_MODE=inspect')
     && decodedScriptTree(step.command).includes('RELEASE_EXPECTED_CATALOG_VERSION=20')
+    && decodedScriptTree(step.command).includes('read_secret()')
+    && decodedScriptTree(step.command).includes('secret_file="/run/secrets/$1"')
+    && decodedScriptTree(step.command).includes('tr -d "\\r\\n"')
+    && decodedScriptTree(step.command).includes('read_secret spring.datasource.url')
+    && decodedScriptTree(step.command).includes('read_secret spring.datasource.username')
+    && decodedScriptTree(step.command).includes('read_secret spring.datasource.password')
     && decodedScriptTree(step.command).includes('Catalog downgrade is blocked')
     && decodedScriptTree(step.command).includes('tradepool_schema_transition=')
     && decodedScriptTree(step.command).includes('tradepool_schema_preflight')));
@@ -1155,6 +1166,10 @@ test('creates reusable forum compose release plan with backup validation and rol
   assert.ok(plan.steps.some(step => step.key === 'forum-preflight'
     && decodedRemoteScript(step.command).includes('docker compose config')
     && decodedRemoteScript(step.command).includes('secret_meta=')));
+  const forumPublishIndex = plan.steps.findIndex(step => step.key === 'publish-image');
+  assert.ok(plan.steps.findIndex(step => step.key === 'resolve-ssh-target') < forumPublishIndex);
+  assert.ok(plan.steps.findIndex(step => step.key === 'read-remote-compose') < forumPublishIndex);
+  assert.ok(plan.steps.findIndex(step => step.key === 'forum-preflight') < forumPublishIndex);
   assert.ok(plan.steps.some(step => step.key === 'backup-forum-release'
     && decodedRemoteScript(step.command).includes('mysqldump --single-transaction')
     && decodedRemoteScript(step.command).includes('flarum-data.tar.gz')
@@ -1792,6 +1807,50 @@ test('execute errors are written to history with partial progress', async () => 
   assert.ok(Number.isFinite(history[0].totalDurationMs));
   assert.equal(history[0].slowestStep.key, 'git-status-before-update');
   assert.equal(runCommand.commands.length, 1);
+});
+
+test('database preflight failure stops before image upload', async () => {
+  const root = tempProject(sampleXml);
+  const historyPath = path.join(root, 'preflight-history.json');
+  const runCommand = testCommandRunner({failOnIncludes: 'RELEASE_DB_AUDIT_MODE=inspect'});
+  const result = await executePlan(root, {
+    appTag: '2026070702',
+    dryRun: false,
+    includeStackDeploy: true
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  }, {runCommand});
+
+  assert.equal(result.status, 'ERROR');
+  assert.equal(result.plan.steps.find(step => step.key === 'game-database-preflight').status, 'failed');
+  assert.equal(runCommand.commands.some(command => command.includes('docker save -o')), false);
+  assert.equal(runCommand.commands.some(command => command.includes('docker load -i')), false);
+});
+
+test('forum preflight failure stops before image upload', async () => {
+  const root = tempProject(sampleXml);
+  const historyPath = path.join(root, 'forum-preflight-history.json');
+  const runCommand = testCommandRunner({failOnIncludes: 'docker compose config'});
+  const result = await executePlan(root, {
+    releaseTarget: 'forum',
+    forumImageMode: 'build',
+    appTag: '2026071501',
+    dryRun: false,
+    includeStackDeploy: true
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  }, {runCommand});
+
+  assert.equal(result.status, 'ERROR');
+  assert.equal(result.plan.steps.find(step => step.key === 'forum-preflight').status, 'failed');
+  assert.equal(runCommand.commands.some(command => command.includes('docker save -o')), false);
+  assert.equal(runCommand.commands.some(command => command.includes('docker load -i')), false);
 });
 
 test('forum compose mutation failures require recovery without changing game recovery behavior', async () => {
@@ -2517,6 +2576,9 @@ function testCommandRunner(options = {}) {
     commands.push(command);
     if (options.failOnCommand === true) {
       throw new Error('simulated command failure');
+    }
+    if (options.failOnIncludes && decodedScriptTree(command).includes(options.failOnIncludes)) {
+      throw new Error('simulated preflight failure');
     }
     if (onChunk) {
       if (command.includes('git rev-parse HEAD')) {
