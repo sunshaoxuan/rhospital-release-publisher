@@ -325,12 +325,14 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(plan.steps.some(step => step.key === 'read-remote-compose'
     && decodedRemoteScript(step.command).includes(`cd ${DEFAULT_REMOTE_COMPOSE_DIR}`)
     && decodedRemoteScript(step.command).includes('IMAGE_TAG')
-    && decodedRemoteScript(step.command).includes('update_config failure_action must be pause')
-    && decodedRemoteScript(step.command).includes('FORUM_SSO_ENABLED=true is missing or duplicated')
-    && decodedRemoteScript(step.command).includes('FORUM_SSO_SECRET_FILE is missing or duplicated')
-    && decodedRemoteScript(step.command).includes('SNAIL_JOB_SERVER_HOST must select current production')
-    && decodedRemoteScript(step.command).includes('SNAIL_JOB_HOST must select current production')
-    && decodedRemoteScript(step.command).includes('HOST_IP must select current production')));
+    && decodedRemoteScript(step.command).includes('deploy replicas must equal 1')
+    && decodedRemoteScript(step.command).includes('update_config must use start-first')
+    && decodedRemoteScript(step.command).includes('forum SSO environment contract is incomplete')
+    && decodedRemoteScript(step.command).includes('production profile or secret file environment contract is invalid')
+    && decodedRemoteScript(step.command).includes('Secret mapping count is invalid')
+    && decodedRemoteScript(step.command).includes('game_spring_datasource_password:spring.datasource.password')
+    && decodedRemoteScript(step.command).includes('game_new_relic_license_key:newrelic.license.key')
+    && decodedRemoteScript(step.command).includes('game_compose_runtime_contract=PASS')));
   assert.ok(plan.steps.some(step => step.key === 'game-database-preflight'
     && decodedScriptTree(step.command).includes('RELEASE_DB_AUDIT_MODE=inspect')
     && decodedScriptTree(step.command).includes('RELEASE_EXPECTED_CATALOG_VERSION=20')
@@ -355,7 +357,7 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('s#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\1hospital-backend:2026070702#')
     && decodedRemoteScript(step.command).includes('s#^([[:space:]]*-[[:space:]]*IMAGE_TAG=).*$#\\12026070702#')
     && decodedRemoteScript(step.command).includes('s#^([[:space:]]*IMAGE_TAG:[[:space:]]*).*$#\\1"2026070702"#')
-    && decodedRemoteScript(step.command).includes('forum_sso_secret declaration is missing or duplicated')
+    && decodedRemoteScript(step.command).includes('game_compose_runtime_contract=PASS')
     && decodedRemoteScript(step.command).includes('docker stack config -c docker-compose.yml')));
   assert.ok(plan.steps.some(step => step.key === 'deploy-stack'
     && decodedRemoteScript(step.command).includes('docker stack deploy -c docker-compose.yml hospital_stack')));
@@ -394,6 +396,14 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('service_sso_secret=')
     && decodedRemoteScript(step.command).includes('active_other_count')
     && decodedRemoteScript(step.command).includes('rollout_validation=PASS')));
+  assert.ok(plan.steps.some(step => step.key === 'game-prd2-runtime-contract'
+    && decodedRemoteScript(step.command).includes('SPRING_PROFILE=//p')
+    && decodedRemoteScript(step.command).includes('NEW_RELIC_LICENSE_KEY_FILE=//p')
+    && decodedRemoteScript(step.command).includes('service_secret_count')
+    && decodedRemoteScript(step.command).includes('{{.SecretName}}|{{.File.Name}}{{println}}')
+    && decodedRemoteScript(step.command).includes('game_spring_datasource_password|spring.datasource.password')
+    && decodedRemoteScript(step.command).includes('game_new_relic_license_key|newrelic.license.key')
+    && decodedRemoteScript(step.command).includes('NEW_RELIC_LICENSE_KEY=')));
   const deployIndex = plan.steps.findIndex(step => step.key === 'deploy-stack');
   const cutoverCommitIndex = plan.steps.findIndex(step => step.key === 'commit-game-cutover');
   const finalRuntimeIndex = plan.steps.findIndex(step => step.key === 'final-runtime-check');
@@ -2163,6 +2173,7 @@ test('SSH runner streams oversized remote scripts through stdin instead of argv'
 
     assert.match(command, /\$remoteScript \| & (?:'ssh'|ssh)/);
     assert.doesNotMatch(command, /'printf %s/);
+    assert.match(command, /tr -d ''\\r\\n'' \| base64 -d \| bash/);
     assert.match(output, /isolated_ssh=PASS bash_syntax=PASS remote_script_chars=5002[0-9]/);
   } finally {
     isolation.cleanup();

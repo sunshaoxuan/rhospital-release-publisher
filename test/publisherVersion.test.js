@@ -110,7 +110,7 @@ test('server gates release planning and execution while monitoring idle restarts
   assert.match(source, /server\.close\(\(\) => process\.exit\(75\)\)/);
 });
 
-test('idle publisher process exits after a clean runtime commit', {timeout: 20000}, async () => {
+test('idle publisher process exits after a clean runtime commit', {timeout: 60000}, async () => {
   const root = tempPublisherServerRepository();
   let child;
   try {
@@ -126,8 +126,8 @@ test('idle publisher process exits after a clean runtime commit', {timeout: 2000
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true
     });
-    await waitForChildOutput(child, /RHospital Release Console is running/, 5000);
-    const exitPromise = waitForChildExit(child, 10000);
+    await waitForChildOutput(child, /RHospital Release Console is running/, 10000);
+    const exitPromise = waitForChildExit(child, 30000);
     fs.appendFileSync(path.join(root, 'public', 'app.js'), 'console.log("new runtime");\n', 'utf8');
     runGit(root, ['add', '.']);
     runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'new runtime']);
@@ -143,7 +143,7 @@ test('idle publisher process exits after a clean runtime commit', {timeout: 2000
   }
 });
 
-test('restart drain rejects a release request that finishes after the repository changes', {timeout: 20000}, async () => {
+test('restart drain rejects a release request that finishes after the repository changes', {timeout: 60000}, async () => {
   const root = tempPublisherServerRepository();
   let child;
   let slowRequest;
@@ -163,7 +163,7 @@ test('restart drain rejects a release request that finishes after the repository
     const startupOutput = await waitForChildOutput(
       child,
       /RHospital Release Console is running at http:\/\/127\.0\.0\.1:\d+/,
-      5000
+      10000
     );
     const portMatch = startupOutput.match(/http:\/\/127\.0\.0\.1:(\d+)/);
     assert.ok(portMatch, startupOutput);
@@ -171,7 +171,7 @@ test('restart drain rejects a release request that finishes after the repository
     slowRequest = openSlowJsonPost(Number(portMatch[1]), '/api/execute');
     await slowRequest.connected;
     await delay(50);
-    const exitPromise = waitForChildExit(child, 10000);
+    const exitPromise = waitForChildExit(child, 30000);
     fs.appendFileSync(path.join(root, 'public', 'app.js'), 'console.log("new runtime");\n', 'utf8');
     runGit(root, ['add', '.']);
     runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'new runtime']);

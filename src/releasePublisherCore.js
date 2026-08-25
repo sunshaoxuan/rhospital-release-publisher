@@ -63,6 +63,30 @@ const KNOWN_RELEASE_CHECKS = {
 };
 const GAME_DATABASE_CONTAINER_NAME = 'postgresql';
 const GAME_DATABASE_NAME = 'hospital';
+const GAME_PRODUCTION_SECRET_MAPPINGS = [
+  ['firebase_service_account', 'firebase_service_account'],
+  ['forum_sso_secret', 'forum_sso_secret'],
+  ['game_new_relic_license_key', 'newrelic.license.key'],
+  ['game_paddle_api_key', 'paddle.api.key'],
+  ['game_paddle_client_token', 'paddle.client.token'],
+  ['game_paddle_webhook_secret', 'paddle.webhook.secret'],
+  ['game_snail_job_host', 'snail-job.host'],
+  ['game_snail_job_namespace', 'snail-job.namespace'],
+  ['game_snail_job_port', 'snail-job.port'],
+  ['game_snail_job_server_host', 'snail-job.server.host'],
+  ['game_snail_job_server_port', 'snail-job.server.port'],
+  ['game_snail_job_token', 'snail-job.token'],
+  ['game_spring_datasource_password', 'spring.datasource.password'],
+  ['game_spring_datasource_url', 'spring.datasource.url'],
+  ['game_spring_datasource_username', 'spring.datasource.username'],
+  ['game_steam_microtxn_publisher_key', 'steam.microtxn.publisher.key'],
+  ['game_steam_web_api_key', 'steam.web.api.key'],
+  ['game_steam_web_login_api_key', 'steam.web-login.api.key'],
+  ['game_stripe_api_key', 'stripe.api.key'],
+  ['game_stripe_webhook_secret', 'stripe.webhook.secret'],
+  ['support_mail_password', 'spring.mail.password'],
+  ['support_mail_password', 'support_mail_password']
+];
 const RELEASE_MIGRATION_PATTERN = /^scripts\/migration\/[0-9A-Za-z][0-9A-Za-z._/-]*\.sql$/;
 const CATALOG_UPGRADE_SOURCE_PATH = 'src/main/java/com/zly/hospital/service/catalog/CatalogDatabaseUpgradeService.java';
 const TRADE_POOL_REQUIRED_COLUMNS = ['listing_source', 'admin_source_email', 'admin_batch_id'];
@@ -587,10 +611,16 @@ function createPlan(projectRoot, request, env = process.env) {
         command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
           `service_name=${shellToken(`${config.stackName}_${config.containerName}`)}`,
           `docker service logs --tail 500 "$service_name" 2>&1 | grep -Fq 'FirebaseApp initialized'`,
-          `test "$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' | grep '^FORUM_SSO_ENABLED=' | cut -d= -f2)" = true`,
-          `test "$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' | grep '^SNAIL_JOB_SERVER_HOST=' | cut -d= -f2)" = ${CURRENT_PRODUCTION_HOST}`,
-          `test "$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' | grep '^SNAIL_JOB_HOST=' | cut -d= -f2)" = ${CURRENT_PRODUCTION_HOST}`,
-          `test "$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}' | grep '^HOST_IP=' | cut -d= -f2)" = ${CURRENT_PRODUCTION_HOST}`,
+          `service_env=$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}')`,
+          `test "$(printf '%s\n' "$service_env" | sed -n 's/^FORUM_SSO_ENABLED=//p')" = true`,
+          `test "$(printf '%s\n' "$service_env" | sed -n 's/^SPRING_PROFILE=//p')" = prod`,
+          `test "$(printf '%s\n' "$service_env" | sed -n 's/^NEW_RELIC_LICENSE_KEY_FILE=//p')" = /run/secrets/newrelic.license.key`,
+          `test "$(printf '%s\n' "$service_env" | sed -n 's/^FIREBASE_SERVICE_ACCOUNT_FILE=//p')" = /run/secrets/firebase_service_account`,
+          `! printf '%s\n' "$service_env" | grep -q '^NEW_RELIC_LICENSE_KEY='`,
+          `service_secret_count=$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Secrets}}{{.SecretName}}|{{.File.Name}}{{println}}{{end}}' | sed '/^$/d' | wc -l)`,
+          `[ "$service_secret_count" -eq ${GAME_PRODUCTION_SECRET_MAPPINGS.length} ] || { echo "ERROR: runtime Secret mapping count expected ${GAME_PRODUCTION_SECRET_MAPPINGS.length}, actual $service_secret_count"; exit 1; }`,
+          ...GAME_PRODUCTION_SECRET_MAPPINGS.map(([source, target]) =>
+            `docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Secrets}}{{.SecretName}}|{{.File.Name}}{{println}}{{end}}' | grep -Fxq ${shellToken(`${source}|${target}`)}`),
           `stripe_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8190/api/payment/webhook -H 'Content-Type: application/json' --data '{}')`,
           `paddle_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8190/api/paddle/webhook -H 'Content-Type: application/json' --data '{}')`,
           `echo "$stripe_code" | grep -Eq '^(400|401|403)$'`,
@@ -3412,13 +3442,21 @@ function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName
 
 function gameComposeSsoContractCommands() {
   return [
-    `test "$(sed -n '/^[[:space:]]*update_config:[[:space:]]*$/,/^[[:space:]]*rollback_config:[[:space:]]*$/p' docker-compose.yml | sed -n 's/^[[:space:]]*failure_action:[[:space:]]*//p' | head -n 1)" = pause || { echo 'ERROR: update_config failure_action must be pause so Swarm cannot roll back a committed target'; exit 1; }`,
-    `test "$(grep -Ec '^[[:space:]]*-[[:space:]]*FORUM_SSO_ENABLED=true[[:space:]]*$|^[[:space:]]*FORUM_SSO_ENABLED:[[:space:]]*"?true"?[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: FORUM_SSO_ENABLED=true is missing or duplicated'; exit 1; }`,
-    `test "$(grep -Ec '^[[:space:]]*-[[:space:]]*FORUM_SSO_SECRET_FILE=/run/secrets/forum_sso_secret[[:space:]]*$|^[[:space:]]*FORUM_SSO_SECRET_FILE:[[:space:]]*"?/run/secrets/forum_sso_secret"?[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: FORUM_SSO_SECRET_FILE is missing or duplicated'; exit 1; }`,
-    `test "$(grep -Ec '^[[:space:]]*-[[:space:]]*SNAIL_JOB_SERVER_HOST=${CURRENT_PRODUCTION_HOST}[[:space:]]*$|^[[:space:]]*SNAIL_JOB_SERVER_HOST:[[:space:]]*"?${CURRENT_PRODUCTION_HOST}"?[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: SNAIL_JOB_SERVER_HOST must select current production'; exit 1; }`,
-    `test "$(grep -Ec '^[[:space:]]*-[[:space:]]*SNAIL_JOB_HOST=${CURRENT_PRODUCTION_HOST}[[:space:]]*$|^[[:space:]]*SNAIL_JOB_HOST:[[:space:]]*"?${CURRENT_PRODUCTION_HOST}"?[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: SNAIL_JOB_HOST must select current production'; exit 1; }`,
-    `test "$(grep -Ec '^[[:space:]]*-[[:space:]]*HOST_IP=${CURRENT_PRODUCTION_HOST}[[:space:]]*$|^[[:space:]]*HOST_IP:[[:space:]]*"?${CURRENT_PRODUCTION_HOST}"?[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: HOST_IP must select current production'; exit 1; }`,
-    `test "$(grep -Ec '^[[:space:]]*forum_sso_secret:[[:space:]]*$' docker-compose.yml)" -eq 1 || { echo 'ERROR: forum_sso_secret declaration is missing or duplicated'; exit 1; }`
+    'compose_contract_file=$(mktemp)',
+    'trap \'rm -f "$compose_contract_file"\' EXIT',
+    'docker compose -f docker-compose.yml config --format json > "$compose_contract_file"',
+    `test "$(jq -r '.services["hospital-backend"].deploy.replicas // 0' "$compose_contract_file")" -eq 1 || { echo 'ERROR: hospital-backend deploy replicas must equal 1'; exit 1; }`,
+    `jq -e '.services["hospital-backend"].deploy.update_config.failure_action == "pause" and .services["hospital-backend"].deploy.update_config.order == "start-first"' "$compose_contract_file" >/dev/null || { echo 'ERROR: update_config must use start-first and failure_action pause'; exit 1; }`,
+    `jq -e '.services["hospital-backend"].environment.FORUM_SSO_ENABLED == "true" and .services["hospital-backend"].environment.FORUM_SSO_SECRET_FILE == "/run/secrets/forum_sso_secret"' "$compose_contract_file" >/dev/null || { echo 'ERROR: forum SSO environment contract is incomplete'; exit 1; }`,
+    `jq -e '.services["hospital-backend"].environment.SPRING_PROFILE == "prod" and .services["hospital-backend"].environment.NEW_RELIC_LICENSE_KEY_FILE == "/run/secrets/newrelic.license.key" and .services["hospital-backend"].environment.FIREBASE_SERVICE_ACCOUNT_FILE == "/run/secrets/firebase_service_account" and (.services["hospital-backend"].environment | has("NEW_RELIC_LICENSE_KEY") | not)' "$compose_contract_file" >/dev/null || { echo 'ERROR: production profile or secret file environment contract is invalid'; exit 1; }`,
+    `test "$(jq -r '.services["hospital-backend"].secrets | length' "$compose_contract_file")" -eq ${GAME_PRODUCTION_SECRET_MAPPINGS.length} || { echo 'ERROR: hospital-backend Secret mapping count is invalid'; exit 1; }`,
+    ...GAME_PRODUCTION_SECRET_MAPPINGS.flatMap(([source, target]) => [
+      `jq -e --arg source ${shellToken(source)} --arg target ${shellToken(`/run/secrets/${target}`)} 'any(.services["hospital-backend"].secrets[]?; .source == $source and .target == $target)' "$compose_contract_file" >/dev/null || { echo ${shellToken(`ERROR: missing Secret mapping ${source}:${target}`)}; exit 1; }`,
+      `docker secret inspect ${shellToken(source)} >/dev/null`
+    ]),
+    'rm -f "$compose_contract_file"',
+    'trap - EXIT',
+    'echo game_compose_runtime_contract=PASS'
   ];
 }
 
@@ -3732,7 +3770,7 @@ function remoteSshCommand(target, remoteCommand) {
     const sshInvocation = ssh.map(shellToken).join(' ');
     return [
       `$remoteScript = '${escapePowerShell(encodedScript[1])}'`,
-      `$remoteScript | & ${sshInvocation} ${shellToken('base64 -d | bash')}`,
+      `$remoteScript | & ${sshInvocation} ${shellToken("tr -d '\\r\\n' | base64 -d | bash")}`,
       'if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }'
     ].join('; ');
   }

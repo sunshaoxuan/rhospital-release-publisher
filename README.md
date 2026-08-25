@@ -221,7 +221,7 @@ Windows 执行器通过 PowerShell 标准输入传递发布脚本，避免备份
 npm run acceptance:full-flow -- --project-root C:\workspace\hospital-backend --game-commit <game-commit> --forum-commit <forum-commit> --game-tag <game-tag> --forum-tag <forum-tag> --output docs\investigations\full-flow-acceptance.json
 ```
 
-远程 Bash 脚本在 Windows 上使用 PowerShell 单引号字面量保存 Base64，再通过 stdin 交给 `ssh`。论坛源码校验优先使用 `GIT_BASH_PATH`，未设置时再从 Git 可执行文件位置解析 `bin\bash.exe`。
+远程 Bash 脚本在 Windows 上使用 PowerShell 单引号字面量保存 Base64，再通过 stdin 交给 `ssh`。真实 OpenSSH 会接收到 PowerShell 写入的 CRLF，远端先移除 CR 和 LF，再执行 Base64 解码与 Bash。论坛源码校验优先使用 `GIT_BASH_PATH`，未设置时再从 Git 可执行文件位置解析 `bin\bash.exe`。
 
 游戏发布会比较目标提交和最近一次成功游戏发布提交。差异中的 `scripts/migration/*.sql` 属于运行时变更，发布器会从已经锁定的目标提交读取路径，并在统一 CRLF 为 LF 后计算预期 SHA256。所有迁移脚本必须构建进目标镜像 `/app/migrations`，镜像必须包含可完整验证的 `SHA256SUMS`。发布器禁止把本地 Git SQL 正文编码后注入生产机；它会在目标镜像加载后创建不启动的临时容器，从镜像复制迁移包，依次核对镜像清单、目标提交预期 SHA256 和实际脚本 SHA256，再执行迁移。迁移脚本必须包含 `ON_ERROR_STOP`、事务、锁等待上限、语句执行上限和提交后的只读验收查询，并禁止删除表、字段、索引、约束及其他破坏旧版本兼容性的操作。数据删除默认失败关闭；当前仅允许先固化到任务专用临时表、完成重复匹配检查、按日志主键锁行后，再通过临时表中的唯一日志主键删除三类原玩家日志，其他持久表删除和未受控日志删除均会被拒绝。存在迁移时，发布器会在镜像切换前额外执行完整 `hospital` 数据库自定义格式备份，并保存目标镜像 ID、脚本校验和及执行回执。JPA 实体持久化结构发生变化却没有迁移脚本时，计划生成会直接失败。
 
@@ -233,7 +233,7 @@ npm run acceptance:full-flow -- --project-root C:\workspace\hospital-backend --g
 
 游戏发布固定执行 `validate-game-static-delivery-prerequisites`，并至少保留 `test-game-backend`、`verify-game-static-assets-predeploy`、`pre-deploy-checklist`、`final-runtime-check` 和 `verify-game-static-delivery`。正式游戏部署计划还会执行 `verify-relations-release`，该步骤已注册为业务影响评估可引用的检查。论坛构建发布至少保留 `validate-forum-source`、`forum-preflight` 和 `final-runtime-check`，源码门禁包含论坛镜像、搜索迁移和部署配置契约测试。实体、Repository、DAO 或迁移脚本变化时必须声明数据库影响；存在游戏迁移脚本时还必须选择 `apply-database-migrations`。现有步骤无法覆盖新增风险时，应先在本仓库增加可执行检查和测试，再由业务仓库的影响评估引用该步骤。论坛生产 Compose 修改开始后，失败、取消或发布器重启会进入 `RECOVERY_REQUIRED`，保留备份与回滚入口供人工复核。
 
-`GAME_PRD2` 是唯一游戏生产发布目标。发布计划增加 `game-prd2-migration-readiness` 与 `game-prd2-runtime-contract`，检查主库角色、论坛、生产 Secret、防火墙、Firebase 初始化、论坛 SSO、Stripe 与 Paddle 无签名拒绝、SnailJob 和 New Relic。Compose 与最终 Swarm 服务还必须显式把 SnailJob 服务地址和 `HOST_IP` 设为当前生产主机。跨主机灾难恢复属于环境知识库管理范围，发布器不注册其他生产主机。
+`GAME_PRD2` 是唯一游戏生产发布目标。发布计划增加 `game-prd2-migration-readiness` 与 `game-prd2-runtime-contract`，检查主库角色、论坛、生产 Secret、防火墙、Firebase 初始化、论坛 SSO、Stripe 与 Paddle 无签名拒绝、SnailJob 和 New Relic。生产 Compose 在任何镜像上传前必须解析为 1 个游戏副本、`start-first`、`failure_action: pause`、生产 profile、文件型凭据配置和 22 个精确 Secret 挂载；同一合同会在最终 Swarm 服务上再次检查。跨主机灾难恢复属于环境知识库管理范围，发布器不注册其他生产主机。
 
 游戏静态资源采用应用切换前交付：
 

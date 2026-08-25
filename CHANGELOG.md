@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-08-25
+
+1. 修复 Windows PowerShell 通过真实 OpenSSH stdin 传递 Base64 时附加 CRLF，导致生产端 `base64: invalid input` 的问题。远端解码前会移除 CR 和 LF，真实 OpenSSH 无破坏探针与超长脚本测试覆盖该路径。
+2. 游戏生产 Compose 门禁升级为解析后的完整运行合同。发布器在镜像上传和 Stack deploy 前要求 `hospital-backend` 为 1 副本、`start-first`、`failure_action: pause`、生产 profile、文件型 New Relic 与 Firebase 配置、22 个精确 Secret 映射，并确认每个 Docker Secret 存在。最终 Prd2 运行合同再次核对同一组 Swarm Secret 映射，阻止不完整 Compose 清空运行时凭据。
+3. 生产事故恢复已将 `hospital-backend:20260825`、`IMAGE_TAG=20260825`、1 副本和完整 Secret 映射同步到运行服务与 Compose。修复过程使用 start first 保持旧健康任务承载请求，Compose 修改完成后没有再次触发 Stack deploy。
+4. Windows 发布器自动重启集成测试的子进程等待窗口扩展到 30 秒，适配临时 Git 仓库状态计算在高负载环境下超过 10 秒的情况；退出码、重启日志、请求拒绝和空任务文件断言保持不变。
+
 ## 2026-08-24
 
 1. `GAME_PRD2` 成为唯一游戏生产发布目标，`FORUM_PRD2` 继续作为唯一论坛生产发布目标，两者指向 `92.113.124.185`。发布器删除退役主机注册、请求级目标覆盖、路径覆盖、目标环境变量 fallback、IDEA Run Configuration 读取写回和保存 TAG API。页面改为只读展示生产连接参数，配置缺失、映射不一致、目标主机偏离当前生产或请求携带目标字段时失败关闭。游戏 Compose 和最终服务必须把 `SNAIL_JOB_SERVER_HOST`、`SNAIL_JOB_HOST` 与 `HOST_IP` 明确设为当前生产。本地历史通过版本化、幂等、可回滚的 v2 migration 清除退役连接标识并保留其余审计字段。Prd2 发布门禁继续覆盖数据库主角色、论坛、生产 Secret、持久化防火墙、Firebase 初始化、论坛 SSO、支付回调拒绝、SnailJob 和 New Relic。Windows 自动重启测试保留 Git `index.lock` 有界重试。
