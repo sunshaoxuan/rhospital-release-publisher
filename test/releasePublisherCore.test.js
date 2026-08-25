@@ -327,6 +327,9 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('IMAGE_TAG')
     && decodedRemoteScript(step.command).includes('deploy replicas must equal 1')
     && decodedRemoteScript(step.command).includes('update_config must use start-first')
+    && decodedRemoteScript(step.command).includes('rollback_config must use start-first')
+    && decodedRemoteScript(step.command).includes('graceful stop or healthcheck contract is invalid')
+    && decodedRemoteScript(step.command).includes('environment, port, volume, network or restart contract is invalid')
     && decodedRemoteScript(step.command).includes('forum SSO environment contract is incomplete')
     && decodedRemoteScript(step.command).includes('production profile or secret file environment contract is invalid')
     && decodedRemoteScript(step.command).includes('Secret mapping count is invalid')
@@ -360,7 +363,13 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('game_compose_runtime_contract=PASS')
     && decodedRemoteScript(step.command).includes('docker stack config -c docker-compose.yml')));
   assert.ok(plan.steps.some(step => step.key === 'deploy-stack'
-    && decodedRemoteScript(step.command).includes('docker stack deploy -c docker-compose.yml hospital_stack')));
+    && decodedRemoteScript(step.command).includes('hospital-backend deploy replicas must equal 1')
+    && decodedRemoteScript(step.command).includes('healthy_before_deploy')
+    && decodedRemoteScript(step.command).indexOf('game_compose_runtime_contract=PASS')
+      < decodedRemoteScript(step.command).indexOf('docker stack deploy -c docker-compose.yml hospital_stack')
+    && decodedRemoteScript(step.command).includes('replicas_after_submit')
+    && decodedRemoteScript(step.command).includes('healthy_after_submit')
+    && decodedRemoteScript(step.command).includes('game_stack_deploy_guard=PASS')));
   assert.ok(plan.steps.every(step => step.summary && step.validation && step.status === 'pending'));
   assert.ok(plan.steps.some(step => step.key === 'test-game-backend'
     && step.validationCommand.includes('docker image inspect hospital-backend:2026070702-buildcheck')));
@@ -371,6 +380,8 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.validationCommand).includes('hospital-backend:2026070702')
     && decodedRemoteScript(step.validationCommand).includes('IMAGE_TAG=2026070702')));
   assert.ok(plan.steps.some(step => step.key === 'deploy-stack'
+    && decodedRemoteScript(step.validationCommand).includes('Replicated.Replicas')
+    && decodedRemoteScript(step.validationCommand).includes('health=healthy')
     && decodedRemoteScript(step.validationCommand).includes('docker stack services hospital_stack')));
   assert.ok(plan.steps.some(step => step.key === 'commit-game-cutover'
     && step.cutoverCommit === true
@@ -400,6 +411,8 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('SPRING_PROFILE=//p')
     && decodedRemoteScript(step.command).includes('NEW_RELIC_LICENSE_KEY_FILE=//p')
     && decodedRemoteScript(step.command).includes('service_secret_count')
+    && decodedRemoteScript(step.command).includes('Spec.RollbackConfig.Order')
+    && decodedRemoteScript(step.command).includes('Spec.TaskTemplate.ContainerSpec.StopGracePeriod')
     && decodedRemoteScript(step.command).includes('{{.SecretName}}|{{.File.Name}}{{println}}')
     && decodedRemoteScript(step.command).includes('game_spring_datasource_password|spring.datasource.password')
     && decodedRemoteScript(step.command).includes('game_new_relic_license_key|newrelic.license.key')
@@ -557,6 +570,42 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(plan.steps.find(step => step.key === 'game-fatal-rollback-decision').recoveryOnly);
   assert.ok(plan.steps.find(step => step.key === 'game-fatal-rollback-decision').command
     .includes('evaluate-game-fatal-rollback.mjs'));
+});
+
+test('deploy guard blocks stack deploy when rendered compose requests zero replicas', () => {
+  const root = tempProject(sampleXml);
+  const plan = createPlan(root, {
+    appTag: '2026070702',
+    dryRun: true,
+    includeStackDeploy: true
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+  });
+  const deployScript = decodedRemoteScript(plan.steps.find(step => step.key === 'deploy-stack').command)
+    .replace(`cd ${DEFAULT_REMOTE_COMPOSE_DIR}`, 'cd .');
+  const isolatedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'publisher-zero-replica-guard-'));
+  try {
+    const harness = [
+      'docker() {',
+      '  if [ "$1" = compose ]; then printf \'%s\\n\' \'{"services":{"hospital-backend":{"deploy":{"replicas":0}}}}\'; return 0; fi',
+      '  if [ "$1" = stack ] && [ "$2" = deploy ]; then touch deploy-called; return 0; fi',
+      '  return 0',
+      '}',
+      'jq() { if [ "$1" = -r ]; then printf \'0\\n\'; else return 0; fi; }',
+      deployScript
+    ].join('\n');
+    const result = spawnSync(testBashExecutable(), ['-c', harness], {
+      cwd: isolatedRoot,
+      encoding: 'utf8'
+    });
+    assert.notEqual(result.status, 0);
+    assert.match(`${result.stdout}\n${result.stderr}`, /deploy replicas must equal 1/);
+    assert.equal(fs.existsSync(path.join(isolatedRoot, 'deploy-called')), false);
+  } finally {
+    fs.rmSync(isolatedRoot, {recursive: true, force: true});
+  }
 });
 
 test('backs up and applies changed database migrations before switching the production image', () => {

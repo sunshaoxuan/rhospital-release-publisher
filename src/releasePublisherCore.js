@@ -558,16 +558,28 @@ function createPlan(projectRoot, request, env = process.env) {
     steps.push(releaseStep({
       key: 'deploy-stack',
       title: '执行 Docker Stack 热发布',
-      summary: '在生产编排目录执行 stack deploy，触发 Swarm 按 compose 新镜像滚动更新',
+      summary: '在同一远程脚本内复核完整生产合同和旧健康副本，再执行 stack deploy 并确认服务没有缩容',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
-        `docker stack deploy -c docker-compose.yml ${shellToken(config.stackName)}`
+        ...gameComposeSsoContractCommands(),
+        `service_name=${shellToken(`${config.stackName}_${config.containerName}`)}`,
+        `healthy_before_deploy=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | wc -l)`,
+        `[ "$healthy_before_deploy" -ge 1 ] || { echo 'ERROR: deploy blocked because no healthy old container is serving'; exit 1; }`,
+        `docker stack deploy -c docker-compose.yml ${shellToken(config.stackName)}`,
+        `replicas_after_submit=$(docker service inspect "$service_name" --format '{{.Spec.Mode.Replicated.Replicas}}')`,
+        `[ "$replicas_after_submit" -eq 1 ] || { echo "ERROR: deploy submitted an invalid replica count: $replicas_after_submit"; exit 1; }`,
+        `healthy_after_submit=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | wc -l)`,
+        `[ "$healthy_after_submit" -ge 1 ] || { echo 'ERROR: old healthy container disappeared immediately after deploy'; exit 1; }`,
+        `echo game_stack_deploy_guard=PASS healthy_before=$healthy_before_deploy healthy_after_submit=$healthy_after_submit replicas=$replicas_after_submit`
       ])),
-      validation: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-        `docker stack services ${shellToken(config.stackName)}`
-      )),
+      validation: 'deploy 前必须再次通过完整 Compose 合同且至少存在一个旧健康容器；提交后副本必须仍为 1 且健康容器不得归零',
       validationCommand: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-        `docker stack services ${shellToken(config.stackName)}`
+        [
+          `service_name=${shellToken(`${config.stackName}_${config.containerName}`)}`,
+          `test "$(docker service inspect "$service_name" --format '{{.Spec.Mode.Replicated.Replicas}}')" -eq 1`,
+          `test "$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | wc -l)" -ge 1`,
+          `docker stack services ${shellToken(config.stackName)}`
+        ]
       )),
       actionType: 'production',
       productionAction: true,
@@ -612,6 +624,11 @@ function createPlan(projectRoot, request, env = process.env) {
           `service_name=${shellToken(`${config.stackName}_${config.containerName}`)}`,
           `docker service logs --tail 500 "$service_name" 2>&1 | grep -Fq 'FirebaseApp initialized'`,
           `service_env=$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}')`,
+          `test "$(docker service inspect "$service_name" --format '{{.Spec.UpdateConfig.Order}}')" = start-first`,
+          `test "$(docker service inspect "$service_name" --format '{{.Spec.UpdateConfig.FailureAction}}')" = pause`,
+          `test "$(docker service inspect "$service_name" --format '{{.Spec.RollbackConfig.Order}}')" = start-first`,
+          `test "$(docker service inspect "$service_name" --format '{{.Spec.RollbackConfig.FailureAction}}')" = pause`,
+          `test "$(docker service inspect "$service_name" --format '{{.Spec.TaskTemplate.ContainerSpec.StopGracePeriod}}')" = 1m0s`,
           `test "$(printf '%s\n' "$service_env" | sed -n 's/^FORUM_SSO_ENABLED=//p')" = true`,
           `test "$(printf '%s\n' "$service_env" | sed -n 's/^SPRING_PROFILE=//p')" = prod`,
           `test "$(printf '%s\n' "$service_env" | sed -n 's/^NEW_RELIC_LICENSE_KEY_FILE=//p')" = /run/secrets/newrelic.license.key`,
@@ -3447,11 +3464,14 @@ function gameComposeSsoContractCommands() {
     'docker compose -f docker-compose.yml config --format json > "$compose_contract_file"',
     `test "$(jq -r '.services["hospital-backend"].deploy.replicas // 0' "$compose_contract_file")" -eq 1 || { echo 'ERROR: hospital-backend deploy replicas must equal 1'; exit 1; }`,
     `jq -e '.services["hospital-backend"].deploy.update_config.failure_action == "pause" and .services["hospital-backend"].deploy.update_config.order == "start-first"' "$compose_contract_file" >/dev/null || { echo 'ERROR: update_config must use start-first and failure_action pause'; exit 1; }`,
+    `jq -e '.services["hospital-backend"].deploy.rollback_config.failure_action == "pause" and .services["hospital-backend"].deploy.rollback_config.order == "start-first"' "$compose_contract_file" >/dev/null || { echo 'ERROR: rollback_config must use start-first and failure_action pause'; exit 1; }`,
+    `jq -e '.services["hospital-backend"].stop_grace_period == "1m0s" and .services["hospital-backend"].healthcheck.test == ["CMD", "curl", "-f", "http://localhost:8090/"] and .services["hospital-backend"].healthcheck.start_period == "8m0s" and .services["hospital-backend"].healthcheck.interval == "30s" and .services["hospital-backend"].healthcheck.timeout == "15s" and .services["hospital-backend"].healthcheck.retries == 4' "$compose_contract_file" >/dev/null || { echo 'ERROR: graceful stop or healthcheck contract is invalid'; exit 1; }`,
+    `jq -e '.services["hospital-backend"] as $service | ($service.environment | keys) == ["EXECUTOR_PORT", "FIREBASE_SERVICE_ACCOUNT_FILE", "FORUM_BASE_URL", "FORUM_SSO_ENABLED", "FORUM_SSO_SECRET_FILE", "HOST_IP", "IMAGE_TAG", "JAVA_EXTRA_OPTS", "JAVA_OPTS", "NEW_RELIC_APP_NAME", "NEW_RELIC_DISTRIBUTED_TRACING_ENABLED", "NEW_RELIC_LICENSE_KEY_FILE", "NEW_RELIC_LOG_FILE_NAME", "SPRING_PROFILE", "SUPPORT_MAIL_PASSWORD_FILE"] and ($service.ports | length) == 3 and any($service.ports[]; .target == 8090 and .published == "8190" and .protocol == "tcp" and .mode == "ingress") and any($service.ports[]; .target == 9996 and .published == "9996" and .protocol == "tcp" and .mode == "ingress") and any($service.ports[]; .target == 17889 and .published == "17889" and .protocol == "tcp" and .mode == "ingress") and $service.volumes == [{"type":"bind","source":"/opt/1panel/docker/compose/hospital-stack/data","target":"/data","bind":{"create_host_path":true}}] and $service.deploy.restart_policy.condition == "any" and $service.deploy.restart_policy.delay == "10s" and ($service.networks | keys) == ["default"]' "$compose_contract_file" >/dev/null || { echo 'ERROR: environment, port, volume, network or restart contract is invalid'; exit 1; }`,
     `jq -e '.services["hospital-backend"].environment.FORUM_SSO_ENABLED == "true" and .services["hospital-backend"].environment.FORUM_SSO_SECRET_FILE == "/run/secrets/forum_sso_secret"' "$compose_contract_file" >/dev/null || { echo 'ERROR: forum SSO environment contract is incomplete'; exit 1; }`,
     `jq -e '.services["hospital-backend"].environment.SPRING_PROFILE == "prod" and .services["hospital-backend"].environment.NEW_RELIC_LICENSE_KEY_FILE == "/run/secrets/newrelic.license.key" and .services["hospital-backend"].environment.FIREBASE_SERVICE_ACCOUNT_FILE == "/run/secrets/firebase_service_account" and (.services["hospital-backend"].environment | has("NEW_RELIC_LICENSE_KEY") | not)' "$compose_contract_file" >/dev/null || { echo 'ERROR: production profile or secret file environment contract is invalid'; exit 1; }`,
     `test "$(jq -r '.services["hospital-backend"].secrets | length' "$compose_contract_file")" -eq ${GAME_PRODUCTION_SECRET_MAPPINGS.length} || { echo 'ERROR: hospital-backend Secret mapping count is invalid'; exit 1; }`,
     ...GAME_PRODUCTION_SECRET_MAPPINGS.flatMap(([source, target]) => [
-      `jq -e --arg source ${shellToken(source)} --arg target ${shellToken(`/run/secrets/${target}`)} 'any(.services["hospital-backend"].secrets[]?; .source == $source and .target == $target)' "$compose_contract_file" >/dev/null || { echo ${shellToken(`ERROR: missing Secret mapping ${source}:${target}`)}; exit 1; }`,
+      `jq -e --arg source ${shellToken(source)} --arg target ${shellToken(target)} '. as $root | any($root.services["hospital-backend"].secrets[]?; (($root.secrets[.source].name // .source) == $source) and .target == $target)' "$compose_contract_file" >/dev/null || { echo ${shellToken(`ERROR: missing Secret mapping ${source}:${target}`)}; exit 1; }`,
       `docker secret inspect ${shellToken(source)} >/dev/null`
     ]),
     'rm -f "$compose_contract_file"',

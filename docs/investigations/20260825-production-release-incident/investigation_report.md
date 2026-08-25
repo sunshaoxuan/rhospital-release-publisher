@@ -2,7 +2,7 @@
 
 ## 结论
 
-`hospital-backend:20260825` 镜像能够正常启动。事故由生产 Stack deploy 使用不完整 Compose 重建服务规格引起。故障 Compose 把游戏服务设置为 0 副本，只保留 2 个 Secret，并替换了故障前的生产环境变量集合。服务恢复到 1 副本后依次出现 New Relic Secret 缺失和 PostgreSQL SCRAM 无密码，证明阻塞位于运行规格。
+`hospital-backend:20260825` 镜像能够正常启动。事故由生产 Stack deploy 使用不完整 Compose 重建服务规格引起。故障 Compose 把游戏服务设置为 0 副本，只保留 2 个 Secret，并替换了故障前的生产环境变量集合。Swarm 将 0 副本作为缩容执行并直接关闭旧健康任务，这条路径没有进入镜像滚动更新，start-first 与新任务健康检查没有参与。服务恢复到 1 副本后依次出现 New Relic Secret 缺失和 PostgreSQL SCRAM 无密码，证明后续阻塞同样位于运行规格。
 
 Windows PowerShell 通过真实 OpenSSH stdin 发送 Base64 时附加 CRLF，生产端 `base64 -d` 将 CR 识别为非法输入。这是发布步骤的第二个独立故障。
 
@@ -19,6 +19,7 @@ Windows PowerShell 通过真实 OpenSSH stdin 发送 Base64 时附加 CRLF，生
 1. SSH stdin Base64 在远端移除 CR 和 LF 后解码。
 2. 镜像上传前解析生产 Compose，精确验证副本、更新策略、profile、文件型凭据环境和 22 个 Secret 映射。
 3. 最终 Prd2 运行合同精确验证同一组 Swarm Secret 映射。
+4. `deploy-stack` 在同一远程脚本中重新验证完整合同和旧健康容器，再调用 Docker；副本为 0 时命令在 deploy 前失败。完整合同覆盖环境变量集合、端口、数据卷、网络、重启策略、健康检查、停止宽限期、更新与回滚策略及 Secret 映射。
 
 ## 安全边界
 

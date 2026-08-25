@@ -6,6 +6,7 @@
 2. 游戏生产 Compose 门禁升级为解析后的完整运行合同。发布器在镜像上传和 Stack deploy 前要求 `hospital-backend` 为 1 副本、`start-first`、`failure_action: pause`、生产 profile、文件型 New Relic 与 Firebase 配置、22 个精确 Secret 映射，并确认每个 Docker Secret 存在。最终 Prd2 运行合同再次核对同一组 Swarm Secret 映射，阻止不完整 Compose 清空运行时凭据。
 3. 生产事故恢复已将 `hospital-backend:20260825`、`IMAGE_TAG=20260825`、1 副本和完整 Secret 映射同步到运行服务与 Compose。修复过程使用 start first 保持旧健康任务承载请求，Compose 修改完成后没有再次触发 Stack deploy。
 4. Windows 发布器自动重启集成测试的子进程等待窗口扩展到 30 秒，适配临时 Git 仓库状态计算在高负载环境下超过 10 秒的情况；退出码、重启日志、请求拒绝和空任务文件断言保持不变。
+5. `deploy-stack` 在调用 Docker 前再次渲染并验证完整 Compose，要求更新与回滚均为 start-first 和 failure pause、1 副本、健康检查、停止宽限期和 22 个 Secret 完整，同时确认至少一个旧健康容器仍在服务。deploy 提交后立即检查副本仍为 1且健康容器没有归零。零副本负向测试确认该场景不会调用 `docker stack deploy`。
 
 ## 2026-08-24
 

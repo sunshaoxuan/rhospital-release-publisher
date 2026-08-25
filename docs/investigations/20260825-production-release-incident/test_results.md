@@ -13,6 +13,8 @@
 | Compose config | PASS |
 | Stack config | PASS |
 | Live Swarm 22 mapping contract | PASS |
+| Zero-replica deploy guard | PASS, deploy command not called |
+| Rollback policy online update probe | 80 HTTP 200, 0 failures |
 | Authenticated `/run/newGame` HTML | HTTP 200 |
 | `window.GAME_VERSION` | `20260825` |
 | Rendered footer source | `20260825` |
