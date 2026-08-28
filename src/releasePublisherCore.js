@@ -48,6 +48,7 @@ const KNOWN_RELEASE_CHECKS = {
     'commit-game-cutover',
     'final-runtime-check',
     'verify-game-static-delivery',
+    'verify-game-smtp-sender',
     'verify-tradepool-release',
     'verify-relations-release',
     'game-prd2-migration-readiness',
@@ -209,6 +210,11 @@ function createPlan(projectRoot, request, env = process.env) {
     'game',
     releaseMigrations
   );
+  const requiresSmtpSenderCheck = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-smtp-sender'));
+  const productionMailIdentity = requiresSmtpSenderCheck
+    ? resolveProductionMailIdentity(projectRoot, gitCommit)
+    : null;
   const gitUpdate = gitUpdateStep(gitBranch, gitCommit);
 
   const steps = [
@@ -651,6 +657,21 @@ function createPlan(projectRoot, request, env = process.env) {
         executable: true,
         finalCheck: true,
         timeoutSeconds: 180
+      }));
+    }
+    if (productionMailIdentity) {
+      steps.push(releaseStep({
+        key: 'verify-game-smtp-sender',
+        title: '验证生产 SMTP 发件身份',
+        summary: '在目标容器内读取邮件 Secret，完成 STARTTLS、SMTP AUTH 和 MAIL FROM 探针，并在 DATA 前退出会话',
+        command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+          gameSmtpSenderProbeCommands(config.stackName, config.containerName, productionMailIdentity)
+        )),
+        validation: `SMTP ${productionMailIdentity.host}:${productionMailIdentity.port} 必须接受 ${productionMailIdentity.fromAddress} 的认证身份和 MAIL FROM，探针不得发送 DATA 或输出 Secret`,
+        actionType: 'remote-check',
+        executable: true,
+        finalCheck: true,
+        timeoutSeconds: 60
       }));
     }
     steps.push(releaseStep({
@@ -3266,6 +3287,53 @@ function gamePreDeployChecklistCommand(remoteComposeDir, stackName, containerNam
     'echo "checklist_migration_image_source=PASS image=$target_image"',
     'echo "checklist_rollback_source=PASS compose=$backup_dir/docker-compose.yml"',
     'echo "pre_deploy_checklist=PASS"'
+  ];
+}
+
+function resolveProductionMailIdentity(projectRoot, commit) {
+  const relativePath = 'src/main/resources/application.properties';
+  const source = commit === 'latest'
+    ? fs.readFileSync(resolveInside(projectRoot, relativePath), 'utf8')
+    : runGit(projectRoot, ['show', `${commit}:${relativePath}`]);
+  const properties = new Map();
+  for (const rawLine of source.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#') || line.startsWith('!')) continue;
+    const separator = line.indexOf('=');
+    if (separator <= 0) continue;
+    properties.set(line.slice(0, separator).trim(), line.slice(separator + 1).trim());
+  }
+
+  const host = properties.get('spring.mail.host') || '';
+  const port = Number.parseInt(properties.get('spring.mail.port') || '', 10);
+  const username = properties.get('spring.mail.username') || '';
+  const fromAddress = properties.get('mail.verify.from') || '';
+  if (!host || !Number.isInteger(port) || port < 1 || port > 65535 || !username || !fromAddress) {
+    throw new Error('生产 SMTP 发件探针缺少 spring.mail.host、spring.mail.port、spring.mail.username 或 mail.verify.from');
+  }
+  if (username !== fromAddress) {
+    throw new Error(`生产 SMTP 认证账号与发件地址不一致: username=${username}, from=${fromAddress}`);
+  }
+  return {host, port, username, fromAddress};
+}
+
+function gameSmtpSenderProbeCommands(stackName, containerName, identity) {
+  const serviceName = `${stackName}_${containerName}`;
+  return [
+    `service_name=${shellToken(serviceName)}`,
+    'container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
+    '[ -n "$container_id" ] || { echo "ERROR: no healthy game container for SMTP sender verification"; exit 1; }',
+    `smtp_password=$(docker exec "$container_id" sh -lc 'IFS= read -r secret < /run/secrets/spring.mail.password; printf "%s" "$secret"')`,
+    '[ -n "$smtp_password" ] || { echo "ERROR: spring.mail.password Secret is empty"; exit 1; }',
+    `auth_plain=$(printf '\\0%s\\0%s' ${shellToken(identity.username)} "$smtp_password" | openssl base64 -A)`,
+    'unset smtp_password',
+    '[ -n "$auth_plain" ] || { echo "ERROR: SMTP AUTH payload generation failed"; exit 1; }',
+    `smtp_output=$( { sleep 1; printf 'EHLO rhospital-release-check\\r\\n'; sleep 1; printf 'AUTH PLAIN %s\\r\\n' "$auth_plain"; sleep 1; printf 'MAIL FROM:<%s>\\r\\n' ${shellToken(identity.fromAddress)}; sleep 1; printf 'QUIT\\r\\n'; } | timeout 25 openssl s_client -starttls smtp -crlf -quiet -connect ${shellToken(`${identity.host}:${identity.port}`)} 2>/dev/null)`,
+    'unset auth_plain',
+    `post_auth_code=$(printf '%s\\n' "$smtp_output" | awk '/^235[ -]/{authenticated=1; next} authenticated && /^[0-9][0-9][0-9][ -]/{print substr($0,1,3); exit}')`,
+    `if [ "$post_auth_code" != 250 ]; then smtp_codes=$(printf '%s\\n' "$smtp_output" | sed -n 's/^\\([0-9][0-9][0-9]\\).*/\\1/p' | tr '\\n' ' '); echo "ERROR: SMTP sender verification failed response_codes=$smtp_codes"; exit 1; fi`,
+    'unset smtp_output post_auth_code',
+    `echo ${shellToken(`game_smtp_sender=PASS host=${identity.host} port=${identity.port} identity=${identity.fromAddress}`)}`
   ];
 }
 

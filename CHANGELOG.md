@@ -1,5 +1,9 @@
 # 变更记录
 
+## 2026-08-28
+
+1. 游戏发布影响评估新增可选的 `verify-game-smtp-sender` 生产门禁。目标提交选择该检查时，发布器先要求 `spring.mail.username` 与 `mail.verify.from` 完全一致；发布后在唯一健康目标容器内读取既有 `spring.mail.password` Secret，通过 STARTTLS 完成 SMTP AUTH 与 MAIL FROM，并在 DATA 前退出会话。检查只记录 SMTP 响应码与 PASS 标记，不输出密码或认证载荷。成功和发件身份错配测试覆盖步骤注册、可执行计划与失败关闭行为。
+
 ## 2026-08-25
 
 1. 修复 Windows PowerShell 通过真实 OpenSSH stdin 传递 Base64 时附加 CRLF，导致生产端 `base64: invalid input` 的问题。远端解码前会移除 CR 和 LF，真实 OpenSSH 无破坏探针与超长脚本测试覆盖该路径。

@@ -948,6 +948,94 @@ test('accepts verify-relations-release as a registered executable game impact ch
   ]);
 });
 
+test('adds a secret-safe SMTP sender probe when the game impact assessment requires it', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/application.properties';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), [
+    'spring.mail.host=mail.briconbric.com',
+    'spring.mail.port=587',
+    'spring.mail.username=support@rhospital.cc',
+    'mail.verify.from=support@rhospital.cc',
+    ''
+  ].join('\n'), 'utf8');
+  writeReleaseImpact(root, {
+    assessmentId: '20260828-smtp-sender-impact',
+    coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated',
+    requiredChecks: [
+      'test-game-backend',
+      'verify-game-static-assets-predeploy',
+      'pre-deploy-checklist',
+      'final-runtime-check',
+      'verify-game-static-delivery',
+      'verify-game-smtp-sender'
+    ]
+  });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'smtp sender gate']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+
+  const plan = createPlan(root, releaseImpactPlanRequest(
+    target,
+    baseline,
+    [runtimePath],
+    ['release/release-impact.json']
+  ));
+  const step = plan.steps.find(item => item.key === 'verify-game-smtp-sender');
+  const script = decodedRemoteScript(step.command);
+
+  assert.ok(step);
+  assert.equal(step.executable, true);
+  assert.equal(step.finalCheck, true);
+  assert.ok(plan.steps.findIndex(item => item.key === 'verify-game-smtp-sender')
+    > plan.steps.findIndex(item => item.key === 'final-runtime-check'));
+  assert.match(script, /spring\.mail\.password/);
+  assert.match(script, /openssl s_client -starttls smtp/);
+  assert.match(script, /AUTH PLAIN/);
+  assert.match(script, /MAIL FROM:<%s>/);
+  assert.match(script, /support@rhospital\.cc/);
+  assert.match(script, /sleep 1; printf 'EHLO[\s\S]+sleep 1; printf 'AUTH PLAIN[\s\S]+sleep 1; printf 'MAIL FROM/);
+  assert.doesNotMatch(script, /printf 'DATA/);
+  assert.doesNotMatch(step.command, /smtp_password=/);
+});
+
+test('blocks the SMTP sender probe when the authenticated user and From address differ', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/application.properties';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), [
+    'spring.mail.host=mail.briconbric.com',
+    'spring.mail.port=587',
+    'spring.mail.username=support@rhospital.cc',
+    'mail.verify.from=postmaster@rhospital.cc',
+    ''
+  ].join('\n'), 'utf8');
+  writeReleaseImpact(root, {
+    assessmentId: '20260828-smtp-sender-mismatch',
+    coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated',
+    requiredChecks: [
+      'test-game-backend',
+      'verify-game-static-assets-predeploy',
+      'pre-deploy-checklist',
+      'final-runtime-check',
+      'verify-game-static-delivery',
+      'verify-game-smtp-sender'
+    ]
+  });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'smtp sender mismatch']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+
+  assert.throws(() => createPlan(root, releaseImpactPlanRequest(
+    target,
+    baseline,
+    [runtimePath],
+    ['release/release-impact.json']
+  )), /SMTP 认证账号与发件地址不一致/);
+});
+
 test('uses the successful release baseline to enforce the committed impact assessment', () => {
   const root = releaseImpactGitProject();
   const branch = runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
