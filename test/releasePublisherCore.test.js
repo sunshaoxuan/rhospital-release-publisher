@@ -904,6 +904,24 @@ test('accepts an updated release impact assessment with exact runtime path and r
   ]);
 });
 
+test('emergency guard checks are paired, executable and ordered around deployment', () => {
+  const root=releaseImpactGitProject();
+  const baseline=runGit(root,['rev-parse','HEAD']).trim();
+  const runtimePath='src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root,...runtimePath.split('/')),'emergency change\n');
+  const requiredChecks=['test-game-backend','verify-game-static-assets-predeploy','pre-deploy-checklist',
+    'final-runtime-check','verify-game-static-delivery','verify-game-emergency-guard','verify-game-emergency-guard-runtime'];
+  writeReleaseImpact(root,{assessmentId:'20260907-emergency',coveredRuntimePaths:[runtimePath],checklistDecision:'checklist-updated',requiredChecks});
+  runGit(root,['add','.']);runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','guard checks']);
+  const target=runGit(root,['rev-parse','HEAD']).trim();
+  const plan=createPlan(root,releaseImpactPlanRequest(target,baseline,[runtimePath],['release/release-impact.json']));
+  const index=k=>plan.steps.findIndex(s=>s.key===k);
+  assert.ok(index('verify-game-emergency-guard')>index('test-game-backend'));
+  assert.ok(index('verify-game-emergency-guard-runtime')>index('final-runtime-check'));
+  assert.equal(plan.steps[index('verify-game-emergency-guard')].executable,true);
+  assert.equal(plan.steps[index('verify-game-emergency-guard-runtime')].finalCheck,true);
+});
+
 test('accepts verify-relations-release as a registered executable game impact check', () => {
   const root = releaseImpactGitProject();
   const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();

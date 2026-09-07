@@ -49,6 +49,8 @@ const KNOWN_RELEASE_CHECKS = {
     'final-runtime-check',
     'verify-game-static-delivery',
     'verify-game-smtp-sender',
+    'verify-game-emergency-guard',
+    'verify-game-emergency-guard-runtime',
     'verify-tradepool-release',
     'verify-relations-release',
     'game-prd2-migration-readiness',
@@ -215,6 +217,13 @@ function createPlan(projectRoot, request, env = process.env) {
   const productionMailIdentity = requiresSmtpSenderCheck
     ? resolveProductionMailIdentity(projectRoot, gitCommit)
     : null;
+  const requiresEmergencyGuard = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-emergency-guard'));
+  const requiresEmergencyRuntime = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-emergency-guard-runtime'));
+  if (requiresEmergencyGuard !== requiresEmergencyRuntime) {
+    throw new Error('急救防刷必须同时选择本地证据和生产协议验收');
+  }
   const gitUpdate = gitUpdateStep(gitBranch, gitCommit);
 
   const steps = [
@@ -318,6 +327,14 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'build',
       executable: true
     }),
+    ...(requiresEmergencyGuard ? [releaseStep({
+      key: 'verify-game-emergency-guard',
+      title: '核验急救防刷最终证据',
+      summary: '校验玩家回放、并发、浏览器和前置故障演练证据及目标源码哈希，缺少正常样本时禁止上线',
+      command: `node ${shellToken(path.resolve(__dirname, '../scripts/verify-emergency-guard-release.mjs'))} --mode evidence --project-root .`,
+      validation: '六项证据必须PASS并与当前候选源码完全一致',
+      actionType: 'local-check', executable: true
+    })] : []),
     releaseStep({
       key: 'build-image',
       title: '制作 Docker 镜像',
@@ -657,6 +674,19 @@ function createPlan(projectRoot, request, env = process.env) {
         executable: true,
         finalCheck: true,
         timeoutSeconds: 180
+      }));
+    }
+    if (requiresEmergencyGuard) {
+      steps.push(releaseStep({
+        key: 'verify-game-emergency-guard-runtime',
+        title: '核验生产急救防刷预检协议',
+        summary: '使用既有验收凭据执行只读预检，验证目标应用具备前置协议；不调用业务操作',
+        command: `node ${shellToken(path.resolve(__dirname, '../scripts/verify-emergency-guard-release.mjs'))} --mode runtime`
+          + ` --ssh-target ${shellToken(remoteImageTarget.target)} --ssh-key ${shellToken(remoteImageTarget.keyPath)}`
+          + ` --ssh-port ${shellToken(String(remoteImageTarget.port || 22))}`
+          + ` --auth-token-file ${shellToken(resolveGameStaticDeliveryAuthTokenFile(env) || '')}`,
+        validation: '认证后的医院预检必须返回已验证的emergency-hospital-v1协议',
+        actionType: 'remote-check', executable: true, finalCheck: true, timeoutSeconds: 30
       }));
     }
     if (productionMailIdentity) {

@@ -2,6 +2,8 @@
 
 ## 2026-09-07
 
+2. 新增急救医院防刷的成对发布门禁：构建前验证正常与历史回放、数据库并发、浏览器、Nginx和受控测试身份的文件证据及被测源文件摘要；切换后通过现有受控凭据执行只读生产协议检查。证据缺失、漂移、越界、源覆盖错误或缺少成对步骤时失败关闭，凭据仅经SSH标准输入传递，门禁自身不启用Gate配置。
+
 1. 游戏真实登录验收的 Chrome 软件 WebGL 启动方式从旧式 `--use-gl=swiftshader` 更新为 Chromium 当前支持的 SwANGLE 组合 `--use-gl=angle --use-angle=swiftshader-webgl --enable-unsafe-swiftshader`。该调整消除受控 Chrome 在 Phaser 创建真实 framebuffer 时反复报告 `Framebuffer Unsupported` 的环境误报，保留双前置冷缓存、暖缓存、Steam、FirstFloor、资源响应、缓存头、网络和运行时错误的全部失败关闭门禁。启动参数契约测试与 20260907 生产双前置六探针真实验收均已通过。
 
 ## 2026-08-28
