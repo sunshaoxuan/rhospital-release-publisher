@@ -1,5 +1,9 @@
 # 变更记录
 
+## 2026-09-07
+
+1. 游戏真实登录验收的 Chrome 软件 WebGL 启动方式从旧式 `--use-gl=swiftshader` 更新为 Chromium 当前支持的 SwANGLE 组合 `--use-gl=angle --use-angle=swiftshader-webgl --enable-unsafe-swiftshader`。该调整消除受控 Chrome 在 Phaser 创建真实 framebuffer 时反复报告 `Framebuffer Unsupported` 的环境误报，保留双前置冷缓存、暖缓存、Steam、FirstFloor、资源响应、缓存头、网络和运行时错误的全部失败关闭门禁。启动参数契约测试与 20260907 生产双前置六探针真实验收均已通过。
+
 ## 2026-08-28
 
 1. 游戏发布影响评估新增可选的 `verify-game-smtp-sender` 生产门禁。目标提交选择该检查时，发布器先要求 `spring.mail.username` 与 `mail.verify.from` 完全一致；发布后在唯一健康目标容器内读取既有 `spring.mail.password` Secret，通过 STARTTLS 完成 SMTP AUTH 与 MAIL FROM，并在 DATA 前退出会话。检查只记录 SMTP 响应码与 PASS 标记，不输出密码或认证载荷。成功和发件身份错配测试覆盖步骤注册、可执行计划与失败关闭行为。

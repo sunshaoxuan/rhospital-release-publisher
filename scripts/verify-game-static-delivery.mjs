@@ -335,7 +335,7 @@ function browserDiagnosticSuffix(value) {
   return diagnostic ? `, stderr=${diagnostic}` : '';
 }
 
-function chromeArguments(userDataDir, extraArguments = []) {
+export function chromeArguments(userDataDir, extraArguments = []) {
   return [
     '--headless=new',
     '--no-first-run',
@@ -343,7 +343,8 @@ function chromeArguments(userDataDir, extraArguments = []) {
     '--disable-background-networking',
     '--disable-features=DnsOverHttps',
     '--enable-unsafe-swiftshader',
-    '--use-gl=swiftshader',
+    '--use-gl=angle',
+    '--use-angle=swiftshader-webgl',
     ...extraArguments,
     '--remote-debugging-port=0',
     `--user-data-dir=${userDataDir}`,

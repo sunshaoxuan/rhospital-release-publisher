@@ -306,6 +306,16 @@ test('browser capability requires a complete framebuffer and zero WebGL errors',
   assert.throws(() => assertBrowserCapability({...passing, error: 1285}), /glError=1285/);
 });
 
+test('Chrome uses the supported ANGLE SwiftShader WebGL backend', async () => {
+  const {chromeArguments} = await verifier();
+  const args = chromeArguments('C:\\temp\\release-smoke');
+
+  assert.ok(args.includes('--enable-unsafe-swiftshader'));
+  assert.ok(args.includes('--use-gl=angle'));
+  assert.ok(args.includes('--use-angle=swiftshader-webgl'));
+  assert.equal(args.includes('--use-gl=swiftshader'), false);
+});
+
 test('CDP requests fail within their own timeout and clear pending work', async () => {
   const {CdpClient, BrowserInfrastructureError} = await verifier();
   class SilentSocket extends EventTarget {
