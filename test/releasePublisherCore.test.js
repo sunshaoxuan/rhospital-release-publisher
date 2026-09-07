@@ -408,6 +408,9 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('active_other_count')
     && decodedRemoteScript(step.command).includes('rollout_validation=PASS')));
   assert.ok(plan.steps.some(step => step.key === 'game-prd2-runtime-contract'
+    && decodedRemoteScript(step.command).includes('timeout 20 docker logs --tail 500 "$runtime_container"')
+    && !decodedRemoteScript(step.command).includes('docker service logs')
+    && decodedRemoteScript(step.command).includes('--filter health=healthy')
     && decodedRemoteScript(step.command).includes('SPRING_PROFILE=//p')
     && decodedRemoteScript(step.command).includes('NEW_RELIC_LICENSE_KEY_FILE=//p')
     && decodedRemoteScript(step.command).includes('service_secret_count')
