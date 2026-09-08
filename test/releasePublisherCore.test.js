@@ -907,6 +907,34 @@ test('accepts an updated release impact assessment with exact runtime path and r
   ]);
 });
 
+test('Tomcat security checks use committed POM and surround production cutover', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  fs.writeFileSync(path.join(root, 'pom.xml'), '<project><properties><tomcat.version>10.1.59</tomcat.version></properties></project>');
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
+    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-tomcat-image', 'verify-game-tomcat-runtime'];
+  writeReleaseImpact(root, {assessmentId: '20260908-tomcat', coveredRuntimePaths: ['pom.xml'],
+    checklistDecision: 'checklist-updated', requiredChecks});
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'tomcat security']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+  fs.writeFileSync(path.join(root, 'pom.xml'), '<project/>');
+  const request = releaseImpactPlanRequest(target, baseline, ['pom.xml'], ['release/release-impact.json']);
+  const plan = createPlan(root, request);
+  const index = key => plan.steps.findIndex(s => s.key === key);
+  assert.ok(index('verify-game-tomcat-image') > index('validate-game-image'));
+  assert.ok(index('verify-game-tomcat-image') < index('publish-image'));
+  assert.ok(index('verify-game-tomcat-runtime') > index('final-runtime-check'));
+  assert.equal(plan.steps[index('verify-game-tomcat-runtime')].finalCheck, true);
+  assert.ok(plan.steps[index('verify-game-tomcat-image')].command.includes('--network'));
+  writeReleaseImpact(root, {assessmentId: '20260908-tomcat-unpaired', coveredRuntimePaths: ['pom.xml'],
+    checklistDecision: 'checklist-updated', requiredChecks: requiredChecks.filter(k => k !== 'verify-game-tomcat-runtime')});
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'unpaired']);
+  assert.throws(() => createPlan(root, releaseImpactPlanRequest(runGit(root, ['rev-parse', 'HEAD']).trim(),
+    baseline, ['pom.xml'], ['release/release-impact.json'])), /同时选择/);
+});
+
 test('emergency guard checks are paired, executable and ordered around deployment', () => {
   const root=releaseImpactGitProject();
   const baseline=runGit(root,['rev-parse','HEAD']).trim();

@@ -3,6 +3,7 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const {spawn, spawnSync} = require('child_process');
+const {expectedTomcatVersion, tomcatJarCheckScript} = require('./tomcatSecurityCheck');
 
 const DEFAULT_IMAGE_NAME = 'hospital-backend';
 const DEFAULT_COMPOSE_FILE = 'docker-compose.yml';
@@ -51,6 +52,8 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-smtp-sender',
     'verify-game-emergency-guard',
     'verify-game-emergency-guard-runtime',
+    'verify-game-tomcat-image',
+    'verify-game-tomcat-runtime',
     'verify-tradepool-release',
     'verify-relations-release',
     'game-prd2-migration-readiness',
@@ -225,6 +228,19 @@ function createPlan(projectRoot, request, env = process.env) {
     throw new Error('急救防刷必须同时选择本地证据和生产协议验收');
   }
   const gitUpdate = gitUpdateStep(gitBranch, gitCommit);
+  const requiresTomcatImage = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-tomcat-image'));
+  const requiresTomcatRuntime = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-tomcat-runtime'));
+  if (requiresTomcatImage !== requiresTomcatRuntime) {
+    throw new Error('Tomcat安全升级必须同时选择镜像和生产版本检查');
+  }
+  const tomcatVersion = requiresTomcatImage ? expectedTomcatVersion(gitCommit === 'latest'
+    ? fs.readFileSync(resolveInside(projectRoot, 'pom.xml'), 'utf8')
+    : runGit(projectRoot, ['show', `${gitCommit}:pom.xml`])) : null;
+  const tomcatProbe = tomcatVersion
+    ? `printf %s '${Buffer.from(tomcatJarCheckScript(tomcatVersion)).toString('base64')}' | base64 -d | sh`
+    : null;
 
   const steps = [
     releaseStep({
@@ -402,6 +418,16 @@ function createPlan(projectRoot, request, env = process.env) {
       executable: true
     })
   ];
+  if (requiresTomcatImage) {
+    steps.push(releaseStep({
+      key: 'verify-game-tomcat-image',
+      title: '验证镜像内Tomcat安全补丁',
+      summary: '检查最终应用JAR中三个Tomcat组件版本一致且没有旧版本混入',
+      command: dockerCommand(dockerTarget, ['run', '--rm', '--network', 'none', '--entrypoint', 'sh', imageTag, '-c', tomcatProbe]),
+      validation: `core、el、websocket必须全部为${tomcatVersion}`,
+      actionType: 'local-check', executable: true, timeoutSeconds: 120
+    }));
+  }
   const publishImageStep = releaseStep({
     key: 'publish-image',
     title: '发布到目标镜像池',
@@ -638,6 +664,22 @@ function createPlan(projectRoot, request, env = process.env) {
       finalCheck: true,
       timeoutSeconds: 1860
     }));
+    if (requiresTomcatRuntime) {
+      steps.push(releaseStep({
+        key: 'verify-game-tomcat-runtime',
+        title: '验证生产Tomcat安全补丁',
+        summary: '只读检查目标健康容器的应用JAR，不发送漏洞探测请求',
+        command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
+          `service_name=${shellToken(`${config.stackName}_${config.containerName}`)}`,
+          'runtime_container=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy)',
+          '[ -n "$runtime_container" ] && [ "$(printf \'%s\\n\' "$runtime_container" | wc -l)" -eq 1 ] || exit 1',
+          `test "$(docker inspect "$runtime_container" --format '{{.Config.Image}}' | cut -d '@' -f 1)" = ${shellToken(imageTag)}`,
+          `timeout 60 docker exec "$runtime_container" sh -c ${shellToken(tomcatProbe)}`
+        ])),
+        validation: `目标健康容器中core、el、websocket全部为${tomcatVersion}`,
+        actionType: 'remote-check', executable: true, finalCheck: true, timeoutSeconds: 120
+      }));
+    }
     if (remoteImageTarget.host === '92.113.124.185') {
       steps.push(releaseStep({
         key: 'game-prd2-runtime-contract',
