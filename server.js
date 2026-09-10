@@ -352,6 +352,12 @@ function prepareReleaseRequest(body, enforceChangedTarget) {
 }
 
 function createExecutionJob(body) {
+  if (hasActivePublisherJobs() || jobControllers.size > 0) {
+    const error = new Error('已有发布任务正在执行或清理，请等待任务结束后再执行。');
+    error.code = 'PUBLISHER_JOB_ACTIVE';
+    error.statusCode = 409;
+    throw error;
+  }
   const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const createdAt = new Date().toISOString();
   const controller = new AbortController();

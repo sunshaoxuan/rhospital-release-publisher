@@ -1,0 +1,246 @@
+[
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/version"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/execute"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/version"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/version"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/version"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/version"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/version"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/version"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  },
+  {
+    "method": "Network.requestWillBeSent",
+    "url": "http://127.0.0.1:18787/api/jobs/browser-test"
+  }
+]

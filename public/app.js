@@ -74,6 +74,7 @@
   let historyPageCount = 1;
   let activeJobTimer = null;
   let activeJobId = '';
+  let executionSubmitting = false;
   let activeJobCutoverRefreshed = false;
   let appTagEdited = false;
 
@@ -911,29 +912,48 @@
   }
 
   async function execute() {
-    if (activeJobTimer) {
-      clearTimeout(activeJobTimer);
-      activeJobTimer = null;
+    if (executionSubmitting || activeJobId) {
+      return;
     }
-    setStatus('执行请求处理中', '');
-    renderLogs(['任务提交中']);
-    const job = await requestJson('/api/execute', {
-      method: 'POST',
-      body: JSON.stringify(payload())
-    });
-    activeJobId = job.id;
-    activeJobCutoverRefreshed = false;
-    setStatus(`执行任务已创建: ${job.id}`, '');
-    renderJob(job);
-    pollJob(job.id);
+    executionSubmitting = true;
+    const executeBtn = document.getElementById('execute-btn');
+    executeBtn.disabled = true;
+    try {
+      setStatus('执行请求处理中', '');
+      renderLogs(['任务提交中']);
+      const job = await requestJson('/api/execute', {
+        method: 'POST',
+        body: JSON.stringify(payload())
+      });
+      activeJobId = job.id;
+      activeJobCutoverRefreshed = false;
+      setStatus(`执行任务已创建: ${job.id}`, '');
+      renderJob(job);
+      pollJob(job.id).catch(error => setStatus(error.message, 'error'));
+    } finally {
+      executionSubmitting = false;
+      executeBtn.disabled = Boolean(activeJobId);
+    }
   }
 
   async function pollJob(jobId) {
-    const job = await requestJson(`/api/jobs/${encodeURIComponent(jobId)}`);
+    if (jobId !== activeJobId) return;
+    let job;
+    try {
+      job = await requestJson(`/api/jobs/${encodeURIComponent(jobId)}`);
+    } catch (error) {
+      if (jobId !== activeJobId) return;
+      setStatus(`任务状态读取失败，将自动重试：${error.message}`, 'error');
+      activeJobTimer = setTimeout(() =>
+        pollJob(jobId).catch(error => setStatus(error.message, 'error')), 1000);
+      return;
+    }
+    if (jobId !== activeJobId) return;
     renderJob(job);
     if (job.cutoverCommitted === true && !activeJobCutoverRefreshed) {
       activeJobCutoverRefreshed = true;
       refreshProductionImageOnly().catch(error => {
+        if (jobId !== activeJobId) return;
         activeJobCutoverRefreshed = false;
         setStatus(`新版本已生效，生产镜像读取失败：${error.message}`, 'error');
       });
@@ -945,11 +965,15 @@
       return;
     }
     activeJobTimer = null;
-    activeJobId = '';
     cancelBtn.disabled = true;
-    await loadHistory();
-    await refreshProductionImageOnly().catch(() => null);
-    setStatus(`执行状态: ${job.status}`, terminalStatusKind(job.status));
+    try {
+      await loadHistory();
+      await refreshProductionImageOnly().catch(() => null);
+      setStatus(`执行状态: ${job.status}`, terminalStatusKind(job.status));
+    } finally {
+      activeJobId = '';
+      document.getElementById('execute-btn').disabled = false;
+    }
   }
 
   function renderJob(job) {
@@ -1018,7 +1042,9 @@
       return;
     }
     cancelBtn.disabled = true;
-    const job = await requestJson(`/api/jobs/${encodeURIComponent(activeJobId)}`, {method: 'DELETE'});
+    const jobId = activeJobId;
+    const job = await requestJson(`/api/jobs/${encodeURIComponent(jobId)}`, {method: 'DELETE'});
+    if (jobId !== activeJobId) return;
     renderJob(job);
   }
 
