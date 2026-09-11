@@ -1,5 +1,9 @@
 # 变更记录
 
+## 2026-09-11
+
+1. 新增可选发布检查 `verify-game-potion-lab`，在后端构建完成后、镜像制作前运行材料编辑状态测试，并校验药剂实验室源码摘要及编辑、失败历史、PostgreSQL、回归、视觉和最终意图验收证据。缺失、失败、文件越界或内容漂移均阻止发布。
+
 ## 2026-09-08
 
 1. 新增Tomcat安全升级的成对检查verify-game-tomcat-image及verify-game-tomcat-runtime：从固定发布提交读取tomcat.version，要求10.1.59及以上10.1补丁；上传镜像前与最终生产健康容器内均检查core、el、websocket三个JAR版本及数量，拒绝缺失、重复和混合旧版。生产检查仅列出JAR内容，不发送漏洞请求；增加真实Shell正反例及发布步骤顺序测试。

@@ -935,6 +935,26 @@ test('Tomcat security checks use committed POM and surround production cutover',
     baseline, ['pom.xml'], ['release/release-impact.json'])), /同时选择/);
 });
 
+test('potion lab evidence check is registered and runs after backend tests before image publication', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'potion editor change\n');
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
+    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-potion-lab'];
+  writeReleaseImpact(root, { assessmentId: '20260911-potion-lab', coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated', requiredChecks });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'potion evidence']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
+  const index = key => plan.steps.findIndex(step => step.key === key);
+  assert.ok(index('verify-game-potion-lab') > index('test-game-backend'));
+  assert.ok(index('verify-game-potion-lab') < index('build-image'));
+  assert.equal(plan.steps[index('verify-game-potion-lab')].executable, true);
+  assert.match(plan.steps[index('verify-game-potion-lab')].command, /verify-potion-lab-release\.mjs/);
+});
+
 test('emergency guard checks are paired, executable and ordered around deployment', () => {
   const root=releaseImpactGitProject();
   const baseline=runGit(root,['rev-parse','HEAD']).trim();

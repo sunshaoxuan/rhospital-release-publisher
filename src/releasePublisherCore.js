@@ -52,6 +52,7 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-smtp-sender',
     'verify-game-emergency-guard',
     'verify-game-emergency-guard-runtime',
+    'verify-game-potion-lab',
     'verify-game-tomcat-image',
     'verify-game-tomcat-runtime',
     'verify-tradepool-release',
@@ -222,6 +223,8 @@ function createPlan(projectRoot, request, env = process.env) {
     : null;
   const requiresEmergencyGuard = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-emergency-guard'));
+  const requiresPotionLab = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-potion-lab'));
   const requiresEmergencyRuntime = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-emergency-guard-runtime'));
   if (requiresEmergencyGuard !== requiresEmergencyRuntime) {
@@ -343,6 +346,14 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'build',
       executable: true
     }),
+    ...(requiresPotionLab ? [releaseStep({
+      key: 'verify-game-potion-lab',
+      title: '核验药剂实验室最终证据',
+      summary: '运行材料编辑单元测试，校验数据库、真实浏览器、视觉和意图验收证据及目标源码摘要',
+      command: `node ${shellToken(path.resolve(__dirname, '../scripts/verify-potion-lab-release.mjs'))} --project-root .`,
+      validation: '全部验收必须PASS，证据与当前药剂实验室源码一致',
+      actionType: 'local-check', executable: true
+    })] : []),
     ...(requiresEmergencyGuard ? [releaseStep({
       key: 'verify-game-emergency-guard',
       title: '核验急救防刷最终证据',
