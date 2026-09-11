@@ -363,8 +363,8 @@ function createPlan(projectRoot, request, env = process.env) {
     ...(requiresDesignPackages ? [releaseStep({
       key: 'verify-design-level-packages',
       title: '验证色块工坊与关卡包',
-      summary: '验证量化、包格式、共享玩法规则及全部关卡解法和运行时目录一致性',
-      command: 'node src/test/js/designLevelPackage.test.mjs && node src/test/js/designWorker.test.mjs && node src/test/js/bacteriaSharedRules.test.mjs && node scripts/bacteria-lab/build-level-catalog.mjs --check && node scripts/bacteria-lab/validate-design-evidence.mjs',
+      summary: '验证双份容量下限、真实决策路径与唯一性证明、包格式和全关卡目录一致性',
+      command: 'node src/test/js/bacteriaPathDifficulty.test.mjs && node src/test/js/designLevelPackage.test.mjs && node src/test/js/designWorker.test.mjs && node src/test/js/bacteriaSharedRules.test.mjs && node scripts/bacteria-lab/build-level-catalog.mjs --check && node scripts/bacteria-lab/validate-design-evidence.mjs',
       validation: '颜色上限、非法数据拒绝、真实规则解题回放和关卡目录全部通过',
       actionType: 'local-check', executable: true
     })] : []),

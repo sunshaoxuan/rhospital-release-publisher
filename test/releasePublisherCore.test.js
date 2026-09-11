@@ -3177,6 +3177,7 @@ test('design package check is registered and runs after backend tests before ima
   assert.ok(index('verify-design-level-packages') < index('build-image'));
   assert.equal(plan.steps[index('verify-design-level-packages')].executable, true);
   assert.match(plan.steps[index('verify-design-level-packages')].command, /build-level-catalog\.mjs --check/);
+  assert.match(plan.steps[index('verify-design-level-packages')].command, /bacteriaPathDifficulty\.test\.mjs/);
 });
 
 test('bacteria result UI evidence gate is executable and cannot be substituted by an unknown name', () => {
