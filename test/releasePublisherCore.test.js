@@ -3179,4 +3179,30 @@ test('design package check is registered and runs after backend tests before ima
   assert.match(plan.steps[index('verify-design-level-packages')].command, /build-level-catalog\.mjs --check/);
 });
 
+test('bacteria result UI evidence gate is executable and cannot be substituted by an unknown name', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'bacteria result change\n');
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
+    'final-runtime-check', 'verify-game-static-delivery', 'verify-bacteria-result-ui'];
+  writeReleaseImpact(root, { assessmentId: '20260911-bacteria-result', coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated', requiredChecks });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'bacteria result']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
+  const index = key => plan.steps.findIndex(step => step.key === key);
+  assert.ok(index('verify-bacteria-result-ui') > index('test-game-backend'));
+  assert.ok(index('verify-bacteria-result-ui') < index('build-image'));
+  assert.equal(plan.steps[index('verify-bacteria-result-ui')].executable, true);
+  assert.match(plan.steps[index('verify-bacteria-result-ui')].command, /validate-result-dialog-evidence\.mjs/);
+  writeReleaseImpact(root, { assessmentId: '20260911-invalid-bacteria-result', coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated', requiredChecks: requiredChecks.map(key => key === 'verify-bacteria-result-ui' ? 'verify-bacteria-result-unknown' : key) });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'invalid gate']);
+  const invalidTarget = runGit(root, ['rev-parse', 'HEAD']).trim();
+  assert.throws(() => createPlan(root, releaseImpactPlanRequest(invalidTarget, baseline, [runtimePath], ['release/release-impact.json'])));
+});
+
 

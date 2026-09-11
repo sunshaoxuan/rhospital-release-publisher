@@ -54,6 +54,7 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-emergency-guard-runtime',
     'verify-game-potion-lab',
     'verify-design-level-packages',
+    'verify-bacteria-result-ui',
     'verify-game-tomcat-image',
     'verify-game-tomcat-runtime',
     'verify-tradepool-release',
@@ -228,6 +229,8 @@ function createPlan(projectRoot, request, env = process.env) {
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-potion-lab'));
   const requiresDesignPackages = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-design-level-packages'));
+  const requiresBacteriaResultUi = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-bacteria-result-ui'));
   const requiresEmergencyRuntime = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-emergency-guard-runtime'));
   if (requiresEmergencyGuard !== requiresEmergencyRuntime) {
@@ -349,6 +352,14 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'build',
       executable: true
     }),
+    ...(requiresBacteriaResultUi ? [releaseStep({
+      key: 'verify-bacteria-result-ui',
+      title: '核验菌落清除室弹窗与交互',
+      summary: '校验失败、生命耗尽、通关和异常状态，以及最终容器几何、按钮语义和源码摘要',
+      command: 'node src/test/js/bacteriaResultDialog.test.mjs && node scripts/bacteria-lab/validate-result-dialog-evidence.mjs',
+      validation: '全部弹窗状态、原始像素留白、无直接购买和最终用户意图验收均须通过',
+      actionType: 'local-check', executable: true
+    })] : []),
     ...(requiresDesignPackages ? [releaseStep({
       key: 'verify-design-level-packages',
       title: '验证色块工坊与关卡包',
