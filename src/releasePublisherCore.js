@@ -53,6 +53,7 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-emergency-guard',
     'verify-game-emergency-guard-runtime',
     'verify-game-potion-lab',
+    'verify-design-level-packages',
     'verify-game-tomcat-image',
     'verify-game-tomcat-runtime',
     'verify-tradepool-release',
@@ -225,6 +226,8 @@ function createPlan(projectRoot, request, env = process.env) {
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-emergency-guard'));
   const requiresPotionLab = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-potion-lab'));
+  const requiresDesignPackages = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-design-level-packages'));
   const requiresEmergencyRuntime = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-emergency-guard-runtime'));
   if (requiresEmergencyGuard !== requiresEmergencyRuntime) {
@@ -346,6 +349,14 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'build',
       executable: true
     }),
+    ...(requiresDesignPackages ? [releaseStep({
+      key: 'verify-design-level-packages',
+      title: '验证色块工坊与关卡包',
+      summary: '验证量化、包格式、共享玩法规则及全部关卡解法和运行时目录一致性',
+      command: 'node src/test/js/designLevelPackage.test.mjs && node src/test/js/designWorker.test.mjs && node src/test/js/bacteriaSharedRules.test.mjs && node scripts/bacteria-lab/build-level-catalog.mjs --check && node scripts/bacteria-lab/validate-design-evidence.mjs',
+      validation: '颜色上限、非法数据拒绝、真实规则解题回放和关卡目录全部通过',
+      actionType: 'local-check', executable: true
+    })] : []),
     ...(requiresPotionLab ? [releaseStep({
       key: 'verify-game-potion-lab',
       title: '核验药剂实验室最终证据',

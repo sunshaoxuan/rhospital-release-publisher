@@ -3159,3 +3159,24 @@ test('tracked publisher files contain only current production identifiers', () =
     }
   }
 });
+test('design package check is registered and runs after backend tests before image publication', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'design editor change\n');
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
+    'final-runtime-check', 'verify-game-static-delivery', 'verify-design-level-packages'];
+  writeReleaseImpact(root, { assessmentId: '20260911-design-editor', coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated', requiredChecks });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'design packages']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
+  const index = key => plan.steps.findIndex(step => step.key === key);
+  assert.ok(index('verify-design-level-packages') > index('test-game-backend'));
+  assert.ok(index('verify-design-level-packages') < index('build-image'));
+  assert.equal(plan.steps[index('verify-design-level-packages')].executable, true);
+  assert.match(plan.steps[index('verify-design-level-packages')].command, /build-level-catalog\.mjs --check/);
+});
+
+
