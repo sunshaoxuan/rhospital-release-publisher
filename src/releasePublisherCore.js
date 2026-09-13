@@ -2785,8 +2785,10 @@ function runGit(projectRoot, args, gitRunner = spawnSync) {
   const git = gitRunner('git', args, {
     cwd: projectRoot,
     encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
     windowsHide: true
   });
+  if (git.error) throw new Error('Git read failed: ' + git.error.code);
   if (git.status !== 0) {
     throw new Error((git.stderr || git.stdout || `git ${args.join(' ')} 执行失败`).trim());
   }

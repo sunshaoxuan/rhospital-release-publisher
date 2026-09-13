@@ -3207,3 +3207,15 @@ test('bacteria result UI evidence gate is executable and cannot be substituted b
 });
 
 
+
+test('reads committed source larger than the default child process buffer', () => {
+  const root = tempProject(sampleXml);
+  const sourcePath = path.join(root, 'src/main/java/com/zly/hospital/service/catalog/CatalogDatabaseUpgradeService.java');
+  fs.writeFileSync(sourcePath, '// ' + 'x'.repeat(2 * 1024 * 1024) + '\nclass Catalog { static int MARKER_VERSION = 20; }\n');
+  runGit(root, ['init']);
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'large source']);
+  const commit = runGit(root, ['rev-parse', 'HEAD']).trim();
+  assert.equal(resolveCatalogSchemaVersion(root, commit), 20);
+  assert.throws(() => resolveCatalogSchemaVersion(root, commit, () => ({error: {code:'ENOBUFS'}, status:null, stdout:'private source'})), /Git read failed: ENOBUFS/);
+});
