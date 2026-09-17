@@ -385,7 +385,8 @@
       ] },
       { key: 'delivery', title: '交付镜像与连接校验', members: [
         'resolve-ssh-target', 'game-prd2-migration-readiness', 'read-remote-compose',
-        'game-database-preflight', 'forum-preflight', 'validate-existing-forum-image', 'publish-image'
+        'game-database-preflight', 'validate-game-database-migration-compatibility', 'forum-preflight',
+        'validate-existing-forum-image', 'publish-image'
       ] },
       { key: 'static', title: '批量预置前置资源', members: [
         'rehearse-game-static-assets', 'stage-game-static-assets', 'verify-game-static-assets-predeploy'

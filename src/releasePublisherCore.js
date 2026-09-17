@@ -43,6 +43,7 @@ const KNOWN_RELEASE_CHECKS = {
     'build-game-static-assets',
     'validate-game-image',
     'game-database-preflight',
+    'validate-game-database-migration-compatibility',
     'apply-database-migrations',
     'pre-deploy-checklist',
     'verify-game-static-assets-predeploy',
@@ -569,6 +570,20 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'remote-check',
       executable: true
     }));
+    if (releaseMigrations.length > 0) {
+      steps.push(releaseStep({
+        key: 'validate-game-database-migration-compatibility',
+        title: '只读核验生产数据库迁移兼容性',
+        summary: `在镜像上传前只读核对生产 schema、目录完整性和 ${releaseMigrations.length} 个迁移的发布哈希链`,
+        command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+          gameDatabaseMigrationCompatibilityCommand(releaseMigrations)
+        )),
+        validation: '检查必须在 READ ONLY 事务中完成，当前目录只能处于目标迁移链声明的起点、中间点或终点，且不得获取 DDL 锁',
+        actionType: 'remote-check',
+        executable: true,
+        timeoutSeconds: 120
+      }));
+    }
     steps.push(publishImageStep);
     steps.push(releaseStep({
       key: 'stage-game-static-assets',
@@ -604,9 +619,7 @@ function createPlan(projectRoot, request, env = process.env) {
           releaseMigrations
         )
       )),
-      validation: releaseMigrations.length > 0
-        ? '备份目录、交易池数据、完整 hospital 数据库快照和 SHA256SUMS 必须完整'
-        : '备份目录、交易池数据导出和 SHA256SUMS 必须完整，并记录本次发布起始时间',
+      validation: '备份目录、编排与服务证据、受影响交易池数据导出和 SHA256SUMS 必须完整，并记录本次发布起始时间',
       actionType: 'production',
       productionAction: true,
       executable: true
@@ -2219,7 +2232,12 @@ function resolveReleaseMigrations(projectRoot, gitCommit, changeAnalysis) {
     };
   });
   return sortReleaseMigrationsByDependencies(migrations)
-    .map(({filePath, sha256}) => ({filePath, sha256}));
+    .map(({filePath, sha256, targetReleaseHash, expectedReleaseHash}) => ({
+      filePath,
+      sha256,
+      targetReleaseHash,
+      expectedReleaseHash
+    }));
 }
 
 function migrationReleaseHashConstant(sql, name) {
@@ -2329,6 +2347,10 @@ function validateReleaseMigration(filePath, sql) {
   const incompatible = compatibilitySource.match(/\b(drop\s+(?:table|column|index|constraint)|truncate\b|rename\s+(?:column|to)\b|alter\s+column\b)/i);
   if (incompatible) {
     throw new Error(`数据库迁移 ${filePath} 包含不兼容旧版本自动恢复的操作: ${incompatible[0]}`);
+  }
+  if (filePath.endsWith('20260913_add_bacteria_level_catalog.sql')
+      && !/\(payload::jsonb->>'schemaVersion'\)::integer\s*>=\s*1/i.test(source)) {
+    throw new Error(`数据库迁移 ${filePath} 必须允许完整的更高目录 schema 安全重入`);
   }
   validateControlledDeleteStatements(filePath, source);
 }
@@ -3409,15 +3431,6 @@ function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName, ex
     'docker cp "$container_id:$container_backup_dir/." "$backup_dir/database/"',
     'docker exec "$container_id" rm -rf "$container_backup_dir"'
   ];
-  if (releaseMigrations.length > 0) {
-    commands.push(
-      ...gameDatabaseContainerResolutionCommands(),
-      `database_name=${shellToken(GAME_DATABASE_NAME)}`,
-      'docker exec "$database_container_id" sh -lc \'pg_dump -Fc -U "$POSTGRES_USER" -d "$1"\' sh "$database_name" > "$backup_dir/database/hospital.pre-migration.dump"',
-      'test -s "$backup_dir/database/hospital.pre-migration.dump"',
-      'echo "database_migration_backup=$backup_dir/database/hospital.pre-migration.dump"'
-    );
-  }
   commands.push(
     '(cd "$backup_dir" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)',
     'test -s "$backup_dir/docker-compose.yml"',
@@ -3531,7 +3544,6 @@ function applyGameDatabaseMigrationsCommand(remoteComposeDir, imageTag, releaseM
     `cd ${shellToken(remoteComposeDir)}`,
     `target_image=${shellToken(imageTag)}`,
     'backup_dir=$(cat .last-game-release-backup)',
-    'test -s "$backup_dir/database/hospital.pre-migration.dump"',
     'mkdir -p "$backup_dir/database/migrations"',
     'image_migration_dir="$backup_dir/database/migrations/image-bundle"',
     'test ! -e "$image_migration_dir" || { echo "ERROR: migration image bundle already exists in release backup"; exit 1; }',
@@ -3553,7 +3565,14 @@ function applyGameDatabaseMigrationsCommand(remoteComposeDir, imageTag, releaseM
     'target_image_id=$(docker image inspect "$target_image" --format \'{{.Id}}\')',
     'printf "%s|%s\n" "$target_image" "$target_image_id" > "$backup_dir/database/migrations/migration-image-source.txt"',
     ...gameDatabaseContainerResolutionCommands(),
-    `database_name=${shellToken(GAME_DATABASE_NAME)}`
+    `database_name=${shellToken(GAME_DATABASE_NAME)}`,
+    'availability_failures="$backup_dir/database/migrations/availability-failures.log"',
+    ': > "$availability_failures"',
+    'availability_monitor_pid=',
+    'stop_availability_monitor() { if [ -n "${availability_monitor_pid:-}" ]; then kill "$availability_monitor_pid" >/dev/null 2>&1 || true; wait "$availability_monitor_pid" >/dev/null 2>&1 || true; availability_monitor_pid=; fi; }',
+    'trap stop_availability_monitor EXIT INT TERM',
+    '(while :; do curl -fsS --max-time 2 http://127.0.0.1:8190/ >/dev/null || printf "%s health_probe_failed\\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$availability_failures"; sleep 1; done) &',
+    'availability_monitor_pid=$!'
   ];
 
   for (const migration of releaseMigrations) {
@@ -3576,12 +3595,72 @@ function applyGameDatabaseMigrationsCommand(remoteComposeDir, imageTag, releaseM
     );
   }
   commands.push(
+    'stop_availability_monitor',
+    'trap - EXIT INT TERM',
+    'test ! -s "$availability_failures" || { echo "ERROR: production availability probe failed during database migration"; cat "$availability_failures"; exit 1; }',
+    'echo "game_migration_availability=PASS endpoint=http://127.0.0.1:8190/"',
     '(cd "$backup_dir" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)',
     'find "$backup_dir/database/migrations" -type f -exec chmod 600 {} +',
     `test "$(find "$backup_dir/database/migrations" -type f -name '*.applied' | wc -l)" -eq ${releaseMigrations.length}`,
     `echo "database_migrations_applied=${releaseMigrations.length}"`
   );
   return commands;
+}
+
+function gameDatabaseMigrationCompatibilityCommand(releaseMigrations) {
+  const hashes = [...new Set(releaseMigrations.flatMap(migration => [
+    migration.expectedReleaseHash,
+    migration.targetReleaseHash
+  ]).filter(Boolean))].sort();
+  const catalogTouched = releaseMigrations.some(migration =>
+    /bacteria.*(catalog|difficult|mechanics)|publish_500_unique_hospital_items/i.test(migration.filePath));
+  const allowedHashes = hashes.length > 0
+    ? `ARRAY[${hashes.map(hash => `'${hash}'`).join(',')}]::text[]`
+    : 'ARRAY[]::text[]';
+  const catalogCheck = catalogTouched ? `
+DO $preflight$
+DECLARE
+  current_payload jsonb;
+  current_schema integer;
+  current_levels integer;
+  current_hash text;
+  allowed_hashes constant text[] := ${allowedHashes};
+BEGIN
+  IF to_regclass('public.t_bacteria_level_catalog') IS NULL THEN
+    RAISE NOTICE 'bacteria catalog is absent and will be initialized by the release';
+    RETURN;
+  END IF;
+  SELECT payload::jsonb INTO current_payload FROM t_bacteria_level_catalog WHERE id = 1;
+  IF current_payload IS NULL THEN
+    RAISE EXCEPTION 'Bacteria catalog row 1 is missing';
+  END IF;
+  current_schema := (current_payload->>'schemaVersion')::integer;
+  current_levels := jsonb_array_length(current_payload->'levels');
+  current_hash := current_payload->>'releaseHash';
+  IF current_schema < 1 OR current_levels < 500 THEN
+    RAISE EXCEPTION 'Bacteria catalog is incomplete: schema %, levels %', current_schema, current_levels;
+  END IF;
+  IF current_hash IS NOT NULL AND array_length(allowed_hashes, 1) IS NOT NULL
+     AND NOT current_hash = ANY(allowed_hashes) THEN
+    RAISE EXCEPTION 'Bacteria catalog hash % is outside the declared migration chain', current_hash;
+  END IF;
+  RAISE NOTICE 'bacteria catalog compatible: schema %, levels %, hash %', current_schema, current_levels, current_hash;
+END
+$preflight$;` : '';
+  const sql = `\\set ON_ERROR_STOP on
+BEGIN READ ONLY;
+SELECT current_database() AS migration_preflight_database;
+${catalogCheck}
+ROLLBACK;
+`;
+  const encoded = Buffer.from(sql, 'utf8').toString('base64');
+  return [
+    'set -eu',
+    ...gameDatabaseContainerResolutionCommands(),
+    `database_name=${shellToken(GAME_DATABASE_NAME)}`,
+    `printf %s '${encoded}' | base64 -d | docker exec -i "$database_container_id" sh -lc 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$1" -f -' sh "$database_name"`,
+    `echo "game_database_migration_compatibility=PASS migrations=${releaseMigrations.length} hashes=${hashes.length}"`
+  ];
 }
 
 function tradePoolPostDeployCheckCommand(remoteComposeDir, stackName, containerName, expectedVersion) {

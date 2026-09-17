@@ -611,7 +611,7 @@ test('deploy guard blocks stack deploy when rendered compose requests zero repli
   }
 });
 
-test('backs up and applies changed database migrations before switching the production image', () => {
+test('validates and applies changed database migrations before switching the production image', () => {
   const root = tempProject(sampleXml);
   const migrationPath = 'scripts/migration/20260716_add_google_uid.sql';
   const absoluteMigration = path.join(root, ...migrationPath.split('/'));
@@ -651,19 +651,26 @@ test('backs up and applies changed database migrations before switching the prod
     crypto.createHash('sha256').update(migrationLines.join('\n'), 'utf8').digest('hex')
   );
   const backupStep = plan.steps.find(step => step.key === 'backup-game-release');
+  const compatibilityStep = plan.steps.find(step => step.key === 'validate-game-database-migration-compatibility');
   const migrationStep = plan.steps.find(step => step.key === 'apply-database-migrations');
   const composeStep = plan.steps.find(step => step.key === 'update-remote-compose');
   const checklistStep = plan.steps.find(step => step.key === 'pre-deploy-checklist');
   assert.ok(backupStep);
+  assert.ok(compatibilityStep);
   assert.ok(migrationStep);
   assert.ok(composeStep);
   assert.ok(checklistStep);
+  assert.ok(plan.steps.indexOf(compatibilityStep) < plan.steps.findIndex(step => step.key === 'publish-image'));
   assert.ok(plan.steps.indexOf(backupStep) < plan.steps.indexOf(migrationStep));
   assert.ok(plan.steps.indexOf(migrationStep) < plan.steps.indexOf(composeStep));
   assert.ok(plan.steps.indexOf(migrationStep) < plan.steps.indexOf(checklistStep));
   assert.ok(plan.steps.indexOf(checklistStep) < plan.steps.indexOf(composeStep));
-  assert.match(decodedScriptTree(backupStep.command), /pg_dump -Fc/);
-  assert.match(decodedScriptTree(backupStep.command), /hospital\.pre-migration\.dump/);
+  assert.doesNotMatch(decodedScriptTree(backupStep.command), /pg_dump -Fc|hospital\.pre-migration\.dump/);
+  assert.match(decodedScriptTree(compatibilityStep.command), /BEGIN READ ONLY/);
+  assert.match(decodedScriptTree(compatibilityStep.command), /ROLLBACK/);
+  assert.match(decodedScriptTree(compatibilityStep.command), /psql -X -v ON_ERROR_STOP=1/);
+  assert.match(decodedScriptTree(compatibilityStep.command), /game_database_migration_compatibility=PASS migrations=1 hashes=0/);
+  assert.doesNotMatch(decodedScriptTree(compatibilityStep.command), /createdb|pg_restore|pg_dump|ALTER TABLE/);
   assert.match(decodedScriptTree(migrationStep.command), /psql -X -v ON_ERROR_STOP=1/);
   assert.match(decodedScriptTree(migrationStep.command), /20260716_add_google_uid\.sql/);
   assert.match(decodedScriptTree(migrationStep.command), /docker create --name/);
@@ -675,10 +682,14 @@ test('backs up and applies changed database migrations before switching the prod
   assert.match(decodedScriptTree(migrationStep.command), /image migration manifest does not exactly cover all SQL files/);
   assert.match(decodedScriptTree(migrationStep.command), /cmp -s/);
   assert.match(decodedScriptTree(migrationStep.command), /migration-image-source\.txt/);
+  assert.match(decodedScriptTree(migrationStep.command), /http:\/\/127\.0\.0\.1:8190\//);
+  assert.match(decodedScriptTree(migrationStep.command), /production availability probe failed during database migration/);
+  assert.match(decodedScriptTree(migrationStep.command), /game_migration_availability=PASS/);
   assert.doesNotMatch(decodedScriptTree(migrationStep.command), /alter table t_directors add column/);
   assert.match(decodedScriptTree(migrationStep.command), /database_migrations_applied=1/);
   assert.match(decodedScriptTree(checklistStep.command), /pre_deploy_checklist=PASS/);
   assert.match(decodedScriptTree(checklistStep.command), /migration source image ID mismatch/);
+  assertStepType(plan, 'validate-game-database-migration-compatibility', 'remote-check', false);
   assertStepType(plan, 'apply-database-migrations', 'production', true);
 });
 
@@ -2123,6 +2134,44 @@ test('database preflight failure stops before image upload', async () => {
   assert.equal(runCommand.commands.some(command => command.includes('docker load -i')), false);
 });
 
+test('migration compatibility failure stops before image upload and production migration', async () => {
+  const root = tempProject(sampleXml);
+  const historyPath = path.join(root, 'migration-rehearsal-history.json');
+  const migrationPath = 'scripts/migration/20260716_add_google_uid.sql';
+  const absoluteMigration = path.join(root, ...migrationPath.split('/'));
+  fs.mkdirSync(path.dirname(absoluteMigration), {recursive: true});
+  fs.writeFileSync(absoluteMigration, [
+    '\\set ON_ERROR_STOP on',
+    'BEGIN;',
+    "SET LOCAL lock_timeout = '10s';",
+    "SET LOCAL statement_timeout = '120s';",
+    'ALTER TABLE t_directors ADD COLUMN IF NOT EXISTS google_uid varchar(128);',
+    'COMMIT;',
+    'SELECT 1;'
+  ].join('\n'), 'utf8');
+  const runCommand = testCommandRunner({failOnIncludes: 'game_database_migration_compatibility=PASS'});
+  const result = await executePlan(root, {
+    appTag: '2026071701',
+    dryRun: false,
+    includeStackDeploy: true,
+    gitCommit: 'latest',
+    changeAnalysis: {targets: {game: {changedPaths: [migrationPath]}}}
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: historyPath
+  }, {runCommand});
+
+  assert.equal(result.status, 'ERROR');
+  assert.equal(result.plan.steps.find(step => step.key === 'validate-game-database-migration-compatibility').status, 'failed');
+  assert.equal(result.plan.steps.find(step => step.key === 'publish-image').status, 'pending');
+  assert.equal(result.plan.steps.find(step => step.key === 'stage-game-static-assets').status, 'pending');
+  assert.equal(result.plan.steps.find(step => step.key === 'apply-database-migrations').status, 'pending');
+  assert.equal(runCommand.commands.some(command => command.includes('--mode stage')), false);
+  assert.equal(runCommand.commands.some(command => command.includes('docker save -o')), false);
+});
+
 test('forum preflight failure stops before image upload', async () => {
   const root = tempProject(sampleXml);
   const historyPath = path.join(root, 'forum-preflight-history.json');
@@ -2395,7 +2444,7 @@ test('pipeline phases follow execution order when game build starts', () => {
   assert.ok(dataMembers);
   assert.ok(observeMembers);
   assert.match(buildMembers[1], /test-game-backend[\s\S]*build-image/);
-  assert.match(deliveryMembers[1], /resolve-ssh-target[\s\S]*game-prd2-migration-readiness[\s\S]*read-remote-compose[\s\S]*game-database-preflight[\s\S]*publish-image/);
+  assert.match(deliveryMembers[1], /resolve-ssh-target[\s\S]*game-prd2-migration-readiness[\s\S]*read-remote-compose[\s\S]*game-database-preflight[\s\S]*validate-game-database-migration-compatibility[\s\S]*publish-image/);
   assert.doesNotMatch(dataMembers[1], /game-database-preflight|forum-preflight/);
   assert.match(observeMembers[1], /final-runtime-check[\s\S]*game-prd2-runtime-contract[\s\S]*verify-game-static-delivery/);
   assert.match(app, /key: 'cleanup'[\s\S]*cleanup-game-release-containers[\s\S]*key: 'recovery'/);
