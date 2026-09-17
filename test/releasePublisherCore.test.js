@@ -685,6 +685,12 @@ test('validates and applies changed database migrations before switching the pro
   assert.match(decodedScriptTree(migrationStep.command), /http:\/\/127\.0\.0\.1:8190\//);
   assert.match(decodedScriptTree(migrationStep.command), /production availability probe failed during database migration/);
   assert.match(decodedScriptTree(migrationStep.command), /game_migration_availability=PASS/);
+  assert.match(decodedScriptTree(migrationStep.command), /spring\.datasource\.username/);
+  assert.match(decodedScriptTree(migrationStep.command), /to_regrole\(:'application_role'\)/);
+  assert.match(decodedScriptTree(migrationStep.command), /runtime_object\.relkind IN \('r', 'p', 'S'\)/);
+  assert.match(decodedScriptTree(migrationStep.command), /application_ownership_check.*true\|true\|0/);
+  assert.match(decodedScriptTree(migrationStep.command), /game_database_application_ownership=PASS mismatches=0/);
+  assert.doesNotMatch(decodedScriptTree(migrationStep.command), /echo .*application_database_role/);
   assert.doesNotMatch(decodedScriptTree(migrationStep.command), /alter table t_directors add column/);
   assert.match(decodedScriptTree(migrationStep.command), /database_migrations_applied=1/);
   assert.match(decodedScriptTree(checklistStep.command), /pre_deploy_checklist=PASS/);

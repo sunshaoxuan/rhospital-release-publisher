@@ -630,9 +630,15 @@ function createPlan(projectRoot, request, env = process.env) {
         title: '执行目标提交数据库迁移',
         summary: `从目标镜像提取并核验迁移包，在切换镜像前按路径顺序执行 ${releaseMigrations.length} 个脚本`,
         command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-          applyGameDatabaseMigrationsCommand(remoteComposeDir, imageTag, releaseMigrations)
+          applyGameDatabaseMigrationsCommand(
+            remoteComposeDir,
+            config.stackName,
+            config.containerName,
+            imageTag,
+            releaseMigrations
+          )
         )),
-        validation: `迁移必须来自目标镜像 /app/migrations，镜像清单、目标提交 SHA256 和脚本实际 SHA256 必须一致：${releaseMigrations.map(item => item.filePath).join(', ')}`,
+        validation: `迁移必须来自目标镜像 /app/migrations，镜像清单、目标提交 SHA256 和脚本实际 SHA256 必须一致；生产应用角色必须与核心表 owner 一致，public 表和序列 owner 漂移必须为 0：${releaseMigrations.map(item => item.filePath).join(', ')}`,
         actionType: 'production',
         productionAction: true,
         executable: true
@@ -3539,7 +3545,39 @@ function gameSmtpSenderProbeCommands(stackName, containerName, identity) {
   ];
 }
 
-function applyGameDatabaseMigrationsCommand(remoteComposeDir, imageTag, releaseMigrations) {
+function applyGameDatabaseMigrationsCommand(
+  remoteComposeDir,
+  stackName,
+  containerName,
+  imageTag,
+  releaseMigrations
+) {
+  const applicationOwnershipSql = `
+WITH application_identity AS (
+  SELECT to_regrole(:'application_role') AS role_oid
+), canonical_owner AS (
+  SELECT core_table.relowner AS role_oid
+  FROM pg_class core_table
+  JOIN pg_namespace core_schema ON core_schema.oid = core_table.relnamespace
+  WHERE core_schema.nspname = 'public'
+    AND core_table.relname = 't_hospitals'
+    AND core_table.relkind = 'r'
+), ownership_mismatches AS (
+  SELECT count(*) AS mismatch_count
+  FROM pg_class runtime_object
+  JOIN pg_namespace runtime_schema ON runtime_schema.oid = runtime_object.relnamespace
+  CROSS JOIN canonical_owner
+  WHERE runtime_schema.nspname = 'public'
+    AND runtime_object.relkind IN ('r', 'p', 'S')
+    AND runtime_object.relowner <> canonical_owner.role_oid
+)
+SELECT (application_identity.role_oid IS NOT NULL)::text,
+       (application_identity.role_oid = canonical_owner.role_oid)::text,
+       ownership_mismatches.mismatch_count
+FROM application_identity
+CROSS JOIN canonical_owner
+CROSS JOIN ownership_mismatches;
+`;
   const commands = [
     `cd ${shellToken(remoteComposeDir)}`,
     `target_image=${shellToken(imageTag)}`,
@@ -3595,6 +3633,16 @@ function applyGameDatabaseMigrationsCommand(remoteComposeDir, imageTag, releaseM
     );
   }
   commands.push(
+    `application_ownership_sql=$(printf %s '${Buffer.from(applicationOwnershipSql, 'utf8').toString('base64')}' | base64 -d)`,
+    `application_service_name=${shellToken(gameServiceName(stackName, containerName))}`,
+    'application_container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$application_service_name" --filter health=healthy | head -n 1)',
+    '[ -n "$application_container_id" ] || { echo "ERROR: no healthy application container is available for database ownership validation"; exit 1; }',
+    'application_database_role=$(docker exec "$application_container_id" sh -lc \'IFS= read -r value < /run/secrets/spring.datasource.username; printf "%s" "$value"\')',
+    '[ -n "$application_database_role" ] || { echo "ERROR: application database role Secret is empty"; exit 1; }',
+    'application_ownership_check=$(printf "%s\\n" "$application_ownership_sql" | docker exec -i -e APPLICATION_DATABASE_ROLE="$application_database_role" "$database_container_id" sh -lc \'psql -X -v ON_ERROR_STOP=1 -v application_role="$APPLICATION_DATABASE_ROLE" -U "$POSTGRES_USER" -d "$1" -At -F "|" -f -\' sh "$database_name")',
+    'unset application_database_role',
+    '[ "$application_ownership_check" = "true|true|0" ] || { echo "ERROR: application database object ownership validation failed result=$application_ownership_check"; exit 1; }',
+    'echo "game_database_application_ownership=PASS mismatches=0"',
     'stop_availability_monitor',
     'trap - EXIT INT TERM',
     'test ! -s "$availability_failures" || { echo "ERROR: production availability probe failed during database migration"; cat "$availability_failures"; exit 1; }',
