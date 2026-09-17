@@ -350,6 +350,13 @@ function createPlan(projectRoot, request, env = process.env) {
       executable: true
     }),
     ...(localEvidenceChecks.length ? [releaseStep({
+      key: 'install-game-release-node-dependencies',
+      title: '安装发布证据依赖',
+      summary: '依据目标提交的锁文件在隔离工作树安装本地证据检查所需 Node.js 依赖',
+      command: 'npm ci --no-audit --no-fund',
+      validation: 'package-lock.json 必须可复现安装全部证据检查依赖',
+      actionType: 'build', executable: true, timeoutSeconds: 900
+    }), releaseStep({
       key: 'validate-game-release-preflight',
       title: '全量预检发布候选',
       summary: '在完整构建和生产动作前执行全部适用的本地证据门禁，并一次汇总所有失败项',

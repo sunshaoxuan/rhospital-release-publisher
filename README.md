@@ -241,7 +241,7 @@ npm run acceptance:full-flow -- --project-root C:\workspace\hospital-backend --g
 
 游戏发布固定执行 `validate-game-static-delivery-prerequisites`，并至少保留 `test-game-backend`、`verify-game-static-assets-predeploy`、`pre-deploy-checklist`、`final-runtime-check` 和 `verify-game-static-delivery`。正式游戏部署计划还会执行 `verify-relations-release`，该步骤已注册为业务影响评估可引用的检查。邮件配置变化可以选择 `verify-game-smtp-sender`，发布器会先要求生产 SMTP 认证账号与发件地址一致，再于目标容器内使用既有 Secret 完成 STARTTLS、认证和 MAIL FROM 探针，并在 DATA 前退出。论坛构建发布至少保留 `validate-forum-source`、`forum-preflight` 和 `final-runtime-check`，源码门禁包含论坛镜像、搜索迁移和部署配置契约测试。实体、Repository、DAO 或迁移脚本变化时必须声明数据库影响；存在游戏迁移脚本时还必须选择 `apply-database-migrations`。现有步骤无法覆盖新增风险时，应先在本仓库增加可执行检查和测试，再由业务仓库的影响评估引用该步骤。论坛生产 Compose 修改开始后，失败、取消或发布器重启会进入 `RECOVERY_REQUIRED`，保留备份与回滚入口供人工复核。
 
-游戏影响评估选择菌落结果、关卡包、药剂实验室或急救防刷本地证据门禁时，发布计划会在完整 Docker 构建之前增加 `validate-game-release-preflight`。该步骤对全部适用门禁逐项执行并在末尾统一报告所有失败项，避免一次发布只暴露一个后续阻断。原有独立门禁继续保留，作为同一候选的逐项审计复核。预检自身不执行远程写入，也不替代镜像构建后检查和生产只读检查。
+游戏影响评估选择菌落结果、关卡包、药剂实验室或急救防刷本地证据门禁时，发布计划会先在隔离工作树执行 `npm ci`，再于完整 Docker 构建之前执行 `validate-game-release-preflight`。依赖安装严格使用目标提交的锁文件。聚合预检对全部适用门禁逐项执行并在末尾统一报告所有失败项，避免一次发布只暴露一个后续阻断。原有独立门禁继续保留，作为同一候选的逐项审计复核。预检自身不执行远程写入，也不替代镜像构建后检查和生产只读检查。
 
 `GAME_PRD2` 是唯一游戏生产发布目标。发布计划增加 `game-prd2-migration-readiness` 与 `game-prd2-runtime-contract`，检查主库角色、论坛、生产 Secret、防火墙、Firebase 初始化、论坛 SSO、Stripe 与 Paddle 无签名拒绝、SnailJob 和 New Relic。生产 Compose 在任何镜像上传前必须解析为 1 个游戏副本、更新与回滚均为 `start-first` 和 `failure_action: pause`、固定健康检查、停止宽限期、生产 profile、文件型凭据配置和 22 个精确 Secret 挂载。`deploy-stack` 在调用 Docker 前的同一远程脚本中再次执行该合同，并确认旧健康容器存在；提交后立即确认副本仍为 1 且健康容器没有归零。跨主机灾难恢复属于环境知识库管理范围，发布器不注册其他生产主机。
 

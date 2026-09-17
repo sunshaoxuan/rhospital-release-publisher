@@ -949,6 +949,9 @@ test('potion lab evidence check is registered and runs after backend tests befor
   const target = runGit(root, ['rev-parse', 'HEAD']).trim();
   const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
   const index = key => plan.steps.findIndex(step => step.key === key);
+  assert.ok(index('install-game-release-node-dependencies') > index('validate-game-sso-source'));
+  assert.ok(index('install-game-release-node-dependencies') < index('validate-game-release-preflight'));
+  assert.match(plan.steps[index('install-game-release-node-dependencies')].command, /^npm ci /);
   assert.ok(index('validate-game-release-preflight') > index('validate-game-sso-source'));
   assert.ok(index('validate-game-release-preflight') < index('test-game-backend'));
   assert.ok(index('verify-game-potion-lab') > index('test-game-backend'));
