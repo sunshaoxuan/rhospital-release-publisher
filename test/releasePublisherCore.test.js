@@ -949,10 +949,39 @@ test('potion lab evidence check is registered and runs after backend tests befor
   const target = runGit(root, ['rev-parse', 'HEAD']).trim();
   const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
   const index = key => plan.steps.findIndex(step => step.key === key);
+  assert.ok(index('validate-game-release-preflight') > index('validate-game-sso-source'));
+  assert.ok(index('validate-game-release-preflight') < index('test-game-backend'));
   assert.ok(index('verify-game-potion-lab') > index('test-game-backend'));
   assert.ok(index('verify-game-potion-lab') < index('build-image'));
   assert.equal(plan.steps[index('verify-game-potion-lab')].executable, true);
   assert.match(plan.steps[index('verify-game-potion-lab')].command, /verify-potion-lab-release\.mjs/);
+});
+
+test('aggregated game preflight includes every selected local evidence gate and retains audit steps', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'all local evidence gates\n');
+  const selected = ['verify-bacteria-result-ui', 'verify-design-level-packages', 'verify-game-potion-lab'];
+  writeReleaseImpact(root, {
+    assessmentId: '20260917-all-local-preflight',
+    coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated',
+    requiredChecks: ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
+      'final-runtime-check', 'verify-game-static-delivery', ...selected]
+  });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'all local gates']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
+  const preflight = plan.steps.find(step => step.key === 'validate-game-release-preflight');
+  const match = preflight.command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/);
+  assert.ok(match);
+  const payload = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8'));
+  assert.deepEqual(payload.checks.map(check => check.key), selected);
+  assert.ok(plan.steps.findIndex(step => step.key === preflight.key)
+    < plan.steps.findIndex(step => step.key === 'test-game-backend'));
+  for (const key of selected) assert.ok(plan.steps.some(step => step.key === key && step.executable));
 });
 
 test('emergency guard checks are paired, executable and ordered around deployment', () => {

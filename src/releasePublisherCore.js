@@ -250,6 +250,26 @@ function createPlan(projectRoot, request, env = process.env) {
   const tomcatProbe = tomcatVersion
     ? `printf %s '${Buffer.from(tomcatJarCheckScript(tomcatVersion)).toString('base64')}' | base64 -d | sh`
     : null;
+  const bacteriaResultUiCommand = chainPowerShellCommands([
+    'node src/test/js/bacteriaResultDialog.test.mjs',
+    'node scripts/bacteria-lab/validate-result-dialog-evidence.mjs'
+  ]);
+  const designPackagesCommand = chainPowerShellCommands([
+    'node src/test/js/bacteriaPathDifficulty.test.mjs',
+    'node src/test/js/designLevelPackage.test.mjs',
+    'node src/test/js/designWorker.test.mjs',
+    'node src/test/js/bacteriaSharedRules.test.mjs',
+    'node scripts/bacteria-lab/build-level-catalog.mjs --check',
+    'node scripts/bacteria-lab/validate-design-evidence.mjs'
+  ]);
+  const potionLabCommand = `node ${shellToken(path.resolve(__dirname, '../scripts/verify-potion-lab-release.mjs'))} --project-root .`;
+  const emergencyGuardCommand = `node ${shellToken(path.resolve(__dirname, '../scripts/verify-emergency-guard-release.mjs'))} --mode evidence --project-root .`;
+  const localEvidenceChecks = [
+    ...(requiresBacteriaResultUi ? [{key: 'verify-bacteria-result-ui', command: bacteriaResultUiCommand, timeoutSeconds: 1800}] : []),
+    ...(requiresDesignPackages ? [{key: 'verify-design-level-packages', command: designPackagesCommand, timeoutSeconds: 1800}] : []),
+    ...(requiresPotionLab ? [{key: 'verify-game-potion-lab', command: potionLabCommand, timeoutSeconds: 600}] : []),
+    ...(requiresEmergencyGuard ? [{key: 'verify-game-emergency-guard', command: emergencyGuardCommand, timeoutSeconds: 600}] : [])
+  ];
 
   const steps = [
     releaseStep({
@@ -329,6 +349,14 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'local-check',
       executable: true
     }),
+    ...(localEvidenceChecks.length ? [releaseStep({
+      key: 'validate-game-release-preflight',
+      title: '全量预检发布候选',
+      summary: '在完整构建和生产动作前执行全部适用的本地证据门禁，并一次汇总所有失败项',
+      command: gameReleasePreflightCommand(localEvidenceChecks),
+      validation: '全部适用门禁必须输出 PASS；失败时必须完成其余门禁并汇总失败项目',
+      actionType: 'local-check', executable: true, timeoutSeconds: 3600
+    })] : []),
     releaseStep({
       key: 'test-game-backend',
       title: '批量测试并编译后端产物',
@@ -356,7 +384,7 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'verify-bacteria-result-ui',
       title: '核验菌落清除室弹窗与交互',
       summary: '校验失败、生命耗尽、通关和异常状态，以及最终容器几何、按钮语义和源码摘要',
-      command: 'node src/test/js/bacteriaResultDialog.test.mjs && node scripts/bacteria-lab/validate-result-dialog-evidence.mjs',
+      command: bacteriaResultUiCommand,
       validation: '全部弹窗状态、原始像素留白、无直接购买和最终用户意图验收均须通过',
       actionType: 'local-check', executable: true
     })] : []),
@@ -364,7 +392,7 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'verify-design-level-packages',
       title: '验证色块工坊与关卡包',
       summary: '验证双份容量下限、真实决策路径与唯一性证明、包格式和全关卡目录一致性',
-      command: 'node src/test/js/bacteriaPathDifficulty.test.mjs && node src/test/js/designLevelPackage.test.mjs && node src/test/js/designWorker.test.mjs && node src/test/js/bacteriaSharedRules.test.mjs && node scripts/bacteria-lab/build-level-catalog.mjs --check && node scripts/bacteria-lab/validate-design-evidence.mjs',
+      command: designPackagesCommand,
       validation: '颜色上限、非法数据拒绝、真实规则解题回放和关卡目录全部通过',
       actionType: 'local-check', executable: true
     })] : []),
@@ -372,7 +400,7 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'verify-game-potion-lab',
       title: '核验药剂实验室最终证据',
       summary: '运行材料编辑单元测试，校验数据库、真实浏览器、视觉和意图验收证据及目标源码摘要',
-      command: `node ${shellToken(path.resolve(__dirname, '../scripts/verify-potion-lab-release.mjs'))} --project-root .`,
+      command: potionLabCommand,
       validation: '全部验收必须PASS，证据与当前药剂实验室源码一致',
       actionType: 'local-check', executable: true
     })] : []),
@@ -380,7 +408,7 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'verify-game-emergency-guard',
       title: '核验急救防刷最终证据',
       summary: '校验玩家回放、并发、浏览器和前置故障演练证据及目标源码哈希，缺少正常样本时禁止上线',
-      command: `node ${shellToken(path.resolve(__dirname, '../scripts/verify-emergency-guard-release.mjs'))} --mode evidence --project-root .`,
+      command: emergencyGuardCommand,
       validation: '六项证据必须PASS并与当前候选源码完全一致',
       actionType: 'local-check', executable: true
     })] : []),
@@ -1001,6 +1029,11 @@ function gameStaticAssetArtifactCommand(mode, imageTag, appTag, configPath, dock
     ? ` --production-config ${shellToken(options.productionConfigPath)}`
     : '';
   return `node ${shellToken(scriptPath)} --mode ${shellToken(mode)} --image ${shellToken(`${imageTag}-frontend-assets`)} --app-tag ${shellToken(appTag)} --config ${shellToken(configPath)}${productionConfigArgument}${dockerContextArgument}`;
+}
+
+function gameReleasePreflightCommand(checks) {
+  const payload = Buffer.from(JSON.stringify({version: 1, checks}), 'utf8').toString('base64');
+  return `node ${shellToken(path.resolve(__dirname, '../scripts/run-game-release-preflight.mjs'))} --checks-base64 ${shellToken(payload)}`;
 }
 
 function createForumPlan(projectRoot, request, env = process.env) {
