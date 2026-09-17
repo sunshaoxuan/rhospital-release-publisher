@@ -2202,7 +2202,7 @@ function resolveReleaseMigrations(projectRoot, gitCommit, changeAnalysis) {
     .filter(filePath => RELEASE_MIGRATION_PATTERN.test(filePath)))]
     .sort();
 
-  return migrationPaths.map(filePath => {
+  const migrations = migrationPaths.map(filePath => {
     if (filePath.split('/').includes('..')) {
       throw new Error(`数据库迁移路径越界: ${filePath}`);
     }
@@ -2213,9 +2213,45 @@ function resolveReleaseMigrations(projectRoot, gitCommit, changeAnalysis) {
     const canonicalSql = normalizeReleaseMigrationSql(sql);
     return {
       filePath,
-      sha256: crypto.createHash('sha256').update(canonicalSql, 'utf8').digest('hex')
+      sha256: crypto.createHash('sha256').update(canonicalSql, 'utf8').digest('hex'),
+      targetReleaseHash: migrationReleaseHashConstant(sql, 'target_release_hash'),
+      expectedReleaseHash: migrationReleaseHashConstant(sql, 'expected_release_hash')
     };
   });
+  return sortReleaseMigrationsByDependencies(migrations)
+    .map(({filePath, sha256}) => ({filePath, sha256}));
+}
+
+function migrationReleaseHashConstant(sql, name) {
+  const match = String(sql || '').match(new RegExp(`\\b${name}\\s+constant\\s+text\\s*:=\\s*'([0-9a-f]{64})'`, 'i'));
+  return match ? match[1].toLowerCase() : '';
+}
+
+function sortReleaseMigrationsByDependencies(migrations) {
+  const orderedInput = [...migrations];
+  const targetOwners = new Map();
+  for (const migration of orderedInput) {
+    if (!migration.targetReleaseHash) continue;
+    if (targetOwners.has(migration.targetReleaseHash)) {
+      throw new Error(`数据库迁移目标哈希重复: ${migration.targetReleaseHash}`);
+    }
+    targetOwners.set(migration.targetReleaseHash, migration);
+  }
+  const dependencies = new Map(orderedInput.map(migration => [migration, new Set()]));
+  for (const migration of orderedInput) {
+    const predecessor = targetOwners.get(migration.expectedReleaseHash);
+    if (predecessor && predecessor !== migration) dependencies.get(migration).add(predecessor);
+  }
+  const result = [];
+  const remaining = new Set(orderedInput);
+  while (remaining.size) {
+    const ready = orderedInput.find(migration => remaining.has(migration)
+      && [...dependencies.get(migration)].every(item => !remaining.has(item)));
+    if (!ready) throw new Error('数据库迁移发布哈希依赖存在循环');
+    result.push(ready);
+    remaining.delete(ready);
+  }
+  return result;
 }
 
 function normalizeReleaseMigrationSql(sql) {

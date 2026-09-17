@@ -682,6 +682,40 @@ test('backs up and applies changed database migrations before switching the prod
   assertStepType(plan, 'apply-database-migrations', 'production', true);
 });
 
+test('orders catalog migrations by declared release hash dependencies', () => {
+  const root = tempProject(sampleXml);
+  const migrationDir = path.join(root, 'scripts', 'migration');
+  fs.mkdirSync(migrationDir, {recursive: true});
+  const migration = (name, expected, target) => {
+    const filePath = `scripts/migration/${name}.sql`;
+    fs.writeFileSync(path.join(root, ...filePath.split('/')), [
+      '\\set ON_ERROR_STOP on',
+      'BEGIN;',
+      "SET LOCAL lock_timeout = '10s';",
+      "SET LOCAL statement_timeout = '120s';",
+      `DO $migration$ DECLARE expected_release_hash constant text := '${expected}'; target_release_hash constant text := '${target}'; BEGIN NULL; END $migration$;`,
+      'COMMIT;',
+      'SELECT 1;'
+    ].join('\n'));
+    return filePath;
+  };
+  const firstHash = '1'.repeat(64);
+  const secondHash = '2'.repeat(64);
+  const thirdHash = '3'.repeat(64);
+  const second = migration('20260915_a_second', firstHash, secondHash);
+  const third = migration('20260915_b_third', secondHash, thirdHash);
+  const first = migration('20260915_z_first', '0'.repeat(64), firstHash);
+  const plan = createPlan(root, {
+    appTag: '2026091701', dryRun: true, includeStackDeploy: true, gitCommit: 'latest',
+    changeAnalysis: {targets: {game: {changedPaths: [second, third, first]}}}
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+  });
+  assert.deepEqual(plan.config.databaseMigrations.map(item => item.filePath), [first, second, third]);
+});
+
 test('blocks a JPA schema change when no release migration is present', () => {
   const root = tempProject(sampleXml);
   runGit(root, ['init']);
