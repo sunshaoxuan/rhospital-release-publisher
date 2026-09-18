@@ -356,6 +356,15 @@ function rehearseGateway(gateway, archivePath, appTag, runId) {
     }
 }
 
+export function validateAssetContentType(publicPath, contentType) {
+    const extension = path.posix.extname(publicPath).toLowerCase();
+    if (!['.js', '.mjs'].includes(extension)) return;
+    const normalized = String(contentType || '').split(';', 1)[0].trim().toLowerCase();
+    if (!['application/javascript', 'text/javascript'].includes(normalized)) {
+        throw new Error(`${publicPath} requires a JavaScript MIME type, received ${contentType || '(missing)'}`);
+    }
+}
+
 function headAsset(gateway, entry) {
     const requestPath = `/assets${entry.publicPath}?h=${entry.publicHash}`;
     return new Promise((resolve, reject) => {
@@ -383,6 +392,12 @@ function headAsset(gateway, entry) {
             if (String(response.headers['x-cache'] || '').toUpperCase() !== 'LOCAL'
                     || response.headers['x-asset-source'] !== 'gate-object') {
                 reject(new Error(`${gateway.id} ${requestPath} was not served by the local immutable store (${responseEvidence})`));
+                return;
+            }
+            try {
+                validateAssetContentType(entry.publicPath, response.headers['content-type']);
+            } catch (error) {
+                reject(new Error(`${gateway.id} ${requestPath} has an invalid Content-Type: ${error.message} (${responseEvidence})`));
                 return;
             }
             if (entry.publicPath === '/sw.js' && response.headers['service-worker-allowed'] !== '/') {

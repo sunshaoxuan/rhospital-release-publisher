@@ -114,6 +114,22 @@ test('production static verification includes response evidence on failure', () 
   assert.match(source, /Promise\.allSettled\(gateways\.map\(gateway => verifyGateway\(gateway, entries\)\)/);
 });
 
+test('production static verification rejects non-JavaScript MIME types for module assets', async () => {
+  rehearsalModule = rehearsalModule || await import('../scripts/game-static-assets.mjs');
+
+  assert.doesNotThrow(() => rehearsalModule.validateAssetContentType('/js/main.js', 'application/javascript'));
+  assert.doesNotThrow(() => rehearsalModule.validateAssetContentType('/js/editor.mjs', 'text/javascript; charset=utf-8'));
+  assert.doesNotThrow(() => rehearsalModule.validateAssetContentType('/img/icon.svg', 'application/octet-stream'));
+  assert.throws(
+    () => rehearsalModule.validateAssetContentType('/js/editor.mjs', 'application/octet-stream'),
+    /requires a JavaScript MIME type/
+  );
+  assert.throws(
+    () => rehearsalModule.validateAssetContentType('/sw.js', undefined),
+    /received \(missing\)/
+  );
+});
+
 test('remote rehearsal command requires a production gateway config', () => {
   const result = spawnSync(process.execPath, [
     path.resolve(__dirname, '..', 'scripts', 'game-static-assets.mjs'),
