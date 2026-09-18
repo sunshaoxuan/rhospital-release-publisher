@@ -410,13 +410,50 @@
         'forum-rollback-command'
       ] }
     ];
-    const byKey = new Map(planSteps.map(step => [step.key, step]));
-    const assigned = new Set();
-    const phases = [];
-    for (const definition of phaseDefinitions) {
-      const members = definition.members.map(key => byKey.get(key)).filter(Boolean);
-      if (!members.length) continue;
-      members.forEach(step => assigned.add(step.key));
+    const definitionByStepKey = new Map();
+    phaseDefinitions.forEach((definition, definitionIndex) => {
+      definition.members.forEach(stepKey => definitionByStepKey.set(stepKey, definitionIndex));
+    });
+    const definitionIndexes = planSteps.map(step => definitionByStepKey.get(step.key));
+    let nextDefinitionIndex;
+    for (let index = definitionIndexes.length - 1; index >= 0; index -= 1) {
+      if (definitionIndexes[index] !== undefined) {
+        nextDefinitionIndex = definitionIndexes[index];
+      } else if (nextDefinitionIndex !== undefined) {
+        definitionIndexes[index] = nextDefinitionIndex;
+      }
+    }
+    let previousDefinitionIndex;
+    for (let index = 0; index < definitionIndexes.length; index += 1) {
+      if (definitionIndexes[index] !== undefined) {
+        previousDefinitionIndex = definitionIndexes[index];
+      } else if (previousDefinitionIndex !== undefined) {
+        definitionIndexes[index] = previousDefinitionIndex;
+      }
+    }
+    const segments = [];
+    planSteps.forEach((step, index) => {
+      const definitionIndex = definitionIndexes[index];
+      if (definitionIndex === undefined) {
+        segments.push({definition: null, members: [step]});
+        return;
+      }
+      const definition = phaseDefinitions[definitionIndex];
+      const current = segments[segments.length - 1];
+      if (current && current.definition === definition) {
+        current.members.push(step);
+      } else {
+        segments.push({definition, members: [step]});
+      }
+    });
+    const definitionCounts = new Map();
+    return segments.map(segment => {
+      if (!segment.definition) {
+        return segment.members[0];
+      }
+      const {definition, members} = segment;
+      const occurrence = (definitionCounts.get(definition.key) || 0) + 1;
+      definitionCounts.set(definition.key, occurrence);
       const statuses = members.map(step => step.status || 'pending');
       const failed = statuses.find(status => ['failed', 'cancelled', 'interrupted'].includes(status));
       const status = failed || (statuses.includes('running') ? 'running'
@@ -425,8 +462,8 @@
           : 'pending');
       const durationValues = members.map(step => Number(step.durationMs)).filter(Number.isFinite);
       const elapsedValues = members.map(step => Number(step.elapsedMs)).filter(Number.isFinite);
-      phases.push({
-        key: `phase-${definition.key}`,
+      return {
+        key: `phase-${definition.key}${occurrence > 1 ? `-${occurrence}` : ''}`,
         title: definition.key === 'recovery'
           && members.every(step => step.key === 'forum-rollback-command')
           ? '记录论坛恢复入口'
@@ -438,12 +475,8 @@
           : undefined,
         elapsedMs: elapsedValues.reduce((sum, value) => sum + value, 0),
         finalCheck: definition.key === 'observe'
-      });
-    }
-    for (const step of planSteps) {
-      if (!assigned.has(step.key)) phases.push(step);
-    }
-    return phases;
+      };
+    });
   }
 
   function renderChangeAnalysis(analysis) {
@@ -977,6 +1010,20 @@
     }
   }
 
+  async function resumeActiveJob() {
+    if (activeJobId) return;
+    const result = await requestJson('/api/jobs/active');
+    const job = result && result.job;
+    if (!job || !isActiveJobStatus(job.status) || activeJobId) return;
+    activeJobId = job.id;
+    activeJobCutoverRefreshed = false;
+    document.getElementById('execute-btn').disabled = true;
+    renderJob(job);
+    activeJobTimer = setTimeout(() => {
+      pollJob(job.id).catch(error => setStatus(error.message, 'error'));
+    }, 1000);
+  }
+
   async function pollJob(jobId) {
     if (jobId !== activeJobId) return;
     let job;
@@ -1180,7 +1227,16 @@
 
   loadPublisherVersion().catch(renderPublisherVersionError);
   window.setInterval(() => loadPublisherVersion().catch(renderPublisherVersionError), 10000);
-  loadConfig().catch(error => setStatus(error.message, 'error'));
+  async function initializePage() {
+    try {
+      await loadConfig();
+    } catch (error) {
+      setStatus(error.message, 'error');
+    }
+    await resumeActiveJob();
+  }
+
+  initializePage().catch(error => setStatus(`恢复运行任务失败：${error.message}`, 'error'));
 
   function formatDateTime(value) {
     if (!value) {

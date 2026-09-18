@@ -23,14 +23,22 @@ let finished = false;
 const config = {releaseTarget: 'game', appTag: 'ui-test', suggestedTag: 'ui-test',
   projectRoot: 'Browser regression fixture', imageTag: 'hospital-backend:ui-test'};
 function plan(status = 'pending') {
+  const complete = status === 'done';
+  const active = status === 'running';
   return {config, imageTag: config.imageTag, steps: [
-    {key: 'git-fetch', title: '准备发布源', status: status === 'pending' ? status : 'done'},
-    {key: 'publish-image', title: '交付镜像', status}
+    {key: 'git-fetch', title: '准备发布源', status: complete || active ? 'done' : 'pending'},
+    {key: 'validate-game-sso-source', title: '校验游戏基线', status: complete || active ? 'done' : 'pending'},
+    {key: 'install-game-release-node-dependencies', title: '安装发布证据依赖', status: complete || active ? 'done' : 'pending'},
+    {key: 'validate-game-release-preflight', title: '全量预检发布候选', status: complete ? 'done' : active ? 'running' : 'pending', logs: active ? ['Browser fixture only'] : []},
+    {key: 'test-game-backend', title: '批量测试并编译后端产物', status: complete ? 'done' : 'pending'},
+    {key: 'verify-game-doorplate-ui', title: '核验医院门牌', status: complete ? 'done' : 'pending'},
+    {key: 'build-image', title: '制作 Docker 镜像', status: complete ? 'done' : 'pending'},
+    {key: 'publish-image', title: '交付镜像', status: complete ? 'done' : 'pending'}
   ]};
 }
 function job() {
   return {id: 'browser-test', status: finished ? 'EXECUTED' : 'RUNNING',
-    currentStepTitle: '交付镜像', plan: plan(finished ? 'done' : 'running'), logs: ['Browser fixture only'],
+    currentStepTitle: '全量预检发布候选', plan: plan(finished ? 'done' : 'running'), logs: ['Browser fixture only'],
     diagnostics: diagnosticsMode && finished ? diagnosticCases[0].diagnostics : null};
 }
 const server = http.createServer((req, res) => {
@@ -46,6 +54,9 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/execute') {
     executions++; finished = false;
     return setTimeout(() => json(job(), 202), 500);
+  }
+  if (url.pathname === '/api/jobs/active') {
+    return json({job: executions > 0 && !finished ? job() : null});
   }
   if (url.pathname === '/api/jobs/browser-test') { polls++; return json(job()); }
   if (url.pathname === '/api/config') return json(config);

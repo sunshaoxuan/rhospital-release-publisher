@@ -5,6 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const {spawnSync} = require('node:child_process');
 const test = require('node:test');
+const vm = require('node:vm');
 
 process.env.RELEASE_PUBLISHER_TEST_MODE = 'true';
 
@@ -2524,6 +2525,28 @@ test('pipeline phases follow execution order when game build starts', () => {
   }, env);
   assert.deepEqual(gamePlan.steps.filter(step => !assignedKeys.has(step.key)).map(step => step.key), []);
   assert.deepEqual(forumPlan.steps.filter(step => !assignedKeys.has(step.key)).map(step => step.key), []);
+
+  const phaseContext = vm.createContext({});
+  vm.runInContext(app.slice(app.indexOf('  function buildPipelinePhases('),
+    app.indexOf('  function renderChangeAnalysis(')), phaseContext);
+  const productionShapedSteps = [
+    {key: 'git-fetch', status: 'done'},
+    {key: 'validate-game-sso-source', status: 'done'},
+    {key: 'install-game-release-node-dependencies', status: 'done'},
+    {key: 'validate-game-release-preflight', status: 'running'},
+    {key: 'test-game-backend', status: 'pending'},
+    {key: 'verify-game-doorplate-ui', status: 'pending'},
+    {key: 'verify-design-level-packages', status: 'pending'},
+    {key: 'verify-game-potion-lab', status: 'pending'},
+    {key: 'build-image', status: 'pending'},
+    {key: 'resolve-ssh-target', status: 'pending'}
+  ];
+  const phases = JSON.parse(JSON.stringify(phaseContext.buildPipelinePhases(productionShapedSteps)));
+  assert.deepEqual(phases.map(phase => phase.title), [
+    '准备发布源', '批量测试与构建', '交付镜像与连接校验'
+  ]);
+  assert.equal(phases[1].validation, '7 项检查，详情与原始日志保留在下方');
+  assert.equal(phases[1].status, 'running');
 });
 
 test('PowerShell runner accepts scripts beyond the Windows command-line limit through stdin', {

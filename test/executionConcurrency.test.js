@@ -56,6 +56,29 @@ test('submission failure unlocks the button and permits retry', async () => {
   assert.equal(h.context.activeJobId, '');
 });
 
+test('page refresh restores the server-side active task and resumes polling', async () => {
+  const requests = [];
+  const h = ui(async (url) => {
+    requests.push(url);
+    return {job: {id: 'restored', status: 'RUNNING'}};
+  });
+  await h.context.resumeActiveJob();
+  assert.deepEqual(requests, ['/api/jobs/active']);
+  assert.equal(h.context.activeJobId, 'restored');
+  assert.equal(h.button.disabled, true);
+  assert.deepEqual(h.rendered, ['restored']);
+  assert.equal(h.timers.length, 1);
+});
+
+test('page refresh remains idle when the server has no active task', async () => {
+  const h = ui(async () => ({job: null}));
+  await h.context.resumeActiveJob();
+  assert.equal(h.context.activeJobId, '');
+  assert.equal(h.button.disabled, false);
+  assert.deepEqual(h.rendered, []);
+  assert.deepEqual(h.timers, []);
+});
+
 for (const staleStatus of ['RUNNING', 'EXECUTED']) {
   test(`late ${staleStatus} response cannot repaint or reschedule an old task`, async () => {
     const response = deferred();
@@ -137,4 +160,13 @@ test('finished execution stays locked through cleanup, then accepts exactly one 
   assert.equal(h.executions(), 1);
   assert.throws(() => h.context.createExecutionJob({}), error => error.statusCode === 409);
   assert.equal(h.executions(), 1);
+});
+
+test('active job discovery route takes precedence over the job id route', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8');
+  const activeRoute = source.indexOf("pathname === '/api/jobs/active'");
+  const idRoute = source.indexOf("pathname.startsWith('/api/jobs/') && req.method === 'GET'");
+  assert.ok(activeRoute > 0);
+  assert.ok(idRoute > activeRoute);
+  assert.match(source.slice(activeRoute, idRoute), /find\(item => isActiveJobStatus\(item\.status\)\)/);
 });

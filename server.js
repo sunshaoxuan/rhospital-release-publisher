@@ -207,6 +207,10 @@ const server = http.createServer(async (req, res) => {
       const job = createExecutionJob(prepareReleaseRequest(body, true));
       return sendJson(res, 202, job);
     }
+    if (pathname === '/api/jobs/active' && req.method === 'GET') {
+      const job = [...jobs.values()].find(item => isActiveJobStatus(item.status)) || null;
+      return sendJson(res, 200, {job});
+    }
     if (pathname.startsWith('/api/jobs/') && req.method === 'GET') {
       const id = decodeURIComponent(pathname.slice('/api/jobs/'.length));
       const job = jobs.get(id);
