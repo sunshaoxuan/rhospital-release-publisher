@@ -2270,7 +2270,7 @@ test('terminal evidence is persisted before semantic diagnosis and model failure
   const env = {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'diagnostics.json'),
-    RELEASE_PUBLISHER_JEV_BASE_URL: 'http://127.0.0.1:1234/v1', RELEASE_PUBLISHER_JEV_MODEL: 'fixture',
+    RELEASE_PUBLISHER_JEV_MODEL: 'jev-latest',
     RELEASE_PUBLISHER_JEV_API_KEY: 'test-secret'
   };
   const runner = testCommandRunner();
@@ -2302,7 +2302,7 @@ test('terminal evidence is persisted before semantic diagnosis and model failure
 test('historical diagnosis labels retained evidence and never resurrects deleted history', async () => {
   const root = tempProject(sampleXml);
   const env = {RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'diagnose-old.json'),
-    RELEASE_PUBLISHER_JEV_BASE_URL: 'http://127.0.0.1:1234/v1', RELEASE_PUBLISHER_JEV_MODEL: 'fixture',
+    RELEASE_PUBLISHER_JEV_MODEL: 'jev-latest',
     RELEASE_PUBLISHER_JEV_API_KEY: 'test-secret'};
   appendReleaseHistory(root, {id: 'historical-failure', status: 'ERROR', stepSummary: [
     {key: 'test-game-backend', title: '后端测试', status: 'failed', logs: ['ERROR: tests failed']}

@@ -2,9 +2,10 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const {spawnSync} = require('node:child_process');
+const {TypeSafeClient} = require('@typesafe-ai/sdk');
 
 function loadProtectedDiagnosticConfig(repositoryRoot) {
-  const file = path.join(repositoryRoot, '.service', 'semantic-diagnostics.clixml');
+  const file = path.join(repositoryRoot, '.service', 'typesafe-diagnostics.clixml');
   if (!fs.existsSync(file)) return {};
   if (process.platform !== 'win32') return {RELEASE_PUBLISHER_JEV_CONFIG_ERROR: 'true'};
   const command = "$ErrorActionPreference='Stop'; $c=Import-Clixml -LiteralPath $env:RELEASE_DIAGNOSTICS_SECRET_PATH; @{ BaseUrl=[string]$c.BaseUrl; Model=[string]$c.Model; ApiKey=[Net.NetworkCredential]::new('', $c.ApiKey).Password } | ConvertTo-Json -Compress";
@@ -141,22 +142,21 @@ function modelEvidence(diagnostic) {
       signals: SIGNALS.map(([id]) => id).filter(id => item.signals.includes(id))}))};
 }
 
-function parseScores(response) {
-  const choice = response?.choices?.[0];
-  const content = choice?.logprobs?.content;
-  if (!Array.isArray(content) || content.length !== 1 || choice.message?.reasoning || choice.message?.reasoning_content
-      || !OPTIONS.some(option => option.id === choice.message?.content)
-      || content[0].token !== choice.message.content) throw new Error('INVALID_READOUT');
-  const candidates = content[0].top_logprobs;
-  const logits = OPTIONS.map(option => {
-    const matches = Array.isArray(candidates) ? candidates.filter(item => item.token === option.id) : [];
-    if (matches.length !== 1 || !Number.isFinite(matches[0].logprob) || matches[0].logprob > 0) throw new Error('INCOMPLETE_SCORES');
-    return matches[0].logprob;
+function parseJevAnswer(response) {
+  const answer = response?.answers?.investigation;
+  const probability = value => Number.isFinite(value) && value >= 0 && value <= 1;
+  if (!/^jev-\d+(?:\.\d+){1,3}$/.test(response?.model || '') || answer?.type !== 'choice'
+      || !OPTIONS.some(option => option.id === answer.choice) || !probability(answer.confidence)
+      || !answer.probabilities || Object.keys(answer.probabilities).length !== OPTIONS.length) {
+    throw new Error('INVALID_READOUT');
+  }
+  const scores = OPTIONS.map(option => {
+    const score = answer.probabilities[option.id];
+    if (!Object.hasOwn(answer.probabilities, option.id) || !probability(score)) throw new Error('INVALID_READOUT');
+    return {id: option.id, label: option.label, score};
   });
-  const maximum = Math.max(...logits);
-  const weights = logits.map(value => Math.exp(value - maximum));
-  const total = weights.reduce((sum, value) => sum + value, 0);
-  return OPTIONS.map((option, index) => ({id: option.id, label: option.label, score: weights[index] / total}));
+  if (Math.abs(scores.reduce((sum, item) => sum + item.score, 0) - 1) > 0.0001) throw new Error('INVALID_READOUT');
+  return {scores, optionId: answer.choice, confidence: answer.confidence, model: response.model};
 }
 
 async function addSemanticDiagnosis(diagnostic, env = process.env, options = {}) {
@@ -165,45 +165,58 @@ async function addSemanticDiagnosis(diagnostic, env = process.env, options = {})
   }
   if (env.RELEASE_PUBLISHER_JEV_CONFIG_ERROR) return {...diagnostic,
     semantic: {status: 'UNAVAILABLE', code: 'INVALID_CONFIG', reason: '无法读取加密诊断配置，请核对运行账户。'}};
-  if (!env.RELEASE_PUBLISHER_JEV_BASE_URL || !env.RELEASE_PUBLISHER_JEV_MODEL) return diagnostic;
+  if (!env.RELEASE_PUBLISHER_JEV_API_KEY && !env.RELEASE_PUBLISHER_JEV_API_KEY_FILE) return {...diagnostic,
+    semantic: {status: 'NOT_CONFIGURED', reason: '官方 Jev 尚未配置 TypeSafe 访问凭据。'}};
   const reasons = {NOT_CONFIGURED: '缺少诊断凭据。', INVALID_CONFIG: '诊断服务配置无效。',
-    INVALID_READOUT: '模型未返回单个候选标签，未采用结果。', INCOMPLETE_SCORES: '候选标签分数不完整，未采用结果。',
+    INVALID_READOUT: 'Jev 返回的模型版本、候选或概率无效，未采用结果。',
+    AUTH_FAILED: 'TypeSafe 凭据无效或尚未获得 Jev 访问权限。', RATE_LIMITED: 'TypeSafe 服务限流，请稍后复核。',
     TIMEOUT: '诊断请求超时。', REQUEST_FAILED: '诊断服务请求失败。'};
   let timer;
   try {
-    const url = new URL(env.RELEASE_PUBLISHER_JEV_BASE_URL);
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('INVALID_CONFIG');
+    const url = new URL(env.RELEASE_PUBLISHER_JEV_BASE_URL || 'https://api.typesafe.ai');
+    // Pin the service origin: an old ccnode credential must never be forwarded to TypeSafe.
+    if (url.href !== 'https://api.typesafe.ai/') throw new Error('INVALID_CONFIG');
+    const model = env.RELEASE_PUBLISHER_JEV_MODEL || 'jev-latest';
+    if (!/^jev-(?:latest|preview|\d+(?:\.\d+){1,3})$/.test(model)) throw new Error('INVALID_CONFIG');
     const apiKey = env.RELEASE_PUBLISHER_JEV_API_KEY || (env.RELEASE_PUBLISHER_JEV_API_KEY_FILE
       ? fs.readFileSync(env.RELEASE_PUBLISHER_JEV_API_KEY_FILE, 'utf8').trim() : '');
     if (!apiKey) throw new Error('NOT_CONFIGURED');
-    const evidence = modelEvidence(diagnostic);
-    const prompt = JSON.stringify({evidence, question: 'Which area should a human investigate first? Classify evidence only. Do not decide success or rollback.', options: OPTIONS});
+    const request = {model, state: modelEvidence(diagnostic), questions: {investigation: {
+      type: 'choice',
+      instructions: 'Which area should a human investigate first? Classify the supplied evidence only. Do not decide release success or rollback. Choose D when the evidence cannot distinguish the other options.',
+      criteria: Object.fromEntries(OPTIONS.map(option => [option.id, option.description]))
+    }}};
+    const prompt = JSON.stringify(request);
     const controller = new AbortController();
     const configuredTimeout = Number(env.RELEASE_PUBLISHER_JEV_TIMEOUT_MS || 10000);
     const timeoutMs = Math.min(30000, Math.max(100, Number.isFinite(configuredTimeout) ? configuredTimeout : 10000));
     const timeout = new Promise((_, reject) => { timer = setTimeout(() => { controller.abort(); reject(new Error('TIMEOUT')); }, timeoutMs); });
     const operation = async () => {
-      const response = await (options.fetch || fetch)(`${url.href.replace(/\/$/, '')}/chat/completions`, {
-        method: 'POST', redirect: 'error', signal: controller.signal,
-        headers: {'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}`},
-        body: JSON.stringify({model: env.RELEASE_PUBLISHER_JEV_MODEL,
-          messages: [{role: 'system', content: 'Classify the supplied evidence. Reply with exactly one uppercase letter A, B, C or D. No explanation or reasoning.'},
-            {role: 'user', content: prompt}], reasoning_effort: 'none', temperature: 1,
-          max_tokens: 1, logprobs: true, top_logprobs: 20, stream: false})
-      });
-      if (!response.ok) throw new Error('REQUEST_FAILED');
-      return parseScores(await response.json());
+      const client = new TypeSafeClient({apiKey, baseURL: url.origin, defaultModel: model,
+        logLevel: 'off', retry: {maxRetries: 0}, timeout: timeoutMs,
+        fetch: async (input, init) => {
+          const response = await (options.fetch || fetch)(input, {...init, redirect: 'error'});
+          if (!response.ok) {
+            const code = [401, 403].includes(response.status) ? 'AUTH_FAILED'
+              : response.status === 429 ? 'RATE_LIMITED' : 'REQUEST_FAILED';
+            await response.body?.cancel().catch(() => {});
+            throw new Error(code);
+          }
+          return response;
+        }});
+      return parseJevAnswer(await client.systemOne(request, {signal: controller.signal}));
     };
-    const scores = await Promise.race([operation(), timeout]);
-    const winner = scores.reduce((best, item) => item.score > best.score ? item : best);
-    return {...diagnostic, semantic: {status: 'AVAILABLE', model: env.RELEASE_PUBLISHER_JEV_MODEL,
-      promptVersion: 'publisher-diagnosis-v1', inputSha256: crypto.createHash('sha256').update(prompt).digest('hex'),
-      category: winner.label, optionId: winner.id, scores,
-      reason: '候选条件分数仅供排查参考；发布状态和回滚依据以上方执行证据为准。'}};
+    const answer = await Promise.race([operation(), timeout]);
+    return {...diagnostic, semantic: {status: 'AVAILABLE', provider: 'typesafe', ...answer,
+      promptVersion: 'publisher-jev-v2', inputSha256: crypto.createHash('sha256').update(prompt).digest('hex'),
+      category: OPTIONS.find(option => option.id === answer.optionId).label,
+      reason: `官方 Jev ${answer.model}，服务报告置信度 ${(answer.confidence * 100).toFixed(1)}%。分类概率仅供排查参考；发布状态和回滚依据以上方执行证据为准。`}};
   } catch (error) {
-    const code = Object.hasOwn(reasons, error.message) ? error.message : 'REQUEST_FAILED';
+    const message = Object.hasOwn(reasons, error.message) ? error.message : error.cause?.message;
+    const code = Object.hasOwn(reasons, message) ? message
+      : error.name === 'APITimeoutError' ? 'TIMEOUT' : 'REQUEST_FAILED';
     return {...diagnostic, semantic: {status: 'UNAVAILABLE', code, reason: reasons[code]}};
   } finally { clearTimeout(timer); }
 }
 
-module.exports = {buildReleaseDiagnostics, addSemanticDiagnosis, modelEvidence, parseScores, loadProtectedDiagnosticConfig};
+module.exports = {buildReleaseDiagnostics, addSemanticDiagnosis, modelEvidence, parseJevAnswer, loadProtectedDiagnosticConfig};

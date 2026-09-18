@@ -1,13 +1,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {buildReleaseDiagnostics, addSemanticDiagnosis, modelEvidence, parseScores} = require('../src/releaseDiagnostics');
+const {buildReleaseDiagnostics, addSemanticDiagnosis, modelEvidence, parseJevAnswer} = require('../src/releaseDiagnostics');
 
-const env = {RELEASE_PUBLISHER_JEV_BASE_URL: 'http://127.0.0.1:1234/v1',
-  RELEASE_PUBLISHER_JEV_MODEL: 'fixture-model', RELEASE_PUBLISHER_JEV_API_KEY: 'fixture-key'};
+const env = {RELEASE_PUBLISHER_JEV_MODEL: 'jev-latest', RELEASE_PUBLISHER_JEV_API_KEY: 'fixture-key'};
 const step = (key, status, logs = []) => ({key, title: key, status, logs});
 const result = (status, steps, extra = {}) => ({status, plan: {releaseTarget: 'game', steps}, logs: [], ...extra});
-const response = (values = [-3, -0.1, -5, -6], winner = 'B') => ({choices: [{message: {content: winner},
-  logprobs: {content: [{token: winner, top_logprobs: values.map((logprob, i) => ({token: 'ABCD'[i], logprob}))}]}}]});
+const response = (values = [0.1, 0.8, 0.06, 0.04], winner = 'B') => ({model: 'jev-1.13.0',
+  answers: {investigation: {type: 'choice', choice: winner, confidence: 0.7,
+    probabilities: Object.fromEntries(values.map((value, i) => ['ABCD'[i], value]))}},
+  usage: {input_tokens: 100, output_tokens: 4}});
+const jsonResponse = (body = response()) => Response.json(body);
 const failed = () => buildReleaseDiagnostics(result('ERROR', [step('apply-database-migrations', 'failed', ['ERROR: migration failed'])]));
 
 test('successful warning is visible; command templates and zero warning counts are not findings', () => {
@@ -69,41 +71,50 @@ test('semantic payload contains no raw logs, commands, titles, paths or configur
   let body;
   const value = await addSemanticDiagnosis(diagnostic, env, {fetch: async (url, options) => {
     body = JSON.parse(options.body);
+    assert.equal(url, 'https://api.typesafe.ai/v1/systemone');
     assert.equal(options.redirect, 'error');
-    return {ok: true, json: async () => response()};
+    return jsonResponse();
   }});
   assert.equal(JSON.stringify(body).includes('PRIVATE_SENTINEL'), false);
-  assert.equal(body.reasoning_effort, 'none');
-  assert.equal(body.max_tokens, 1);
+  assert.equal(body.model, 'jev-latest');
+  assert.equal(body.questions.investigation.type, 'choice');
+  assert.equal(body.state.observations[0].family, 'database');
+  assert.equal(body.messages, undefined);
   assert.equal(value.semantic.status, 'AVAILABLE');
   assert.equal(value.outcome, 'FAILED');
   assert.equal(value.semantic.optionId, 'B'); // Suggestion cannot override execution outcome.
+  assert.equal(value.semantic.model, 'jev-1.13.0');
+  assert.equal(value.semantic.provider, 'typesafe');
+  assert.equal(value.semantic.confidence, 0.7);
   assert.ok(Math.abs(value.semantic.scores.reduce((sum, item) => sum + item.score, 0) - 1) < 1e-12);
   assert.equal(value.semantic.inputSha256.length, 64);
   assert.equal(modelEvidence(diagnostic).observations[0].family, 'database');
 });
 
-test('incomplete, duplicate, nonfinite and reasoning readouts are rejected', () => {
-  for (const invalid of [response([-1, -2]), response([-1, NaN, -3, -4]), response([-1, Infinity, -3, -4]), response([-1, 1, -3, -4])]) {
-    assert.throws(() => parseScores(invalid));
+test('invalid Jev distributions, labels, confidence and unversioned models are rejected', () => {
+  for (const invalid of [response([0.5, 0.5]), response([NaN, 0.8, 0.1, 0.1]),
+    response([Infinity, 0, 0, 0]), response([-0.1, 0.9, 0.1, 0.1]), response([1.1, 0, 0, 0]),
+    response([0.1, 0.2, 0.3, 0.1]), response(undefined, 'E')]) {
+    assert.throws(() => parseJevAnswer(invalid));
   }
-  const duplicate = response();
-  duplicate.choices[0].logprobs.content[0].top_logprobs.push({token: 'A', logprob: -2});
-  assert.throws(() => parseScores(duplicate));
-  const reasoning = response(); reasoning.choices[0].message.reasoning = 'thinking';
-  assert.throws(() => parseScores(reasoning));
-  const multi = response(); multi.choices[0].logprobs.content.push(multi.choices[0].logprobs.content[0]);
-  assert.throws(() => parseScores(multi));
+  for (const mutate of [r => { r.model = 'qwen'; }, r => { r.model = 'jev-latest'; },
+    r => { r.answers.investigation.confidence = '0.7'; }, r => { r.answers.investigation.confidence = 1.1; },
+    r => { r.answers.investigation.type = 'noul'; }, r => { r.answers.investigation.probabilities.E = 0; }]) {
+    const invalid = response(); mutate(invalid);
+    assert.throws(() => parseJevAnswer(invalid));
+  }
+  // Preserve the service's selected answer and distribution without local resampling.
+  assert.equal(parseJevAnswer(response(undefined, 'A')).optionId, 'A');
 });
 
 test('missing candidates remain unavailable instead of inventing zero scores', async () => {
-  const value = await addSemanticDiagnosis(failed(), env, {fetch: async () => ({ok: true, json: async () => response([-1, -2])})});
-  assert.equal(value.semantic.code, 'INCOMPLETE_SCORES');
+  const value = await addSemanticDiagnosis(failed(), env, {fetch: async () => jsonResponse(response([0.5, 0.5]))});
+  assert.equal(value.semantic.code, 'INVALID_READOUT');
   assert.equal(value.outcome, 'FAILED');
 });
 
 test('timeout covers stalled fetch and stalled response body', async () => {
-  for (const fetch of [async () => new Promise(() => {}), async () => ({ok: true, json: () => new Promise(() => {})})]) {
+  for (const fetch of [async () => new Promise(() => {}), async () => new Response(new ReadableStream({start() {}}))]) {
     const value = await addSemanticDiagnosis(failed(), {...env, RELEASE_PUBLISHER_JEV_TIMEOUT_MS: '100'}, {fetch});
     assert.equal(value.semantic.code, 'TIMEOUT');
     assert.equal(value.rollback.code, 'BEFORE_DEPLOY');
@@ -143,4 +154,32 @@ test('protected credential load failure is explicit and does not trigger inferen
   const diagnostic = await addSemanticDiagnosis(failed(), {RELEASE_PUBLISHER_JEV_CONFIG_ERROR: 'true'});
   assert.equal(diagnostic.semantic.code, 'INVALID_CONFIG');
   assert.equal(diagnostic.outcome, 'FAILED');
+});
+
+test('old gateway and non-Jev model configuration cannot send a credential', async () => {
+  for (const config of [
+    {RELEASE_PUBLISHER_JEV_BASE_URL: 'http://ccnode.briconbric.com:49530/v1'},
+    {RELEASE_PUBLISHER_JEV_BASE_URL: 'https://api.typesafe.ai.attacker.invalid'},
+    {RELEASE_PUBLISHER_JEV_BASE_URL: 'https://api.typesafe.ai/?token=PRIVATE_SENTINEL'},
+    {RELEASE_PUBLISHER_JEV_MODEL: 'qwen'}
+  ]) {
+    let calls = 0;
+    const value = await addSemanticDiagnosis(failed(), {...env, ...config}, {fetch: async () => { calls++; }});
+    assert.equal(value.semantic.code, 'INVALID_CONFIG');
+    assert.equal(calls, 0);
+  }
+});
+
+test('authentication and rate-limit failures are explicit, sanitized and never retried', async () => {
+  for (const [status, code] of [[401, 'AUTH_FAILED'], [403, 'AUTH_FAILED'], [429, 'RATE_LIMITED'], [529, 'REQUEST_FAILED']]) {
+    let calls = 0;
+    const value = await addSemanticDiagnosis(failed(), env, {fetch: async () => {
+      calls++;
+      return new Response('PRIVATE_SENTINEL', {status});
+    }});
+    assert.equal(calls, 1);
+    assert.equal(value.semantic.code, code);
+    assert.equal(JSON.stringify(value).includes('PRIVATE_SENTINEL'), false);
+    assert.equal(value.outcome, 'FAILED');
+  }
 });
