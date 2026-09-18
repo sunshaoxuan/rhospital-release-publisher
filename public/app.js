@@ -609,6 +609,28 @@
     logs.scrollTop = logs.scrollHeight;
   }
 
+  function diagnosticMarkup(diagnostic) {
+    if (!diagnostic) return '';
+    const semantic = diagnostic.semantic || {};
+    const observations = diagnostic.observations || [];
+    return `<section class="release-diagnostic">
+      <h3>${escapeHtml(diagnostic.title)}</h3>
+      <p>${escapeHtml(diagnostic.summary)}</p>
+      <p><strong>回滚依据：</strong>${escapeHtml(diagnostic.rollback.text)}</p>
+      ${diagnostic.firstFailure ? `<p><strong>首次失败：</strong>${escapeHtml(diagnostic.firstFailure.title)}</p>` : ''}
+      <p><strong>下一步：</strong>${escapeHtml(diagnostic.nextAction)}</p>
+      ${diagnostic.scope === 'retained_history' ? '<p class="diagnostic-note">本次依据历史保留片段复核，早期日志可能已截断。</p>' : ''}
+      ${diagnostic.hasWarnings && !observations.length ? '<p>汇总日志中存在警告，请展开执行日志查看。</p>' : ''}
+      ${observations.length ? `<details><summary>查看 ${observations.length} 项步骤证据</summary><ul>${observations.map(item =>
+        `<li>${escapeHtml(item.id)} · ${escapeHtml(item.title)} · ${escapeHtml(statusLabel(item.status))}${item.warning ? ' · 有警告' : ''}${item.errorText ? ' · 有异常文本' : ''}</li>`).join('')}</ul></details>` : ''}
+      <div class="semantic-diagnostic"><strong>语义辅助判断</strong>
+        ${semantic.status === 'AVAILABLE' ? `<p>${escapeHtml(semantic.category)}</p><p class="diagnostic-scores">${semantic.scores.map(item => `${escapeHtml(item.label)} ${(item.score * 100).toFixed(1)}%`).join(' · ')}</p>` : ''}
+        <p class="diagnostic-note">${escapeHtml(semantic.reason || '辅助诊断状态待确认。')}</p>
+      </div>
+      ${diagnostic.persistenceWarning ? `<p>${escapeHtml(diagnostic.persistenceWarning)}</p>` : ''}
+    </section>`;
+  }
+
   function renderHistory(pageResult) {
     const entries = Array.isArray(pageResult)
       ? pageResult
@@ -664,6 +686,24 @@
           <div><span>最慢步骤</span><b>${escapeHtml(slowestStepLabel(item.slowestStep))}</b></div>
         </div>
       `;
+      card.insertAdjacentHTML('beforeend', diagnosticMarkup(item.diagnostics));
+      const diagnoseButton = document.createElement('button');
+      diagnoseButton.type = 'button';
+      diagnoseButton.className = 'secondary slim';
+      diagnoseButton.textContent = '复核发布结果';
+      diagnoseButton.addEventListener('click', async () => {
+        diagnoseButton.disabled = true;
+        diagnoseButton.textContent = '正在复核';
+        try {
+          await requestJson(`/api/history/${encodeURIComponent(item.id)}/diagnose`, {method: 'POST'});
+          await loadHistory();
+        } catch (error) {
+          setStatus(error.message, 'error');
+          diagnoseButton.disabled = false;
+          diagnoseButton.textContent = '复核发布结果';
+        }
+      });
+      card.appendChild(diagnoseButton);
       history.appendChild(card);
     }
     for (const button of history.querySelectorAll('.history-delete')) {
@@ -983,6 +1023,7 @@
       renderPlan(job.plan);
     }
     renderLogs(job.logs || []);
+    document.getElementById('release-diagnostics').innerHTML = diagnosticMarkup(job.diagnostics);
     cancelBtn.disabled = !(job.status === 'RUNNING' || job.status === 'CANCELLING');
     if (isActiveJobStatus(job.status)) {
       const elapsed = Number(job.stepElapsedSeconds || 0);
@@ -998,7 +1039,8 @@
       setStatus(`${phase}: ${job.currentStepTitle || job.currentStepKey || '等待执行'}，已运行 ${formatDuration(elapsed * 1000)}${timeoutText}${heartbeatText}`,
         job.cutoverCommitted === true ? 'success' : '');
     } else {
-      setStatus(`执行状态: ${job.status}`, terminalStatusKind(job.status));
+      setStatus(job.diagnostics?.title || `执行状态: ${job.status}`,
+        job.diagnostics?.hasWarnings && job.status === 'EXECUTED' ? '' : terminalStatusKind(job.status));
     }
     restorePageScroll(pageScroll);
   }

@@ -1002,3 +1002,18 @@ button.danger {
     font-size: 15px;
   }
 }
+
+.release-diagnostic {
+  margin: 16px 0;
+  padding: 18px;
+  border: 2px solid var(--line);
+  background: #fff9e8;
+  color: #252525;
+  overflow-wrap: anywhere;
+}
+.release-diagnostic h3 { margin: 0 0 10px; font-size: 20px; }
+.release-diagnostic p { margin: 8px 0; line-height: 1.6; }
+.release-diagnostic summary { cursor: pointer; font-weight: 700; }
+.release-diagnostic li { margin: 8px 0; }
+.semantic-diagnostic { margin-top: 14px; padding-top: 12px; border-top: 1px solid #a49b89; }
+.diagnostic-note, .diagnostic-scores { font-size: 14px; color: #49443b; }

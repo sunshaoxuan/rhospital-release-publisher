@@ -3,6 +3,7 @@ const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
 const {spawn, spawnSync} = require('child_process');
+const {buildReleaseDiagnostics, addSemanticDiagnosis} = require('./releaseDiagnostics');
 const {expectedTomcatVersion, tomcatJarCheckScript} = require('./tomcatSecurityCheck');
 
 const DEFAULT_IMAGE_NAME = 'hospital-backend';
@@ -1401,6 +1402,42 @@ function releaseStep({
 }
 
 async function executePlan(projectRoot, request, env = process.env, options = {}) {
+  const result = await executePlanSteps(projectRoot, request, env, options);
+  result.diagnostics = buildReleaseDiagnostics(result);
+  if (result.status === 'DRY_RUN') return result;
+  const entry = buildHistoryEntry(result.status, result.plan, result.logs, result.completedStepKeys);
+  entry.diagnostics = result.diagnostics;
+  // Persist the authoritative outcome before the optional network operation.
+  appendReleaseHistory(projectRoot, entry, env);
+  result.historyEntryId = entry.id;
+  result.diagnostics = await addSemanticDiagnosis(result.diagnostics, env, {fetch: options.diagnosticFetch});
+  try {
+    updateHistoryDiagnostics(projectRoot, entry.id, result.diagnostics, env);
+  } catch {
+    result.diagnostics.persistenceWarning = '辅助诊断保存失败，原始发布结果已保存。';
+  }
+  return result;
+}
+
+function updateHistoryDiagnostics(projectRoot, id, diagnostics, env = process.env) {
+  const entries = readReleaseHistoryAll(projectRoot, env);
+  const entry = entries.find(item => item.id === id);
+  if (!entry) return false;
+  entry.diagnostics = diagnostics;
+  fs.writeFileSync(historyFile(env), `${JSON.stringify(entries, null, 2)}\n`, 'utf8');
+  return true;
+}
+
+async function diagnoseHistoryEntry(projectRoot, id, env = process.env, options = {}) {
+  const entry = readReleaseHistoryAll(projectRoot, env).find(item => item.id === id);
+  if (!entry) throw new Error('发布历史不存在');
+  const base = entry.diagnostics || buildReleaseDiagnostics(entry, 'retained_history');
+  const diagnostics = await addSemanticDiagnosis(base, env, options);
+  updateHistoryDiagnostics(projectRoot, id, diagnostics, env);
+  return diagnostics;
+}
+
+async function executePlanSteps(projectRoot, request, env = process.env, options = {}) {
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
   const signal = options.signal;
   const runCommand = typeof options.runCommand === 'function' ? options.runCommand : runPowerShell;
@@ -1586,8 +1623,6 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
       runtimePlan = markStepStatus(runtimePlan, completedStepKeys, failedStepKey,
         error.name === 'CancellationError' ? 'cancelled' : 'failed', stepLogs, stepTiming);
       const committedLogs = logs.slice();
-      appendReleaseHistory(projectRoot,
-        buildHistoryEntry('RECOVERY_REQUIRED', runtimePlan, committedLogs, completedStepKeys), env);
       return {
         status: 'RECOVERY_REQUIRED',
         plan: runtimePlan,
@@ -1603,8 +1638,6 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
       runtimePlan = markStepStatus(runtimePlan, completedStepKeys, failedStepKey,
         error.name === 'CancellationError' ? 'cancelled' : 'failed', stepLogs, stepTiming);
       const recoveryLogs = logs.slice();
-      appendReleaseHistory(projectRoot,
-        buildHistoryEntry('RECOVERY_REQUIRED', runtimePlan, recoveryLogs, completedStepKeys), env);
       return {
         status: 'RECOVERY_REQUIRED',
         plan: runtimePlan,
@@ -1663,8 +1696,6 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
         runtimePlan = markStepStatus(runtimePlan, completedStepKeys, rollbackDecisionStep.key,
           'failed', stepLogs, stepTiming);
         const heldLogs = logs.slice();
-        appendReleaseHistory(projectRoot,
-          buildHistoryEntry('RECOVERY_REQUIRED', runtimePlan, heldLogs, completedStepKeys), env);
         return {
           status: 'RECOVERY_REQUIRED',
           plan: runtimePlan,
@@ -1682,8 +1713,6 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
         runtimePlan = markStepStatus(runtimePlan, completedStepKeys, rollbackDecisionStep.key,
           'done', stepLogs, stepTiming);
         const heldLogs = logs.slice();
-        appendReleaseHistory(projectRoot,
-          buildHistoryEntry('RECOVERY_REQUIRED', runtimePlan, heldLogs, completedStepKeys), env);
         return {
           status: 'RECOVERY_REQUIRED',
           plan: runtimePlan,
@@ -1719,30 +1748,25 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
         pushStepLog(rollbackStep.key, `[DONE] 自动恢复完成，用时 ${formatDurationMs(durationMs)}`);
         runtimePlan = markStepStatus(runtimePlan, completedStepKeys, rollbackStep.key, 'done', stepLogs, stepTiming);
         const recoveredLogs = logs.slice();
-        appendReleaseHistory(projectRoot, buildHistoryEntry('ROLLED_BACK', runtimePlan, recoveredLogs, completedStepKeys), env);
         return {status: 'ROLLED_BACK', plan: runtimePlan, logs: recoveredLogs, completedStepKeys};
       } catch (recoveryError) {
         finishStepTimer(rollbackStep.key, stepTiming);
         pushStepLog(rollbackStep.key, `RECOVERY_REQUIRED: ${recoveryError.message}`);
         runtimePlan = markStepStatus(runtimePlan, completedStepKeys, rollbackStep.key, 'failed', stepLogs, stepTiming);
         const recoveryLogs = logs.slice();
-        appendReleaseHistory(projectRoot, buildHistoryEntry('RECOVERY_REQUIRED', runtimePlan, recoveryLogs, completedStepKeys), env);
         return {status: 'RECOVERY_REQUIRED', plan: runtimePlan, logs: recoveryLogs, completedStepKeys};
       }
     }
     if (error.name === 'CancellationError') {
       const cancelledLogs = logs.slice();
       const cancelledPlan = runtimePlan;
-      appendReleaseHistory(projectRoot, buildHistoryEntry('CANCELLED', cancelledPlan, cancelledLogs, completedStepKeys), env);
       return {status: 'CANCELLED', plan: cancelledPlan, logs: cancelledLogs, completedStepKeys};
     }
     const errorLogs = logs.slice();
     const failedPlan = runtimePlan;
-    appendReleaseHistory(projectRoot, buildHistoryEntry('ERROR', failedPlan, errorLogs, completedStepKeys), env);
     return {status: 'ERROR', plan: failedPlan, logs: errorLogs, completedStepKeys};
   }
   const markedPlan = markCompletedSteps(plan, completedStepKeys, 'done', stepLogs, stepTiming);
-  appendReleaseHistory(projectRoot, buildHistoryEntry('EXECUTED', markedPlan, logs, completedStepKeys), env);
   return {
     status: 'EXECUTED',
     plan: markedPlan,
@@ -1869,6 +1893,7 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
     sshTarget: plan.config.remoteSshTarget,
     remoteComposeDir: plan.config.remoteComposeDir,
     catalogSchemaVersion: plan.config.catalogSchemaVersion || null,
+    diagnostics: buildReleaseDiagnostics({status, plan, logs}),
     stepCount: plan.steps.length,
     completedStepCount: completedStepKeys.length,
     totalDurationMs,
@@ -4665,6 +4690,8 @@ module.exports = {
   readReleaseConfig,
   createPlan,
   executePlan,
+  diagnoseHistoryEntry,
+  updateHistoryDiagnostics,
   readReleaseHistory,
   readReleaseHistoryPage,
   deleteReleaseHistoryEntry,

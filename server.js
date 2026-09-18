@@ -9,6 +9,8 @@ const {
   readReleaseConfig,
   createPlan,
   executePlan,
+  diagnoseHistoryEntry,
+  updateHistoryDiagnostics,
   appendReleaseHistory,
   buildHistoryEntry,
   readReleaseHistory,
@@ -53,6 +55,11 @@ const port = Number(process.env.RELEASE_PUBLISHER_PORT || 8787);
 const bindAddress = process.env.RELEASE_PUBLISHER_HOST || '127.0.0.1';
 const jobs = new Map();
 const jobControllers = new Map();
+const pendingDiagnoses = new Set();
+const {buildReleaseDiagnostics, loadProtectedDiagnosticConfig} = require('./src/releaseDiagnostics');
+if (!Object.keys(process.env).some(key => key.startsWith('RELEASE_PUBLISHER_JEV_'))) {
+  Object.assign(process.env, loadProtectedDiagnosticConfig(__dirname));
+}
 const jobStorePath = path.resolve(process.env.RELEASE_PUBLISHER_JOBS_FILE || path.join(__dirname, '.release-jobs.json'));
 let persistJobsTimer = null;
 let publisherRestartTimer = null;
@@ -151,6 +158,18 @@ const server = http.createServer(async (req, res) => {
         page: requestUrl.searchParams.get('page') || 1,
         limit: requestUrl.searchParams.get('limit') || 10
       }));
+    }
+    if (pathname.startsWith('/api/history/') && pathname.endsWith('/diagnose') && req.method === 'POST') {
+      if (hasActivePublisherJobs() || jobControllers.size || pendingDiagnoses.size) {
+        return sendJson(res, 409, {message: '请等待当前执行或诊断结束。'});
+      }
+      const id = decodeURIComponent(pathname.slice('/api/history/'.length, -'/diagnose'.length));
+      pendingDiagnoses.add(id);
+      try {
+        return sendJson(res, 200, await diagnoseHistoryEntry(projectRoot, id));
+      } finally {
+        pendingDiagnoses.delete(id);
+      }
     }
     if (pathname === '/api/history' && req.method === 'DELETE') {
       return sendJson(res, 200, clearReleaseHistory(projectRoot));
@@ -440,8 +459,16 @@ async function runExecutionJobInIsolatedWorktree(job, body, controller, createdA
         job.executionProjectRoot = '';
       } catch (cleanupError) {
         job.logs = (job.logs || []).concat(`WARNING: ${cleanupError.message}`);
+        const semantic = job.diagnostics?.semantic;
+        job.diagnostics = buildReleaseDiagnostics(job);
+        if (semantic) job.diagnostics.semantic = semantic;
+        if (job.historyEntryId) {
+          try { updateHistoryDiagnostics(projectRoot, job.historyEntryId, job.diagnostics); }
+          catch { job.diagnostics.persistenceWarning = '清理警告的诊断保存失败，请保留当前任务日志。'; }
+        }
       }
     }
+    if (!job.diagnostics) job.diagnostics = buildReleaseDiagnostics(job);
     jobControllers.delete(job.id);
     persistJobs();
   }

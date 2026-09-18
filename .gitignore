@@ -9,3 +9,4 @@ screenshots/
 .release-history-migrations.json
 .release-jobs.json
 .release-worktrees/
+.qa/

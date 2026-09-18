@@ -14,6 +14,7 @@ const {
   DEFAULT_FORUM_REMOTE_COMPOSE_DIR,
   defaultProjectRoot,
   executePlan,
+  diagnoseHistoryEntry,
   resolveDockerContextDetails,
   resolvePublisherDockerServerDetails,
   resolveReleaseTargetDockerServerName,
@@ -2261,6 +2262,58 @@ test('successful game release cleans exited service containers after every final
   assert.ok(cleanupCommandIndex > tradePoolCommandIndex);
   const history = readReleaseHistory(root, 1, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath})[0];
   assert.equal(history.stepSummary.find(step => step.key === 'cleanup-game-release-containers').status, 'done');
+  assert.equal(history.diagnostics.outcome, 'SUCCESS');
+});
+
+test('terminal evidence is persisted before semantic diagnosis and model failure preserves success with warnings', async () => {
+  const root = tempProject(sampleXml);
+  const env = {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'diagnostics.json'),
+    RELEASE_PUBLISHER_JEV_BASE_URL: 'http://127.0.0.1:1234/v1', RELEASE_PUBLISHER_JEV_MODEL: 'fixture',
+    RELEASE_PUBLISHER_JEV_API_KEY: 'test-secret'
+  };
+  const runner = testCommandRunner();
+  let requests = 0;
+  const result = await executePlan(root, {appTag: '2026070702', dryRun: false, includeStackDeploy: true}, env, {
+    runCommand: async (...args) => {
+      const output = await runner(...args);
+      if (decodedScriptTree(args[1]).includes('post_release_container_cleanup=PASS')) {
+        args[3]('WARNING: old container cleanup needs review');
+      }
+      return output;
+    },
+    diagnosticFetch: async () => {
+      requests++;
+      const saved = readReleaseHistory(root, 1, env)[0];
+      assert.equal(saved.status, 'EXECUTED');
+      assert.equal(saved.diagnostics.outcome, 'SUCCESS_WITH_WARNINGS');
+      throw new Error('test-secret');
+    }
+  });
+  assert.equal(requests, 1);
+  assert.equal(result.status, 'EXECUTED');
+  assert.equal(result.diagnostics.semantic.code, 'REQUEST_FAILED');
+  assert.equal(JSON.stringify(result.diagnostics).includes('test-secret'), false);
+  assert.equal(readReleaseHistory(root, 20, env).length, 1);
+  assert.equal(readReleaseHistory(root, 1, env)[0].diagnostics.semantic.code, 'REQUEST_FAILED');
+});
+
+test('historical diagnosis labels retained evidence and never resurrects deleted history', async () => {
+  const root = tempProject(sampleXml);
+  const env = {RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'diagnose-old.json'),
+    RELEASE_PUBLISHER_JEV_BASE_URL: 'http://127.0.0.1:1234/v1', RELEASE_PUBLISHER_JEV_MODEL: 'fixture',
+    RELEASE_PUBLISHER_JEV_API_KEY: 'test-secret'};
+  appendReleaseHistory(root, {id: 'historical-failure', status: 'ERROR', stepSummary: [
+    {key: 'test-game-backend', title: '后端测试', status: 'failed', logs: ['ERROR: tests failed']}
+  ]}, env);
+  const diagnostic = await diagnoseHistoryEntry(root, 'historical-failure', env, {fetch: async () => {
+    clearReleaseHistory(root, env);
+    return {ok: false};
+  }});
+  assert.equal(diagnostic.scope, 'retained_history');
+  assert.equal(diagnostic.firstFailure.stepKey, 'test-game-backend');
+  assert.equal(readReleaseHistory(root, 20, env).length, 0);
 });
 
 test('observing target holds when the fatal full-chain threshold is not met', async () => {
