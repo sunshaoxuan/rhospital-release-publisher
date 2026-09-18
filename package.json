@@ -15,8 +15,5 @@
   },
   "engines": {
     "node": ">=22"
-  },
-  "dependencies": {
-    "@typesafe-ai/sdk": "0.6.0"
   }
 }

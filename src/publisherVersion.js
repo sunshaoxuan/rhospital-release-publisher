@@ -3,7 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const {spawnSync} = require('child_process');
 
-const RUNTIME_PATHS = ['package.json', 'package-lock.json', 'server.js', 'src', 'public'];
+const RUNTIME_PATHS = ['package.json', 'server.js', 'src', 'public'];
 
 function capturePublisherRuntimeVersion(repositoryRoot, options = {}) {
   const repository = readPublisherRepositoryVersion(repositoryRoot, options);

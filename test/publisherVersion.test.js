@@ -118,7 +118,6 @@ test('idle publisher process exits after a clean runtime commit', {timeout: 6000
       cwd: root,
       env: {
         ...process.env,
-        NODE_PATH: path.resolve(__dirname, '../node_modules'),
         RELEASE_PUBLISHER_HOST: '127.0.0.1',
         RELEASE_PUBLISHER_PORT: '0',
         RELEASE_PUBLISHER_VERSION_CHECK_INTERVAL_MS: '100',
@@ -153,7 +152,6 @@ test('restart drain rejects a release request that finishes after the repository
       cwd: root,
       env: {
         ...process.env,
-        NODE_PATH: path.resolve(__dirname, '../node_modules'),
         RELEASE_PUBLISHER_HOST: '127.0.0.1',
         RELEASE_PUBLISHER_PORT: '0',
         RELEASE_PUBLISHER_VERSION_CHECK_INTERVAL_MS: '100',
@@ -204,13 +202,6 @@ test('runtime content hash changes when a displayed asset changes', () => {
 
   fs.appendFileSync(path.join(root, 'public', 'styles.css'), '.version { color: blue; }\n', 'utf8');
 
-  assert.notEqual(publisherContentHash(root), before);
-});
-
-test('runtime content hash includes the installed dependency lock contract', () => {
-  const root = tempPublisherRepository();
-  const before = publisherContentHash(root);
-  fs.writeFileSync(path.join(root, 'package-lock.json'), '{"lockfileVersion":3}\n');
   assert.notEqual(publisherContentHash(root), before);
 });
 

@@ -4,9 +4,9 @@
 
 发布记录需要明确展示检查完成、检查完成但存在提示、失败、回滚完成、目标版本保留及回滚失败。首次失败步骤与回滚依据必须保留；后续恢复错误不能覆盖首次失败。模型用于辅助排查分类，执行状态、发布门禁、健康检查和自动回滚规则由现有发布引擎决定。
 
-2026-09-18 需求更新：辅助分类直接调用 TypeSafe 官方 Jev，让用户在历史发布记录中评估实际效果。使用官方 `@typesafe-ai/sdk` 0.6.0；旧 Qwen 候选 token 读出路径已删除。当前接入 TypeSafe 直连 API，需要账户获批及有效密钥。Vercel Gateway 使用独立协议，本实现未接入。
+2026-09-18 需求确认：辅助分类使用现有本地 Qwen 服务，不依赖 TypeSafe 托管 Jev、TypeSafe 账户或 TypeSafe API key。
 
-完成标准：通过发布器测试、配置验证、真实 Jev 历史记录调用及页面检查。当前账户与凭据尚未提供，真实模型调用和效果评估待完成；模拟响应只验证接口行为。
+本功能采用 OpenJev 式候选 token 概率读出方法，使用现存 Qwen API。没有安装 Jev 模型或 OpenJev Python 推理器，也不声称复现 Jev 的模型能力或 OpenJev 的共享前缀性能。
 
 ## 使用方式
 
@@ -20,28 +20,26 @@
 
 服务端只发送固定枚举：结果类别、恢复决策、是否健康切换、证据范围、步骤类别、步骤状态、警告标志与预定义异常信号。原始日志、命令、地址、路径、标题、配置和凭据不进入模型输入。主要失败证据优先，最多 32 项观察。
 
-请求经 SDK 发往 `https://api.typesafe.ai/v1/systemone`，包含 `model`、`state` 和一个 `choice` 问题 `investigation`。候选为 A 发布流程或环境、B 上线版本运行异常、C 维护警告、D 证据不足。四项概率必须完整、有限、位于 0 至 1 且总和与 1 的偏差不超过 0.0001；标签、置信度和实际 Jev 版本必须合法。结果保留服务选择与原始概率，不进行本地重新选择或归一化。
+请求使用 `reasoning_effort=none`、`temperature=1`、`max_tokens=1`、`logprobs=true`、`top_logprobs=20`。候选为 A 发布流程或环境、B 上线版本运行异常、C 维护警告、D 证据不足。必须收到单个合法标签和全部四个有限 logprob；缺失候选、额外思考或多 token 返回时显示不可用。只对四个候选归一化，不把分数称为正确率或置信度。它是粗粒度排查分类，不能替代原始日志根因分析。
 
-诊断记录保存 `provider=typesafe`、实际模型版本、`promptVersion=publisher-jev-v2`、请求摘要、概率和服务报告的置信度。页面说明显示实际 Jev 版本和置信度。该统计量在我们的发布数据上的准确性仍需评估。现有结构化信号支持粗粒度排查分类；详细根因仍需原始日志与代码证据。
-
-清洁成功与 dry run 不调用模型。默认请求期限为 10 秒，可配置 100 至 30000 毫秒。期限覆盖响应正文读取。SDK 日志与自动重试关闭，禁止跟随 HTTP 重定向，错误响应正文不会写入诊断。401/403 显示凭据或访问权限问题，429 显示限流。历史复核一次只允许一个请求，已有发布执行时返回 409。服务不可用时显示明确原因。
+清洁成功与 dry run 不调用模型。默认请求期限为 10 秒，可配置 100 至 30000 毫秒。期限覆盖响应正文读取。禁止跟随 HTTP 重定向，错误响应正文不会写入诊断。历史复核一次只允许一个请求，已有发布执行时返回 409。
 
 ## 配置
 
-先在 [TypeSafe](https://typesafe.ai/) 取得访问权限和 API key。Windows 使用当前运行账户的 DPAPI 加密凭据：
+Windows 受控启动脚本支持当前运行账户的 DPAPI 加密凭据：
 
 ```powershell
 .\scripts\configure-release-diagnostics.ps1
 ```
 
-脚本以隐藏输入读取 TypeSafe 密钥，保存到 Git 忽略的 `.service/typesafe-diagnostics.clixml`。地址固定为 `https://api.typesafe.ai`，默认模型为 `jev-latest`；使用 `-Model jev-1.13.0` 等已获权限的版本可固定模型。原 `.service/semantic-diagnostics.clixml` 不会加载，避免把旧 ccnode 凭据发送至 TypeSafe。配置切换不转换或复用旧密钥；确认不再需要旧配置后可删除旧文件。
+脚本以隐藏输入读取密钥，保存到 Git 忽略的 `.service/semantic-diagnostics.clixml`。默认地址为 `http://ccnode.briconbric.com:49530/v1`，默认模型为 `hf.co/unsloth/Qwen3.8-27B-GGUF:UD-IQ3_S`。需要更换时使用 `-BaseUrl` 和 `-Model`。此地址当前使用 HTTP，链路不提供 TLS 加密；不要将本配置迁往不可信网络。
 
 发布器 Node 进程在启动时读取该文件，通过隐藏的 PowerShell 子进程解密，凭据仅在进程间管道和内存中传递。必须使用保存凭据的 Windows 账户运行。正在执行的发布结束后，按现有空闲重启机制加载配置；本功能不主动重启正在发布的服务。已设置任一 `RELEASE_PUBLISHER_JEV_` 环境变量时，使用显式环境配置，避免混用另一地址的凭据。
 
 直接运行 Node 时设置以下服务进程环境变量：
 
-- 可选 `RELEASE_PUBLISHER_JEV_BASE_URL`，仅接受 `https://api.typesafe.ai`
-- 可选 `RELEASE_PUBLISHER_JEV_MODEL`，默认 `jev-latest`
+- `RELEASE_PUBLISHER_JEV_BASE_URL`
+- `RELEASE_PUBLISHER_JEV_MODEL`
 - `RELEASE_PUBLISHER_JEV_API_KEY` 或 `RELEASE_PUBLISHER_JEV_API_KEY_FILE`，后者指向仅包含密钥的受保护文件
 - 可选 `RELEASE_PUBLISHER_JEV_TIMEOUT_MS`
 
@@ -49,11 +47,7 @@
 
 ## 验证
 
-`npm test` 覆盖原有发布和恢复流程，以及警告识别、首次失败、回滚结果、官方 SDK 请求契约、模型超时、候选缺失、非法概率、认证及限流、旧地址拒绝、无敏感原文外传、终态先持久化、历史删除不被诊断复活。测试采用模拟 HTTP 响应，不计为真实模型效果。
-
-配置有效密钥并受控重启后，在历史失败记录点击“复核发布结果”。验收要求返回 `semantic.provider=typesafe` 和实际 `jev-*` 版本，页面显示分类与概率，原历史状态及回滚记录保持一致。保留不同类型的人工标注案例，比较误报、漏报及判断耗时后再评估收益。
-
-接口依据：[官方 SDK](https://github.com/typesafe-ai/typesafe-sdk-js)、[请求及响应类型](https://github.com/typesafe-ai/typesafe-sdk-js/blob/main/src/types.ts)。
+`npm test` 覆盖原有发布和恢复流程，以及警告识别、首次失败、回滚结果、模型超时、候选缺失、非法分数、无敏感原文外传、终态先持久化、历史删除不被诊断复活。
 
 UI 隔离环境：
 
@@ -62,8 +56,6 @@ $env:DIAGNOSTICS_FIXTURE='1'
 $env:UI_FIXTURE_PORT='18789'
 node test/fixtures/execution-ui-server.cjs
 ```
-
-增加环境变量 `JEV_FIXTURE=1` 可验证官方响应形状的模拟结果：复核 `held` 记录显示模拟的 Jev 分类、概率和版本；复核 `warning` 记录显示未配置凭据。所有数据均为 fixture，不会向外部服务发送请求。
 
 访问 `http://127.0.0.1:18789`，覆盖警告、保留目标、回滚失败、回滚完成、部署前失败五类记录。此环境使用真实页面和模拟执行数据，不执行生产命令。真实模型可使用结构化历史证据单独验证。
 

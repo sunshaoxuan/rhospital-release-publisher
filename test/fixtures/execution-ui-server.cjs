@@ -3,7 +3,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '../../public');
-const {buildReleaseDiagnostics, addSemanticDiagnosis} = require('../../src/releaseDiagnostics');
+const {buildReleaseDiagnostics} = require('../../src/releaseDiagnostics');
 const diagnosticsMode = process.env.DIAGNOSTICS_FIXTURE === '1';
 const diagnosticCases = [
   ['warning', 'EXECUTED', [{key: 'cleanup-game-release-containers', title: '清理历史容器', status: 'done', logs: ['WARNING: cleanup failed']}]],
@@ -33,7 +33,7 @@ function job() {
     currentStepTitle: '交付镜像', plan: plan(finished ? 'done' : 'running'), logs: ['Browser fixture only'],
     diagnostics: diagnosticsMode && finished ? diagnosticCases[0].diagnostics : null};
 }
-const server = http.createServer(async (req, res) => {
+const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://127.0.0.1');
   const json = (value, status = 200) => {
     res.writeHead(status, {'Content-Type': 'application/json'});
@@ -55,15 +55,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname.startsWith('/api/history/') && url.pathname.endsWith('/diagnose') && req.method === 'POST') {
     const entry = diagnosticCases.find(item => url.pathname === `/api/history/${item.id}/diagnose`);
     if (!entry) return json({message: 'Missing fixture'}, 404);
-    if (process.env.JEV_FIXTURE === '1') {
-      const env = entry.id === 'warning' ? {} : {RELEASE_PUBLISHER_JEV_API_KEY: 'fixture-only'};
-      entry.diagnostics = await addSemanticDiagnosis(entry.diagnostics, env, {fetch: async () => Response.json({
-        model: 'jev-1.13.0', answers: {investigation: {type: 'choice', choice: 'B', confidence: 0.7,
-          probabilities: {A: 0.1, B: 0.8, C: 0.06, D: 0.04}}}
-      })});
-    } else {
-      entry.diagnostics.semantic = {status: 'UNAVAILABLE', code: 'TIMEOUT', reason: '诊断请求超时。'};
-    }
+    entry.diagnostics.semantic = {status: 'UNAVAILABLE', code: 'TIMEOUT', reason: '诊断请求超时。'};
     return json(entry.diagnostics);
   }
   if (url.pathname === '/api/git/branches') return json({branches: [{name: 'master'}]});
