@@ -2131,14 +2131,27 @@ function analyzeReleaseChanges(projectRoot, request = {}, env = process.env, git
     : runGit(projectRoot, ['rev-parse', '--verify', `${gitCommit}^{commit}`], gitRunner).trim();
   const analysisHistoryFile = historyFile(env);
   const historyStat = fs.existsSync(analysisHistoryFile) ? fs.statSync(analysisHistoryFile) : null;
-  const cacheKey = `${path.resolve(projectRoot)}|${gitBranch}|${targetCommit}|${analysisHistoryFile}|${historyStat ? `${historyStat.mtimeMs}:${historyStat.size}` : 'missing'}`;
+  const cacheKey = `${path.resolve(projectRoot)}|${gitBranch}|${branchCommit}|${targetCommit}|${analysisHistoryFile}|${historyStat ? `${historyStat.mtimeMs}:${historyStat.size}` : 'missing'}`;
   const cached = releaseChangeAnalysisCache.get(cacheKey);
   if (cached && Date.now() - cached.createdAt < 10000) {
     return cached.analysis;
   }
-  if (gitCommit !== 'latest'
-      && !gitCommandSucceeds(projectRoot, ['merge-base', '--is-ancestor', targetCommit, branchCommit], gitRunner)) {
-    throw new Error(`目标提交 ${targetCommit.slice(0, 8)} 不属于发布分支 ${gitBranch}`);
+  if (gitCommit !== 'latest') {
+    const targetAlreadyOnBranch = gitCommandSucceeds(
+      projectRoot,
+      ['merge-base', '--is-ancestor', targetCommit, branchCommit],
+      gitRunner
+    );
+    const proposedFastForward = request.allowProposedFastForward === true
+      && request.dryRun === true
+      && gitCommandSucceeds(
+        projectRoot,
+        ['merge-base', '--is-ancestor', branchCommit, targetCommit],
+        gitRunner
+      );
+    if (!targetAlreadyOnBranch && !proposedFastForward) {
+      throw new Error(`目标提交 ${targetCommit.slice(0, 8)} 不属于发布分支 ${gitBranch}，也不能从该分支快进`);
+    }
   }
 
   const history = readReleaseHistoryAll(projectRoot, env);

@@ -2646,6 +2646,54 @@ test('detects deployable target changes and blocks unchanged or rollback release
   assert.equal(assertReleaseTargetChanged(rollback, 'forum', 'reuse'), true);
 });
 
+test('allows a dry-run pre-push plan for a proposed fast-forward commit', () => {
+  const root = tempGitProject();
+  const branch = runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const historyPath = path.join(root, 'history.json');
+  fs.writeFileSync(historyPath, `${JSON.stringify([{
+    status: 'EXECUTED',
+    releaseTarget: 'game',
+    releaseCommit: baseline,
+    appTag: '20260917',
+    imageTag: 'hospital-backend:20260917',
+    includeStackDeploy: true
+  }], null, 2)}\n`, 'utf8');
+
+  runGit(root, ['checkout', '-b', 'proposal']);
+  fs.mkdirSync(path.join(root, 'src', 'main'), {recursive: true});
+  fs.writeFileSync(path.join(root, 'src', 'main', 'proposed.txt'), 'proposed\n', 'utf8');
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'proposed release']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+
+  assert.throws(() => analyzeReleaseChanges(root, {
+    gitBranch: branch,
+    gitCommit: target,
+    dryRun: true
+  }, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath}), /不能从该分支快进/);
+
+  const analysis = analyzeReleaseChanges(root, {
+    gitBranch: branch,
+    gitCommit: target,
+    dryRun: true,
+    allowProposedFastForward: true
+  }, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath});
+  assert.equal(analysis.targetCommit, target);
+  assert.equal(analysis.targets.game.direction, 'forward');
+
+  runGit(root, ['checkout', branch]);
+  fs.writeFileSync(path.join(root, 'branch-only.txt'), 'diverged\n', 'utf8');
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'diverge branch']);
+  assert.throws(() => analyzeReleaseChanges(root, {
+    gitBranch: branch,
+    gitCommit: target,
+    dryRun: true,
+    allowProposedFastForward: true
+  }, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath}), /不能从该分支快进/);
+});
+
 test('uses an observing committed game target as the next production baseline', () => {
   const root = tempGitProject();
   const branch = runGit(root, ['rev-parse', '--abbrev-ref', 'HEAD']).trim();
