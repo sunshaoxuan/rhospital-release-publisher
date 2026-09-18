@@ -3441,3 +3441,29 @@ test('reads committed source larger than the default child process buffer', () =
   assert.equal(resolveCatalogSchemaVersion(root, commit), 20);
   assert.throws(() => resolveCatalogSchemaVersion(root, commit, () => ({error: {code:'ENOBUFS'}, status:null, stdout:'private source'})), /Git read failed: ENOBUFS/);
 });
+
+test('doorplate UI evidence gate is executable and cannot be substituted by an unknown name', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'doorplate UI change\n');
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
+    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-doorplate-ui'];
+  writeReleaseImpact(root, { assessmentId: '20260911-doorplate-ui', coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated', requiredChecks });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'doorplate UI']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
+  const index = key => plan.steps.findIndex(step => step.key === key);
+  assert.ok(index('verify-game-doorplate-ui') > index('test-game-backend'));
+  assert.ok(index('verify-game-doorplate-ui') < index('build-image'));
+  assert.equal(plan.steps[index('verify-game-doorplate-ui')].executable, true);
+  assert.match(plan.steps[index('verify-game-doorplate-ui')].command, /verify-empty-doorplate\.mjs/);
+  writeReleaseImpact(root, { assessmentId: '20260911-invalid-doorplate-ui', coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated', requiredChecks: requiredChecks.map(key => key === 'verify-game-doorplate-ui' ? 'verify-game-doorplate-unknown' : key) });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'invalid gate']);
+  const invalidTarget = runGit(root, ['rev-parse', 'HEAD']).trim();
+  assert.throws(() => createPlan(root, releaseImpactPlanRequest(invalidTarget, baseline, [runtimePath], ['release/release-impact.json'])));
+});

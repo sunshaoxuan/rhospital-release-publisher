@@ -55,6 +55,7 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-emergency-guard',
     'verify-game-emergency-guard-runtime',
     'verify-game-potion-lab',
+    'verify-game-doorplate-ui',
     'verify-design-level-packages',
     'verify-bacteria-result-ui',
     'verify-game-tomcat-image',
@@ -227,6 +228,8 @@ function createPlan(projectRoot, request, env = process.env) {
     : null;
   const requiresEmergencyGuard = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-emergency-guard'));
+  const requiresDoorplateUi = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-doorplate-ui'));
   const requiresPotionLab = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-potion-lab'));
   const requiresDesignPackages = Boolean(releaseImpactAssessment
@@ -266,7 +269,12 @@ function createPlan(projectRoot, request, env = process.env) {
   ]);
   const potionLabCommand = `node ${shellToken(path.resolve(__dirname, '../scripts/verify-potion-lab-release.mjs'))} --project-root .`;
   const emergencyGuardCommand = `node ${shellToken(path.resolve(__dirname, '../scripts/verify-emergency-guard-release.mjs'))} --mode evidence --project-root .`;
+  const doorplateUiCommand = chainPowerShellCommands([
+    'node --experimental-vm-modules --test scripts/tests/empty-hospital-ui.test.mjs scripts/tests/doorplate-countdown.test.mjs scripts/tests/world-chat.test.mjs',
+    'node scripts/validation/world-chat/verify-empty-doorplate.mjs'
+  ]);
   const localEvidenceChecks = [
+    ...(requiresDoorplateUi ? [{key: 'verify-game-doorplate-ui', command: doorplateUiCommand, timeoutSeconds: 600}] : []),
     ...(requiresBacteriaResultUi ? [{key: 'verify-bacteria-result-ui', command: bacteriaResultUiCommand, timeoutSeconds: 1800}] : []),
     ...(requiresDesignPackages ? [{key: 'verify-design-level-packages', command: designPackagesCommand, timeoutSeconds: 1800}] : []),
     ...(requiresPotionLab ? [{key: 'verify-game-potion-lab', command: potionLabCommand, timeoutSeconds: 600}] : []),
@@ -389,6 +397,12 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'build',
       executable: true
     }),
+    ...(requiresDoorplateUi ? [releaseStep({
+      key: 'verify-game-doorplate-ui', title: '核验空地与有人医院门牌一致性',
+      summary: '执行场景生命周期、导航和聊天回归，校验真实容器响应式截图与源码摘要',
+      command: doorplateUiCommand, validation: '功能、几何、视觉与源码一致性全部通过',
+      actionType: 'local-check', executable: true
+    })] : []),
     ...(requiresBacteriaResultUi ? [releaseStep({
       key: 'verify-bacteria-result-ui',
       title: '核验菌落清除室弹窗与交互',
