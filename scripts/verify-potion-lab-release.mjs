@@ -23,6 +23,10 @@ export const SOURCES = [
   'src/test/js/potionRecipeEditor.test.mjs'
 ];
 export const CHECKS = ['editor', 'failureHistory', 'postgres', 'regression', 'visual', 'finalIntent'];
+export const MODAL_SOURCES = [
+  'src/main/resources/static/js/scenes/utils/PotionDevelopmentHistoryPopup.js',
+  'src/test/js/potionModalHistory.test.mjs'
+];
 // Git may check text out as CRLF on Windows and LF in the release container.
 export const sha256 = (bytes, filename = '') => crypto.createHash('sha256').update(
   /\.(png|jpe?g|webp|gif)$/i.test(filename) ? bytes : Buffer.from(bytes.toString('utf8').replace(/\r\n/g, '\n'))
@@ -46,6 +50,12 @@ export function verifyEvidence(root, run = spawnSync) {
   for (const source of SOURCES) {
     if (receipt.sources?.[source] !== sha256(checkedFile(root, source), source)) throw new Error(`Untested source: ${source}`);
   }
+  const hasModalHistory = fs.existsSync(path.join(root, MODAL_SOURCES[0]));
+  if (hasModalHistory) {
+    for (const source of MODAL_SOURCES) {
+      if (receipt.sources?.[source] !== sha256(checkedFile(root, source), source)) throw new Error(`Untested modal source: ${source}`);
+    }
+  }
   for (const check of CHECKS) {
     const result = receipt.checks?.[check];
     if (result?.result !== 'PASS' || !Array.isArray(result.evidence) || !result.evidence.length) throw new Error(`Missing acceptance: ${check}`);
@@ -53,7 +63,8 @@ export function verifyEvidence(root, run = spawnSync) {
       if (evidence.sha256 !== sha256(checkedFile(root, evidence.path), evidence.path)) throw new Error(`Changed evidence: ${check}`);
     }
   }
-  const result = run(process.execPath, ['--test', 'src/test/js/potionRecipeEditor.test.mjs'], {
+  const result = run(process.execPath, ['--test', 'src/test/js/potionRecipeEditor.test.mjs',
+    ...(hasModalHistory ? ['src/test/js/potionModalHistory.test.mjs', 'src/test/js/potionHistory.test.mjs'] : [])], {
     cwd: root, encoding: 'utf8', timeout: 30000, windowsHide: true
   });
   if (result.error || result.status !== 0) throw new Error('Potion editor state tests failed');

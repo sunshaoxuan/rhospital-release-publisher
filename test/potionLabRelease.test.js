@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 test('potion lab evidence rejects missing checks, changed sources, drifted artifacts and failed unit tests', async t => {
-  const { SOURCES, CHECKS, sha256, verifyEvidence } = await import('../scripts/verify-potion-lab-release.mjs');
+  const { SOURCES, MODAL_SOURCES, CHECKS, sha256, verifyEvidence } = await import('../scripts/verify-potion-lab-release.mjs');
   assert.equal(sha256(Buffer.from('a\r\nb\r\n')), sha256(Buffer.from('a\nb\n')));
   assert.notEqual(sha256(Buffer.from('a\r\nb'), 'sample.png'), sha256(Buffer.from('a\nb'), 'sample.png'));
   const root = fs.mkdtempSync(path.join(__dirname, '.potion-lab-release-'));
@@ -34,6 +34,21 @@ test('potion lab evidence rejects missing checks, changed sources, drifted artif
   assert.throws(() => verifyEvidence(root, success), /Changed evidence/);
   fs.writeFileSync(path.join(root, 'evidence.txt'), 'verified');
   assert.throws(() => verifyEvidence(root, () => ({ status: 1 })), /tests failed/);
+  for (const source of MODAL_SOURCES) {
+    fs.mkdirSync(path.dirname(path.join(root, source)), {recursive:true});
+    fs.writeFileSync(path.join(root, source), source);
+  }
+  assert.throws(() => verifyEvidence(root, success), /Untested modal source/);
+  for (const source of MODAL_SOURCES) receipt.sources[source] = sha256(source);
+  write();
+  verifyEvidence(root, (_node, args) => {
+    assert.ok(args.includes('src/test/js/potionModalHistory.test.mjs'));
+    assert.ok(args.includes('src/test/js/potionHistory.test.mjs'));
+    return {status:0};
+  });
+  fs.writeFileSync(path.join(root, MODAL_SOURCES[0]), 'untested');
+  assert.throws(() => verifyEvidence(root, success), /Untested modal source/);
+  fs.writeFileSync(path.join(root, MODAL_SOURCES[0]), MODAL_SOURCES[0]);
   receipt.checks.visual.evidence[0].path = '../outside.txt'; write();
   assert.throws(() => verifyEvidence(root, success));
 });
