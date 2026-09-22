@@ -57,6 +57,7 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-potion-lab',
     'verify-game-doorplate-ui',
     'verify-design-level-packages',
+    'verify-bacteria-region-covers',
     'verify-bacteria-result-ui',
     'verify-game-tomcat-image',
     'verify-game-tomcat-runtime',
@@ -234,6 +235,8 @@ function createPlan(projectRoot, request, env = process.env) {
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-potion-lab'));
   const requiresDesignPackages = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-design-level-packages'));
+  const requiresRegionCovers = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-bacteria-region-covers'));
   const requiresBacteriaResultUi = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-bacteria-result-ui'));
   const requiresEmergencyRuntime = Boolean(releaseImpactAssessment
@@ -268,12 +271,21 @@ function createPlan(projectRoot, request, env = process.env) {
     'node scripts/bacteria-lab/validate-design-evidence.mjs'
   ]);
   const potionLabCommand = `node ${shellToken(path.resolve(__dirname, '../scripts/verify-potion-lab-release.mjs'))} --project-root .`;
+  const regionCoversCommand = chainPowerShellCommands([
+    'npm run test:design-editor',
+    'npm run test:bacteria-lab',
+    'node --test src/test/js/bacteriaRegionCovers.test.mjs src/test/js/bacteriaCoverReveal.test.mjs src/test/js/bacteriaMobileLayout.test.mjs src/test/js/bacteriaConcurrentSelection.test.mjs src/test/js/bacteriaNormalStartup.test.mjs src/test/js/bacteriaSpeed.test.mjs src/test/js/bacteriaRegionCoverEvidence.test.mjs',
+    'node scripts/bacteria-lab/validate-region-cover-evidence.mjs',
+    'node --test src/test/js/bacteriaQueueDistribution.test.mjs',
+    'node scripts/bacteria-lab/validate-queue-distribution-evidence.mjs'
+  ]);
   const emergencyGuardCommand = `node ${shellToken(path.resolve(__dirname, '../scripts/verify-emergency-guard-release.mjs'))} --mode evidence --project-root .`;
   const doorplateUiCommand = chainPowerShellCommands([
     'node --experimental-vm-modules --test scripts/tests/empty-hospital-ui.test.mjs scripts/tests/doorplate-countdown.test.mjs scripts/tests/world-chat.test.mjs',
     'node scripts/validation/world-chat/verify-empty-doorplate.mjs'
   ]);
   const localEvidenceChecks = [
+    ...(requiresRegionCovers ? [{key: 'verify-bacteria-region-covers', command: regionCoversCommand, timeoutSeconds: 1800}] : []),
     ...(requiresDoorplateUi ? [{key: 'verify-game-doorplate-ui', command: doorplateUiCommand, timeoutSeconds: 600}] : []),
     ...(requiresBacteriaResultUi ? [{key: 'verify-bacteria-result-ui', command: bacteriaResultUiCommand, timeoutSeconds: 1800}] : []),
     ...(requiresDesignPackages ? [{key: 'verify-design-level-packages', command: designPackagesCommand, timeoutSeconds: 1800}] : []),
@@ -409,6 +421,13 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '校验失败、生命耗尽、通关和异常状态，以及最终容器几何、按钮语义和源码摘要',
       command: bacteriaResultUiCommand,
       validation: '全部弹窗状态、原始像素留白、无直接购买和最终用户意图验收均须通过',
+      actionType: 'local-check', executable: true
+    })] : []),
+    ...(requiresRegionCovers ? [releaseStep({
+      key: 'verify-bacteria-region-covers', title: '核验区域盖板与手机实验台',
+      summary: '执行关卡编辑、消耗与揭盖、并发培养皿和手机坐标映射回归，绑定最终真实容器证据',
+      command: regionCoversCommand,
+      validation: '单数字区域、真实消耗倒计数、隐藏组织、手机最终几何及用户意图回执全部通过',
       actionType: 'local-check', executable: true
     })] : []),
     ...(requiresDesignPackages ? [releaseStep({

@@ -3425,6 +3425,34 @@ test('design package check is registered and runs after backend tests before ima
   assert.match(plan.steps[index('verify-design-level-packages')].command, /bacteriaPathDifficulty\.test\.mjs/);
 });
 
+test('region-cover check is registered, executable and runs before publication', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'region cover change\n');
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
+    'final-runtime-check', 'verify-game-static-delivery', 'verify-bacteria-region-covers'];
+  writeReleaseImpact(root, {assessmentId:'20260922-region-covers',coveredRuntimePaths:[runtimePath],
+    checklistDecision:'checklist-updated',requiredChecks});
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'region covers']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
+  const index = key => plan.steps.findIndex(step => step.key === key);
+  assert.ok(index('verify-bacteria-region-covers') > index('test-game-backend'));
+  assert.ok(index('verify-bacteria-region-covers') < index('build-image'));
+  const step=plan.steps[index('verify-bacteria-region-covers')];assert.equal(step.executable,true);
+  assert.match(step.command,/validate-queue-distribution-evidence\.mjs/);
+  assert.match(step.command,/bacteriaQueueDistribution\.test\.mjs/);
+  assert.match(step.command,/validate-region-cover-evidence\.mjs/);assert.match(step.command,/bacteriaCoverReveal\.test\.mjs/);
+  assert.match(step.command,/npm run test:design-editor/);assert.match(step.command,/bacteriaMobileLayout\.test\.mjs/);
+  writeReleaseImpact(root, {assessmentId:'20260922-invalid-cover-check',coveredRuntimePaths:[runtimePath],
+    checklistDecision:'checklist-updated',requiredChecks:requiredChecks.map(k=>k==='verify-bacteria-region-covers'?'verify-bacteria-region-unknown':k)});
+  runGit(root, ['add', '.']);runGit(root, ['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','unknown region gate']);
+  const invalid=runGit(root,['rev-parse','HEAD']).trim();
+  assert.throws(()=>createPlan(root,releaseImpactPlanRequest(invalid,baseline,[runtimePath],['release/release-impact.json'])));
+});
+
 test('bacteria result UI evidence gate is executable and cannot be substituted by an unknown name', () => {
   const root = releaseImpactGitProject();
   const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
