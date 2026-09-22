@@ -3518,3 +3518,31 @@ test('doorplate UI evidence gate is executable and cannot be substituted by an u
   const invalidTarget = runGit(root, ['rev-parse', 'HEAD']).trim();
   assert.throws(() => createPlan(root, releaseImpactPlanRequest(invalidTarget, baseline, [runtimePath], ['release/release-impact.json'])));
 });
+
+
+test('medical contest entry check runs before publication and rejects unknown substitutes', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'medical entry');
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
+    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-medical-contest-entry'];
+  writeReleaseImpact(root, {assessmentId:'20260922-medical-entry', coveredRuntimePaths:[runtimePath],
+    checklistDecision:'checklist-updated', requiredChecks});
+  runGit(root, ['add','.']);
+  runGit(root, ['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','medical entry']);
+  const request = () => releaseImpactPlanRequest(runGit(root,['rev-parse','HEAD']).trim(), baseline,
+    [runtimePath], ['release/release-impact.json']);
+  const plan = createPlan(root, request());
+  const index = key => plan.steps.findIndex(step => step.key === key);
+  const check = plan.steps[index('verify-game-medical-contest-entry')];
+  assert.equal(check.executable,true);
+  assert.equal(check.command, 'node --test src/test/js/medicalContestEntry.test.mjs');
+  assert.ok(index(check.key)>index('test-game-backend'));
+  assert.ok(index(check.key)<index('build-image'));
+  writeReleaseImpact(root, {assessmentId:'20260922-medical-invalid', coveredRuntimePaths:[runtimePath],
+    checklistDecision:'checklist-updated', requiredChecks:requiredChecks.map(k=>k===check.key?'verify-medical-unknown':k)});
+  runGit(root,['add','.']);
+  runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','invalid gate']);
+  assert.throws(()=>createPlan(root,request()));
+});

@@ -55,6 +55,7 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-emergency-guard',
     'verify-game-emergency-guard-runtime',
     'verify-game-potion-lab',
+    'verify-game-medical-contest-entry',
     'verify-game-doorplate-ui',
     'verify-design-level-packages',
     'verify-bacteria-region-covers',
@@ -233,6 +234,8 @@ function createPlan(projectRoot, request, env = process.env) {
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-doorplate-ui'));
   const requiresPotionLab = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-potion-lab'));
+  const requiresMedicalContestEntry = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-medical-contest-entry'));
   const requiresDesignPackages = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-design-level-packages'));
   const requiresRegionCovers = Boolean(releaseImpactAssessment
@@ -285,6 +288,7 @@ function createPlan(projectRoot, request, env = process.env) {
     'node scripts/validation/world-chat/verify-empty-doorplate.mjs'
   ]);
   const localEvidenceChecks = [
+    ...(requiresMedicalContestEntry ? [{key: 'verify-game-medical-contest-entry', command: 'node --test src/test/js/medicalContestEntry.test.mjs', timeoutSeconds: 120}] : []),
     ...(requiresRegionCovers ? [{key: 'verify-bacteria-region-covers', command: regionCoversCommand, timeoutSeconds: 1800}] : []),
     ...(requiresDoorplateUi ? [{key: 'verify-game-doorplate-ui', command: doorplateUiCommand, timeoutSeconds: 600}] : []),
     ...(requiresBacteriaResultUi ? [{key: 'verify-bacteria-result-ui', command: bacteriaResultUiCommand, timeoutSeconds: 1800}] : []),
@@ -409,6 +413,13 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'build',
       executable: true
     }),
+    ...(requiresMedicalContestEntry ? [releaseStep({
+      key: 'verify-game-medical-contest-entry', title: '验证医道会入口资格门禁',
+      summary: '验证正式成员准入、未达标拦截、连点合并、超时恢复和场景退出取消',
+      command: 'node --test src/test/js/medicalContestEntry.test.mjs',
+      validation: '入口行为测试全部通过，缺失测试或验证失败时阻止发布',
+      actionType: 'local-check', executable: true
+    })] : []),
     ...(requiresDoorplateUi ? [releaseStep({
       key: 'verify-game-doorplate-ui', title: '核验空地与有人医院门牌一致性',
       summary: '执行场景生命周期、导航和聊天回归，校验真实容器响应式截图与源码摘要',
