@@ -56,6 +56,7 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-emergency-guard-runtime',
     'verify-game-potion-lab',
     'verify-game-medical-contest-entry',
+    'verify-game-epidemic-flow',
     'verify-game-doorplate-ui',
     'verify-design-level-packages',
     'verify-bacteria-region-covers',
@@ -236,6 +237,8 @@ function createPlan(projectRoot, request, env = process.env) {
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-potion-lab'));
   const requiresMedicalContestEntry = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-medical-contest-entry'));
+  const requiresEpidemicFlow = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-epidemic-flow'));
   const requiresDesignPackages = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-design-level-packages'));
   const requiresRegionCovers = Boolean(releaseImpactAssessment
@@ -288,6 +291,10 @@ function createPlan(projectRoot, request, env = process.env) {
     'node scripts/validation/world-chat/verify-empty-doorplate.mjs'
   ]);
   const localEvidenceChecks = [
+    ...(requiresEpidemicFlow ? [{ key: 'verify-game-epidemic-flow', command: chainPowerShellCommands([
+      'node --test src/test/js/epidemicBossSweep.test.mjs',
+      'node scripts/validation/verify-epidemic-flow.cjs'
+    ]), timeoutSeconds: 600 }] : []),
     ...(requiresMedicalContestEntry ? [{key: 'verify-game-medical-contest-entry', command: 'node --test src/test/js/medicalContestEntry.test.mjs', timeoutSeconds: 120}] : []),
     ...(requiresRegionCovers ? [{key: 'verify-bacteria-region-covers', command: regionCoversCommand, timeoutSeconds: 1800}] : []),
     ...(requiresDoorplateUi ? [{key: 'verify-game-doorplate-ui', command: doorplateUiCommand, timeoutSeconds: 600}] : []),
@@ -413,6 +420,13 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'build',
       executable: true
     }),
+    ...(requiresEpidemicFlow ? [releaseStep({
+      key: 'verify-game-epidemic-flow', title: '验证疫区出战扣费与洗点流程',
+      summary: '验证扫荡和重试行为，检查真实数据库迁移、运行截图、几何及源码绑定',
+      command: chainPowerShellCommands(['node --test src/test/js/epidemicBossSweep.test.mjs', 'node scripts/validation/verify-epidemic-flow.cjs']),
+      validation: '出战结算、原额退款迁移、洗点资格及三种视口验收全部通过',
+      actionType: 'local-check', executable: true
+    })] : []),
     ...(requiresMedicalContestEntry ? [releaseStep({
       key: 'verify-game-medical-contest-entry', title: '验证医道会入口资格门禁',
       summary: '验证正式成员准入、未达标拦截、连点合并、超时恢复和场景退出取消',

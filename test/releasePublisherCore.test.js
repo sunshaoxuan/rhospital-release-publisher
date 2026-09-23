@@ -3546,3 +3546,24 @@ test('medical contest entry check runs before publication and rejects unknown su
   runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','invalid gate']);
   assert.throws(()=>createPlan(root,request()));
 });
+
+test('epidemic flow check is executable before image publication and rejects unknown replacement', () => {
+  const root=releaseImpactGitProject(), baseline=runGit(root,['rev-parse','HEAD']).trim();
+  const runtimePath='src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root,...runtimePath.split('/')),'epidemic flow');
+  const requiredChecks=['test-game-backend','verify-game-static-assets-predeploy','pre-deploy-checklist',
+    'final-runtime-check','verify-game-static-delivery','verify-game-epidemic-flow'];
+  writeReleaseImpact(root,{assessmentId:'20260923-epidemic-flow',coveredRuntimePaths:[runtimePath],checklistDecision:'checklist-updated',requiredChecks});
+  runGit(root,['add','.']);runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','epidemic gate']);
+  const request=()=>releaseImpactPlanRequest(runGit(root,['rev-parse','HEAD']).trim(),baseline,[runtimePath],['release/release-impact.json']);
+  const plan=createPlan(root,request());
+  const index=k=>plan.steps.findIndex(s=>s.key===k);
+  const gate=plan.steps[index('verify-game-epidemic-flow')];
+  assert.equal(gate.executable,true);
+  assert.ok(gate.command.includes('epidemicBossSweep.test.mjs'));
+  assert.ok(gate.command.includes('verify-epidemic-flow.cjs'));
+  assert.ok(index(gate.key)>index('test-game-backend') && index(gate.key)<index('build-image'));
+  writeReleaseImpact(root,{assessmentId:'20260923-epidemic-invalid',coveredRuntimePaths:[runtimePath],checklistDecision:'checklist-updated',requiredChecks:requiredChecks.map(k=>k===gate.key?'verify-epidemic-unknown':k)});
+  runGit(root,['add','.']);runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','invalid epidemic gate']);
+  assert.throws(()=>createPlan(root,request()));
+});
