@@ -2882,6 +2882,22 @@ test('lists branches and commits from a git project', () => {
   assert.match(commits.commits[0].subject, /release commit/);
 });
 
+test('release branch selection uses remote master when local master is stale', () => {
+  const root = tempGitProject();
+  runGit(root, ['checkout', '-b', 'release/demo']);
+  fs.writeFileSync(path.join(root, 'release.txt'), 'remote release\n', 'utf8');
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'remote release']);
+  runGit(root, ['update-ref', 'refs/remotes/origin/master', 'HEAD']);
+
+  const branches = listGitBranches(root, {});
+  assert.equal(branches.defaultBranch, 'origin/master');
+  assert.ok(branches.branches.some(branch => branch.name === 'origin/master'));
+  assert.ok(!branches.branches.some(branch => branch.name === 'master'));
+  assert.match(listGitCommits(root, branches.defaultBranch, 1).commits[0].subject, /remote release/);
+  assert.doesNotMatch(listGitCommits(root, 'master', 1).commits[0].subject, /remote release/);
+});
+
 test('page defaults every target load to master and only preserves a branch during commit refresh', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');

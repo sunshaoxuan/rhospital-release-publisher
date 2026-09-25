@@ -2932,6 +2932,10 @@ function listGitBranches(projectRoot, env = process.env, gitRunner = spawnSync) 
       current: name === current
     });
   }
+  if (branches.some(branch => branch.name === 'origin/master')) {
+    const localMaster = branches.findIndex(branch => branch.name === 'master');
+    if (localMaster >= 0) branches.splice(localMaster, 1);
+  }
   branches.sort((a, b) => {
     if (a.current !== b.current) {
       return a.current ? -1 : 1;
@@ -2941,8 +2945,8 @@ function listGitBranches(projectRoot, env = process.env, gitRunner = spawnSync) 
     }
     return a.name.localeCompare(b.name);
   });
-  const defaultBranch = branches.find(branch => branch.name === 'master')?.name
-    || branches.find(branch => branch.name === 'origin/master')?.name
+  const defaultBranch = branches.find(branch => branch.name === 'origin/master')?.name
+    || branches.find(branch => branch.name === 'master')?.name
     || branches[0]?.name
     || 'master';
   return {branches, defaultBranch};
