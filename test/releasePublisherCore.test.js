@@ -478,7 +478,8 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(plan.steps.some(step => step.key === 'stage-game-static-assets'
     && step.productionAction
     && step.command.includes('game-static-assets.mjs')
-    && step.command.includes('--mode stage')));
+    && step.command.includes('--mode stage')
+    && step.command.includes(path.join('rhospital', 'release', 'game-static-gateways.json'))));
   assert.ok(plan.steps.some(step => step.key === 'verify-game-static-assets-predeploy'
     && step.command.includes('--mode verify')
     && step.validation.includes('X-Cache=LOCAL')));

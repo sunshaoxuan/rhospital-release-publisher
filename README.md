@@ -252,13 +252,13 @@ npm run acceptance:full-flow -- --project-root C:\workspace\hospital-backend --g
 游戏静态资源采用应用切换前交付：
 
 1. `build-game-static-assets` 从业务仓库 `frontend-assets` Docker 目标生成清单与内容寻址对象。
-2. `stage-game-static-assets` 按 `C:\workspace\rhopital\release\game-static-gateways.json` 向 Riven 与 VMISS 增量安装对象，远端逐文件复算完整 SHA-256，保留全部旧对象。需要使用其他受管清单时可设置 `RELEASE_PUBLISHER_GATEWAY_STATIC_CONFIG`。
+2. `stage-game-static-assets` 按 `C:\workspace\rhospital\release\game-static-gateways.json` 向 Riven 与 VMISS 增量安装对象，远端逐文件复算完整 SHA-256，保留全部旧对象。需要使用其他受管清单时可设置 `RELEASE_PUBLISHER_GATEWAY_STATIC_CONFIG`。
 3. `verify-game-static-assets-predeploy` 直连两台前置，对清单每个 `/assets/**?h=` 地址执行 HTTPS HEAD，全部要求 HTTP 200、`X-Cache=LOCAL` 与 `X-Asset-Source=gate-object`。`.js` 和 `.mjs` 还必须返回浏览器认可的 JavaScript Content-Type，避免完整文件已经预置却在运行时被严格 MIME 检查拒绝。
 4. 上述步骤全部完成后才进入生产 Compose 更新和 Swarm 热滚。任一节点、任一文件或 TLS 检查失败时流程停止。
 
 启用生产双前置远程演练时，演练还会读取两台节点当前加载的 Nginx/OpenResty 配置，确认 `/assets/`、不可变对象根目录和本地响应头规则已经生效；节点已有静态清单时会再从本机 HTTPS 入口抽取一个对象执行 200、`LOCAL` 和 `gate-object` 探针。路由缺失会在演练阶段失败，发布器不会把它当成文件预置成功。
 
-双前置 Nginx 的本地对象优先规则属于一次性基础设施配置，由 `C:\workspace\rhopital` 维护并经过独立生产变更授权安装。以后每次应用发布的资源预置与逐文件验证由本发布器自动完成。
+双前置 Nginx 的本地对象优先规则属于一次性基础设施配置，由 `C:\workspace\rhospital` 维护并经过独立生产变更授权安装。以后每次应用发布的资源预置与逐文件验证由本发布器自动完成。
 
 ## 游戏静态资源交付验收
 

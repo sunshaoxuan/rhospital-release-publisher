@@ -4,7 +4,7 @@
 
 1. This repository owns the release publisher engine, release-state behavior, CheckList validation, release UI, and publisher tests.
 2. Application-specific impact assessments belong in `C:\workspace\hospital-backend\release\release-impact.json`.
-3. Production environment facts and runbooks belong in `C:\workspace\rhopital`.
+3. Production environment facts and runbooks belong in `C:\workspace\rhospital`.
 
 ## Release Impact CheckList Rule
 
