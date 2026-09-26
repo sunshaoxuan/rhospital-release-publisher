@@ -961,6 +961,45 @@ test('accepts an updated release impact assessment with exact runtime path and r
   ]);
 });
 
+test('AI settings migration backs up the old file and retires it after final runtime checks', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const migrationPath = 'scripts/migration/20260926_databaseize_design_image_settings.sql';
+  const absolute = path.join(root, ...migrationPath.split('/'));
+  fs.mkdirSync(path.dirname(absolute), {recursive: true});
+  fs.writeFileSync(absolute, [
+    '\\set ON_ERROR_STOP on', 'BEGIN;', "SET LOCAL lock_timeout = '10s';",
+    "SET LOCAL statement_timeout = '60s';",
+    'CREATE TABLE IF NOT EXISTS t_design_image_settings (id bigint PRIMARY KEY);',
+    'COMMIT;', 'SELECT 1;'
+  ].join('\n'));
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy',
+    'apply-database-migrations', 'pre-deploy-checklist', 'final-runtime-check',
+    'verify-game-static-delivery', 'retire-design-image-settings-file'];
+  writeReleaseImpact(root, {assessmentId:'20260926-ai-database', coveredRuntimePaths:[migrationPath],
+    checklistDecision:'checklist-updated', databaseImpact:'schema-change', requiredChecks});
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'AI settings migration']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const request = releaseImpactPlanRequest(target, baseline, [migrationPath], ['release/release-impact.json']);
+  const plan = createPlan(root, request);
+  const index = key => plan.steps.findIndex(step => step.key === key);
+  assert.ok(index('backup-game-release') < index('apply-database-migrations'));
+  assert.ok(index('retire-design-image-settings-file') > index('final-runtime-check'));
+  assert.ok(index('retire-design-image-settings-file') < index('cleanup-game-release-containers'));
+  assert.match(decodedScriptTree(plan.steps[index('backup-game-release')].command), /cp "\$legacy_image_settings" "\$backup_dir\/design-image\.json"/);
+  assert.match(decodedScriptTree(plan.steps[index('retire-design-image-settings-file')].command), /cmp -s "\$backup_dir\/design-image\.json" "\$legacy_image_settings"/);
+  assert.match(decodedScriptTree(plan.steps[index('game-rollback-command')].command), /cp "\$backup_dir\/design-image\.json" data\/private\/design-image\.json/);
+  writeReleaseImpact(root, {assessmentId:'20260926-ai-missing-check', coveredRuntimePaths:[migrationPath],
+    checklistDecision:'checklist-updated', databaseImpact:'schema-change',
+    requiredChecks:requiredChecks.filter(key=>key!=='retire-design-image-settings-file')});
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'missing retirement check']);
+  const missing = runGit(root, ['rev-parse', 'HEAD']).trim();
+  assert.throws(()=>createPlan(root, releaseImpactPlanRequest(missing, baseline, [migrationPath], ['release/release-impact.json'])),
+    /生图配置数据库迁移必须选择/);
+});
+
 test('Tomcat security checks use committed POM and surround production cutover', () => {
   const root = releaseImpactGitProject();
   const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();

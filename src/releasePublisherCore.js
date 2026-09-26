@@ -26,6 +26,7 @@ const GAME_SSO_SOURCE_PATHS = [
 ];
 const GAME_RUNTIME_PATHS = ['Dockerfile', 'docker-compose.yml', 'entrypoint.sh', 'pom.xml'];
 const GAME_MIGRATION_PREFIX = 'scripts/migration/';
+const DESIGN_IMAGE_SETTINGS_MIGRATION = 'scripts/migration/20260926_databaseize_design_image_settings.sql';
 const GAME_RUNTIME_PREFIXES = ['newrelic/', 'src/main/', GAME_MIGRATION_PREFIX];
 const RELEASE_IMPACT_ASSESSMENT_PATH = 'release/release-impact.json';
 const RELEASE_IMPACT_SCHEMA_VERSION = 1;
@@ -46,6 +47,7 @@ const KNOWN_RELEASE_CHECKS = {
     'game-database-preflight',
     'validate-game-database-migration-compatibility',
     'apply-database-migrations',
+    'retire-design-image-settings-file',
     'pre-deploy-checklist',
     'verify-game-static-assets-predeploy',
     'commit-game-cutover',
@@ -216,6 +218,7 @@ function createPlan(projectRoot, request, env = process.env) {
   const gitCommit = validateGitCommit(request.gitCommit || 'latest');
   const catalogSchemaVersion = resolveCatalogSchemaVersion(projectRoot, gitCommit);
   const releaseMigrations = resolveReleaseMigrations(projectRoot, gitCommit, request.changeAnalysis);
+  const requiresDesignImageRetirement = releaseMigrations.some(item => item.filePath === DESIGN_IMAGE_SETTINGS_MIGRATION);
   assertJpaSchemaMigrationCoverage(projectRoot, gitCommit, request.changeAnalysis, releaseMigrations);
   const releaseImpactAssessment = resolveReleaseImpactAssessment(
     projectRoot,
@@ -224,6 +227,10 @@ function createPlan(projectRoot, request, env = process.env) {
     'game',
     releaseMigrations
   );
+  if (requiresDesignImageRetirement && !releaseImpactAssessment?.requiredChecks.some(
+    item => item.stepKey === 'retire-design-image-settings-file')) {
+    throw new Error('生图配置数据库迁移必须选择旧文件备份与切换后清理检查');
+  }
   const requiresSmtpSenderCheck = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-smtp-sender'));
   const productionMailIdentity = requiresSmtpSenderCheck
@@ -932,6 +939,16 @@ function createPlan(projectRoot, request, env = process.env) {
       executable: true,
       finalCheck: true,
       timeoutSeconds: 120
+    }));
+    if (requiresDesignImageRetirement) steps.push(releaseStep({
+      key: 'retire-design-image-settings-file',
+      title: '清理已入库的生图旧配置',
+      summary: '确认目标健康实例独占服务，私有备份与旧文件一致后删除旧文件',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        gameDesignImageSettingsRetirementCommand(remoteComposeDir, config.stackName, config.containerName, imageTag)
+      )),
+      validation: '原文件已备份且目标版本健康独占；文件变动或缺失的备份阻止清理，回滚可从备份恢复',
+      actionType: 'production', productionAction: true, executable: true, timeoutSeconds: 120
     }));
     steps.push(releaseStep({
       key: 'cleanup-game-release-containers',
@@ -3537,6 +3554,10 @@ function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName, ex
     'docker cp "$container_id:$container_backup_dir/." "$backup_dir/database/"',
     'docker exec "$container_id" rm -rf "$container_backup_dir"'
   ];
+  if (releaseMigrations.some(item => item.filePath === DESIGN_IMAGE_SETTINGS_MIGRATION)) commands.push(
+    'legacy_image_settings="$PWD/data/private/design-image.json"',
+    'if [ -f "$legacy_image_settings" ]; then test -s "$legacy_image_settings" && cp "$legacy_image_settings" "$backup_dir/design-image.json"; fi'
+  );
   commands.push(
     '(cd "$backup_dir" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)',
     'test -s "$backup_dir/docker-compose.yml"',
@@ -3550,6 +3571,27 @@ function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName, ex
     'echo "game_backup_dir=$backup_dir"'
   );
   return commands;
+}
+
+function gameDesignImageSettingsRetirementCommand(remoteComposeDir, stackName, containerName, imageTag) {
+  return [
+    `cd ${shellToken(remoteComposeDir)}`,
+    `service_name=${shellToken(gameServiceName(stackName, containerName))}`,
+    `target_image=${shellToken(imageTag)}`,
+    'backup_dir=$(cat .last-game-release-backup)',
+    'legacy_image_settings="$PWD/data/private/design-image.json"',
+    'runtime_container=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy)',
+    '[ -n "$runtime_container" ] && [ "$(printf \'%s\\n\' "$runtime_container" | wc -l)" -eq 1 ] || { echo "ERROR: expected one healthy game instance"; exit 1; }',
+    'test "$(docker inspect "$runtime_container" --format \'{{.Config.Image}}\' | cut -d @ -f 1)" = "$target_image"',
+    'if [ -f "$backup_dir/design-image.json" ]; then',
+    '  test -f "$legacy_image_settings" && cmp -s "$backup_dir/design-image.json" "$legacy_image_settings" || { echo "ERROR: legacy AI settings changed during rollout"; exit 1; }',
+    '  rm "$legacy_image_settings"',
+    'else',
+    '  test ! -e "$legacy_image_settings" || { echo "ERROR: legacy AI settings have no rollback backup"; exit 1; }',
+    'fi',
+    'test ! -e "$legacy_image_settings"',
+    'echo design_image_settings_retirement=PASS'
+  ];
 }
 
 function gameDatabaseContainerResolutionCommands() {
@@ -3904,6 +3946,7 @@ function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName
     `service_name=${shellToken(serviceName)}`,
     'backup_dir=$(cat .last-game-release-backup)',
     'test -s "$backup_dir/docker-compose.yml"',
+    'if [ -f "$backup_dir/design-image.json" ] && [ ! -e data/private/design-image.json ]; then mkdir -p data/private && cp "$backup_dir/design-image.json" data/private/design-image.json && chmod 600 data/private/design-image.json; fi',
     'echo "WARNING: suspending all ACTIVE ADMIN listings before old-code rollback"',
     ...gameDatabaseContainerResolutionCommands(),
     `database_name=${shellToken(GAME_DATABASE_NAME)}`,
