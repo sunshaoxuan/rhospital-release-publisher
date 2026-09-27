@@ -3603,6 +3603,35 @@ test('medical contest entry check runs before publication and rejects unknown su
   assert.throws(()=>createPlan(root,request()));
 });
 
+test('bacteria entry style gate executes responsive evidence and rejects unknown checks', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'bacteria entry style\n');
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
+    'final-runtime-check', 'verify-game-static-delivery', 'verify-bacteria-entry-style'];
+  writeReleaseImpact(root, { assessmentId: '20260927-bacteria-entry-style', coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated', requiredChecks });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'bacteria entry']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
+  const index = key => plan.steps.findIndex(step => step.key === key);
+  const gate = plan.steps[index('verify-bacteria-entry-style')];
+  assert.ok(index(gate.key) > index('test-game-backend') && index(gate.key) < index('build-image'));
+  assert.equal(gate.executable, true);
+  assert.match(gate.command, /bacteriaLabEntry\.test\.mjs/);
+  assert.match(gate.command, /validate-entry-style-evidence\.mjs/);
+  writeReleaseImpact(root, { assessmentId: '20260927-invalid-bacteria-entry', coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated', requiredChecks: requiredChecks.map(key =>
+      key === 'verify-bacteria-entry-style' ? 'verify-bacteria-entry-unknown' : key) });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'invalid entry gate']);
+  const invalid = runGit(root, ['rev-parse', 'HEAD']).trim();
+  assert.throws(() => createPlan(root, releaseImpactPlanRequest(invalid, baseline,
+    [runtimePath], ['release/release-impact.json'])));
+});
+
 test('epidemic flow check is executable before image publication and rejects unknown replacement', () => {
   const root=releaseImpactGitProject(), baseline=runGit(root,['rev-parse','HEAD']).trim();
   const runtimePath='src/main/resources/release-impact-demo.txt';

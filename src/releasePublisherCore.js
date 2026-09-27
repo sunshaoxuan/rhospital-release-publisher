@@ -63,6 +63,7 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-design-level-packages',
     'verify-bacteria-region-covers',
     'verify-bacteria-result-ui',
+    'verify-bacteria-entry-style',
     'verify-game-tomcat-image',
     'verify-game-tomcat-runtime',
     'verify-tradepool-release',
@@ -252,6 +253,8 @@ function createPlan(projectRoot, request, env = process.env) {
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-bacteria-region-covers'));
   const requiresBacteriaResultUi = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-bacteria-result-ui'));
+  const requiresBacteriaEntryStyle = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-bacteria-entry-style'));
   const requiresEmergencyRuntime = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-emergency-guard-runtime'));
   if (requiresEmergencyGuard !== requiresEmergencyRuntime) {
@@ -306,6 +309,10 @@ function createPlan(projectRoot, request, env = process.env) {
     ...(requiresRegionCovers ? [{key: 'verify-bacteria-region-covers', command: regionCoversCommand, timeoutSeconds: 1800}] : []),
     ...(requiresDoorplateUi ? [{key: 'verify-game-doorplate-ui', command: doorplateUiCommand, timeoutSeconds: 600}] : []),
     ...(requiresBacteriaResultUi ? [{key: 'verify-bacteria-result-ui', command: bacteriaResultUiCommand, timeoutSeconds: 1800}] : []),
+    ...(requiresBacteriaEntryStyle ? [{key: 'verify-bacteria-entry-style', command: chainPowerShellCommands([
+      'node --test src/test/js/bacteriaLabEntry.test.mjs',
+      'node scripts/bacteria-lab/validate-entry-style-evidence.mjs'
+    ]), timeoutSeconds: 180}] : []),
     ...(requiresDesignPackages ? [{key: 'verify-design-level-packages', command: designPackagesCommand, timeoutSeconds: 1800}] : []),
     ...(requiresPotionLab ? [{key: 'verify-game-potion-lab', command: potionLabCommand, timeoutSeconds: 600}] : []),
     ...(requiresEmergencyGuard ? [{key: 'verify-game-emergency-guard', command: emergencyGuardCommand, timeoutSeconds: 600}] : [])
@@ -453,6 +460,16 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '校验失败、生命耗尽、通关和异常状态，以及最终容器几何、按钮语义和源码摘要',
       command: bacteriaResultUiCommand,
       validation: '全部弹窗状态、原始像素留白、无直接购买和最终用户意图验收均须通过',
+      actionType: 'local-check', executable: true
+    })] : []),
+    ...(requiresBacteriaEntryStyle ? [releaseStep({
+      key: 'verify-bacteria-entry-style', title: '核验医院主画面菌落入口',
+      summary: '执行入口交互与响应式几何测试，核对真实容器截图及最终意图回执的源码摘要',
+      command: chainPowerShellCommands([
+        'node --test src/test/js/bacteriaLabEntry.test.mjs',
+        'node scripts/bacteria-lab/validate-entry-style-evidence.mjs'
+      ]),
+      validation: '公告与入口的高度、字形安全区、间距和原始像素证据均须通过',
       actionType: 'local-check', executable: true
     })] : []),
     ...(requiresRegionCovers ? [releaseStep({
