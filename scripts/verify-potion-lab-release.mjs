@@ -20,7 +20,8 @@ export const SOURCES = [
   'src/main/resources/static/js/service/userService.js',
   'src/main/resources/static/img/game/ui/popInfo/pop-yaojishiyanshi-sm.png',
   'scripts/migration/20260911_add_potion_synthesis_failure.sql',
-  'src/test/js/potionRecipeEditor.test.mjs'
+  'src/test/js/potionRecipeEditor.test.mjs',
+  'src/test/js/potionBatchSynthesis.test.mjs'
 ];
 export const CHECKS = ['editor', 'failureHistory', 'postgres', 'regression', 'visual', 'finalIntent'];
 export const MODAL_SOURCES = [
@@ -64,6 +65,7 @@ export function verifyEvidence(root, run = spawnSync) {
     }
   }
   const result = run(process.execPath, ['--test', 'src/test/js/potionRecipeEditor.test.mjs',
+    'src/test/js/potionBatchSynthesis.test.mjs',
     ...(hasModalHistory ? ['src/test/js/potionModalHistory.test.mjs', 'src/test/js/potionHistory.test.mjs'] : [])], {
     cwd: root, encoding: 'utf8', timeout: 30000, windowsHide: true
   });
