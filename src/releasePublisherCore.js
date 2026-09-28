@@ -2367,7 +2367,11 @@ function resolveReleaseMigrations(projectRoot, gitCommit, changeAnalysis) {
       expectedReleaseHash: migrationReleaseHashConstant(sql, 'expected_release_hash')
     };
   });
-  return sortReleaseMigrationsByDependencies(migrations)
+  const ordered = sortReleaseMigrationsByDependencies(migrations);
+  validateReleaseMigrationOwnership(ordered, migration => gitCommit === 'latest'
+    ? fs.readFileSync(resolveInside(projectRoot, migration.filePath), 'utf8')
+    : runGit(projectRoot, ['show', `${gitCommit}:${migration.filePath}`]));
+  return ordered
     .map(({filePath, sha256, targetReleaseHash, expectedReleaseHash}) => ({
       filePath,
       sha256,
@@ -3588,6 +3592,27 @@ function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName, ex
     'echo "game_backup_dir=$backup_dir"'
   );
   return commands;
+}
+
+function validateReleaseMigrationOwnership(migrations, readSql) {
+  const sources = migrations.map(migration => {
+    const source = String(readSql(migration)).replace(/\/\*[\s\S]*?\*\/|--[^\r\n]*/g, '');
+    const created = [...source.matchAll(/\bcreate\s+(table|sequence)\s+(?:if\s+not\s+exists\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\b(?!\s*[."])/gi)]
+      .map(([, kind, name]) => ({kind: kind.toLowerCase(), name: name.toLowerCase()}));
+    const declarations = [...source.matchAll(/\bcreate\s+(?:unlogged\s+)?(?:table|sequence)\b/gi)];
+    if (declarations.length !== created.length) throw new Error(`数据库迁移 ${migration.filePath} 包含无法验证归属的建表或序列语法`);
+    return {filePath: migration.filePath, source, created};
+  });
+  for (let index = 0; index < sources.length; index++) {
+    for (const {kind, name} of sources[index].created) {
+      const owner = new RegExp(`\\balter\\s+${kind}\\s+(?:if\\s+exists\\s+)?(?:public\\.)?${name}\\s+owner\\s+to\\s+%I\\b`, 'i');
+      const aligned = sources.slice(index).some(({source}) => owner.test(source)
+        && /\bcore_table\.relowner\b/i.test(source)
+        && /\bcore_table\.relname\s*=\s*'t_hospitals'/i.test(source)
+        && /\bapplication_owner\b/.test(source));
+      if (!aligned) throw new Error(`数据库迁移 ${sources[index].filePath} 新建 ${kind} ${name} 后缺少按 t_hospitals owner 对齐的迁移`);
+    }
+  }
 }
 
 function gameDesignImageSettingsRetirementCommand(remoteComposeDir, stackName, containerName, imageTag) {

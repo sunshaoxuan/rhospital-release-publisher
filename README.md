@@ -260,6 +260,8 @@ npm run acceptance:full-flow -- --project-root C:\workspace\hospital-backend --g
 
 双前置 Nginx 的本地对象优先规则属于一次性基础设施配置，由 `C:\workspace\rhospital` 维护并经过独立生产变更授权安装。以后每次应用发布的资源预置与逐文件验证由本发布器自动完成。
 
+迁移计划生成阶段检查目标提交中新建表和序列的归属：同一份或后续版本化迁移必须从 `public.t_hospitals` 读取应用 owner 并执行归属对齐。缺少对应修复时直接拒绝目标提交，阻止构建和生产迁移。已执行的迁移保持原校验和，补救使用新的幂等迁移。
+
 ## 游戏静态资源交付验收
 
 `verify-game-static-delivery` 在应用最终运行校验之后执行，使用 Chrome DevTools Protocol 完成以下检查：

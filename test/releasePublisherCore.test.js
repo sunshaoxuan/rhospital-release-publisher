@@ -971,6 +971,8 @@ test('AI settings migration backs up the old file and retires it after final run
     '\\set ON_ERROR_STOP on', 'BEGIN;', "SET LOCAL lock_timeout = '10s';",
     "SET LOCAL statement_timeout = '60s';",
     'CREATE TABLE IF NOT EXISTS t_design_image_settings (id bigint PRIMARY KEY);',
+    "SELECT core_table.relowner INTO application_owner FROM pg_class core_table WHERE core_table.relname = 't_hospitals';",
+    "EXECUTE format('ALTER TABLE t_design_image_settings OWNER TO %I', application_owner);",
     'COMMIT;', 'SELECT 1;'
   ].join('\n'));
   const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy',
@@ -998,6 +1000,42 @@ test('AI settings migration backs up the old file and retires it after final run
   const missing = runGit(root, ['rev-parse', 'HEAD']).trim();
   assert.throws(()=>createPlan(root, releaseImpactPlanRequest(missing, baseline, [migrationPath], ['release/release-impact.json'])),
     /生图配置数据库迁移必须选择/);
+});
+
+test('release plan blocks an administrator-owned table until a later version aligns the application owner', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const initial = 'scripts/migration/20260926_databaseize_design_image_settings.sql';
+  const repair = 'scripts/migration/20260928_align_design_image_settings_owner.sql';
+  const location = file => path.join(root, ...file.split('/'));
+  fs.mkdirSync(path.dirname(location(initial)), {recursive: true});
+  const envelope = body => [
+    '\\set ON_ERROR_STOP on', 'BEGIN;', "SET LOCAL lock_timeout = '10s';",
+    "SET LOCAL statement_timeout = '60s';", body, 'COMMIT;', 'SELECT 1;'
+  ].join('\n');
+  fs.writeFileSync(location(initial), envelope('CREATE TABLE IF NOT EXISTS public.t_design_image_settings (id bigint PRIMARY KEY);'));
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy',
+    'apply-database-migrations', 'pre-deploy-checklist', 'final-runtime-check',
+    'verify-game-static-delivery', 'retire-design-image-settings-file'];
+  writeReleaseImpact(root, {assessmentId: '20260928-owner-missing', coveredRuntimePaths: [initial],
+    checklistDecision: 'checklist-updated', databaseImpact: 'schema-change', requiredChecks});
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'owner missing']);
+  const bad = runGit(root, ['rev-parse', 'HEAD']).trim();
+  assert.throws(() => createPlan(root, releaseImpactPlanRequest(bad, baseline, [initial], ['release/release-impact.json'])),
+    /t_design_image_settings.*owner/);
+
+  fs.writeFileSync(location(repair), envelope([
+    "SELECT core_table.relowner INTO application_owner FROM pg_class core_table WHERE core_table.relname = 't_hospitals';",
+    "EXECUTE format('ALTER TABLE public.t_design_image_settings OWNER TO %I', application_owner);"
+  ].join('\n')));
+  writeReleaseImpact(root, {assessmentId: '20260928-owner-repaired', coveredRuntimePaths: [initial, repair],
+    checklistDecision: 'checklist-updated', databaseImpact: 'schema-change', requiredChecks});
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'owner repaired']);
+  const fixed = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const plan = createPlan(root, releaseImpactPlanRequest(fixed, baseline, [initial, repair], ['release/release-impact.json']));
+  assert.deepEqual(plan.config.databaseMigrations.map(item => item.filePath), [initial, repair]);
 });
 
 test('Tomcat security checks use committed POM and surround production cutover', () => {
@@ -1371,6 +1409,8 @@ test('requires database impact and migration checklist coverage for changed migr
     "set local lock_timeout = '10s';",
     "set local statement_timeout = '120s';",
     'create table if not exists release_impact_demo(id bigint);',
+    "select core_table.relowner into application_owner from pg_class core_table where core_table.relname = 't_hospitals';",
+    "execute format('alter table release_impact_demo owner to %I', application_owner);",
     'commit;',
     'select count(*) from release_impact_demo;',
     ''
