@@ -3643,6 +3643,60 @@ test('medical contest entry check runs before publication and rejects unknown su
   assert.throws(()=>createPlan(root,request()));
 });
 
+test('client fingerprint check runs before publication and rejects unknown substitutes', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'client fingerprint');
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
+    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-client-fingerprint'];
+  writeReleaseImpact(root, {assessmentId:'20260930-client-fingerprint', coveredRuntimePaths:[runtimePath],
+    checklistDecision:'checklist-updated', requiredChecks});
+  runGit(root, ['add','.']);
+  runGit(root, ['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','client fingerprint']);
+  const request = () => releaseImpactPlanRequest(runGit(root,['rev-parse','HEAD']).trim(), baseline,
+    [runtimePath], ['release/release-impact.json']);
+  const plan = createPlan(root, request());
+  const index = key => plan.steps.findIndex(step => step.key === key);
+  const check = plan.steps[index('verify-game-client-fingerprint')];
+  assert.equal(check.executable,true);
+  assert.equal(check.command, 'node --test src/test/js/clientFingerprint.test.mjs');
+  assert.ok(index(check.key)>index('test-game-backend'));
+  assert.ok(index(check.key)<index('build-image'));
+  writeReleaseImpact(root, {assessmentId:'20260930-client-fingerprint-invalid', coveredRuntimePaths:[runtimePath],
+    checklistDecision:'checklist-updated', requiredChecks:requiredChecks.map(k=>k===check.key?'verify-fingerprint-unknown':k)});
+  runGit(root,['add','.']);
+  runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','invalid gate']);
+  assert.throws(()=>createPlan(root,request()));
+});
+
+test('hospital skin fallback check runs before publication and rejects unknown substitutes', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'skin fallback');
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
+    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-hospital-skin-fallback'];
+  writeReleaseImpact(root, {assessmentId:'20260930-skin-fallback', coveredRuntimePaths:[runtimePath],
+    checklistDecision:'checklist-updated', requiredChecks});
+  runGit(root, ['add','.']);
+  runGit(root, ['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','skin fallback']);
+  const request = () => releaseImpactPlanRequest(runGit(root,['rev-parse','HEAD']).trim(), baseline,
+    [runtimePath], ['release/release-impact.json']);
+  const plan = createPlan(root, request());
+  const index = key => plan.steps.findIndex(step => step.key === key);
+  const check = plan.steps[index('verify-game-hospital-skin-fallback')];
+  assert.equal(check.executable,true);
+  assert.equal(check.command, 'node --test src/test/js/hospitalSkinTexture.test.mjs');
+  assert.ok(index(check.key)>index('test-game-backend'));
+  assert.ok(index(check.key)<index('build-image'));
+  writeReleaseImpact(root, {assessmentId:'20260930-skin-fallback-invalid', coveredRuntimePaths:[runtimePath],
+    checklistDecision:'checklist-updated', requiredChecks:requiredChecks.map(k=>k===check.key?'verify-skin-unknown':k)});
+  runGit(root,['add','.']);
+  runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','invalid gate']);
+  assert.throws(()=>createPlan(root,request()));
+});
+
 test('bacteria entry style gate executes responsive evidence and rejects unknown checks', () => {
   const root = releaseImpactGitProject();
   const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();

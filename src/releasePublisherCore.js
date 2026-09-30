@@ -58,6 +58,8 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-emergency-guard-runtime',
     'verify-game-potion-lab',
     'verify-game-medical-contest-entry',
+    'verify-game-client-fingerprint',
+    'verify-game-hospital-skin-fallback',
     'verify-game-epidemic-flow',
     'verify-game-doorplate-ui',
     'verify-design-level-packages',
@@ -245,6 +247,10 @@ function createPlan(projectRoot, request, env = process.env) {
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-potion-lab'));
   const requiresMedicalContestEntry = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-medical-contest-entry'));
+  const requiresClientFingerprint = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-client-fingerprint'));
+  const requiresHospitalSkinFallback = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-hospital-skin-fallback'));
   const requiresEpidemicFlow = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-epidemic-flow'));
   const requiresDesignPackages = Boolean(releaseImpactAssessment
@@ -306,6 +312,8 @@ function createPlan(projectRoot, request, env = process.env) {
       'node scripts/validation/verify-epidemic-flow.cjs'
     ]), timeoutSeconds: 600 }] : []),
     ...(requiresMedicalContestEntry ? [{key: 'verify-game-medical-contest-entry', command: 'node --test src/test/js/medicalContestEntry.test.mjs', timeoutSeconds: 120}] : []),
+    ...(requiresClientFingerprint ? [{key: 'verify-game-client-fingerprint', command: 'node --test src/test/js/clientFingerprint.test.mjs', timeoutSeconds: 120}] : []),
+    ...(requiresHospitalSkinFallback ? [{key: 'verify-game-hospital-skin-fallback', command: 'node --test src/test/js/hospitalSkinTexture.test.mjs', timeoutSeconds: 120}] : []),
     ...(requiresRegionCovers ? [{key: 'verify-bacteria-region-covers', command: regionCoversCommand, timeoutSeconds: 1800}] : []),
     ...(requiresDoorplateUi ? [{key: 'verify-game-doorplate-ui', command: doorplateUiCommand, timeoutSeconds: 600}] : []),
     ...(requiresBacteriaResultUi ? [{key: 'verify-bacteria-result-ui', command: bacteriaResultUiCommand, timeoutSeconds: 1800}] : []),
@@ -446,6 +454,20 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '验证正式成员准入、未达标拦截、连点合并、超时恢复和场景退出取消',
       command: 'node --test src/test/js/medicalContestEntry.test.mjs',
       validation: '入口行为测试全部通过，缺失测试或验证失败时阻止发布',
+      actionType: 'local-check', executable: true
+    })] : []),
+    ...(requiresClientFingerprint ? [releaseStep({
+      key: 'verify-game-client-fingerprint', title: '验证客户端指纹观察',
+      summary: '验证浏览器标识采集、安装标识复用及无效标识拒绝',
+      command: 'node --test src/test/js/clientFingerprint.test.mjs',
+      validation: '浏览器采集行为测试通过，失败时阻止发布',
+      actionType: 'local-check', executable: true
+    })] : []),
+    ...(requiresHospitalSkinFallback ? [releaseStep({
+      key: 'verify-game-hospital-skin-fallback', title: '验证建筑皮肤缺图回退',
+      summary: '验证已加载皮肤正常显示、未加载皮肤改用标准白墙贴图',
+      command: 'node --test src/test/js/hospitalSkinTexture.test.mjs',
+      validation: '首次进入和换肤逻辑测试通过，失败时阻止发布',
       actionType: 'local-check', executable: true
     })] : []),
     ...(requiresDoorplateUi ? [releaseStep({
