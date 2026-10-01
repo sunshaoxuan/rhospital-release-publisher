@@ -60,6 +60,7 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-medical-contest-entry',
     'verify-game-client-fingerprint',
     'verify-game-hospital-skin-fallback',
+    'verify-game-void-rewards',
     'verify-game-epidemic-flow',
     'verify-game-doorplate-ui',
     'verify-design-level-packages',
@@ -252,6 +253,8 @@ function createPlan(projectRoot, request, env = process.env) {
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-client-fingerprint'));
   const requiresHospitalSkinFallback = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-hospital-skin-fallback'));
+  const requiresVoidRewards = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-void-rewards'));
   const requiresEpidemicFlow = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-epidemic-flow'));
   const requiresSpecialClinicAtlas = Boolean(releaseImpactAssessment
@@ -317,6 +320,7 @@ function createPlan(projectRoot, request, env = process.env) {
     ...(requiresMedicalContestEntry ? [{key: 'verify-game-medical-contest-entry', command: 'node --test src/test/js/medicalContestEntry.test.mjs', timeoutSeconds: 120}] : []),
     ...(requiresClientFingerprint ? [{key: 'verify-game-client-fingerprint', command: 'node --test src/test/js/clientFingerprint.test.mjs', timeoutSeconds: 120}] : []),
     ...(requiresHospitalSkinFallback ? [{key: 'verify-game-hospital-skin-fallback', command: 'node --test src/test/js/hospitalSkinTexture.test.mjs', timeoutSeconds: 120}] : []),
+    ...(requiresVoidRewards ? [{key: 'verify-game-void-rewards', command: 'node scripts/validation/void-rewards/validate-evidence.mjs', timeoutSeconds: 120}] : []),
     ...(requiresRegionCovers ? [{key: 'verify-bacteria-region-covers', command: regionCoversCommand, timeoutSeconds: 1800}] : []),
     ...(requiresDoorplateUi ? [{key: 'verify-game-doorplate-ui', command: doorplateUiCommand, timeoutSeconds: 600}] : []),
     ...(requiresBacteriaResultUi ? [{key: 'verify-bacteria-result-ui', command: bacteriaResultUiCommand, timeoutSeconds: 1800}] : []),
@@ -472,6 +476,13 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '验证已加载皮肤正常显示、未加载皮肤改用标准白墙贴图',
       command: 'node --test src/test/js/hospitalSkinTexture.test.mjs',
       validation: '首次进入和换肤逻辑测试通过，失败时阻止发布',
+      actionType: 'local-check', executable: true
+    })] : []),
+    ...(requiresVoidRewards ? [releaseStep({
+      key: 'verify-game-void-rewards', title: '核验虚空馈赠与金币收入',
+      summary: '核对奖励、并发事务、验证码绑定和真实游戏四视口几何证据及源码摘要',
+      command: 'node scripts/validation/void-rewards/validate-evidence.mjs',
+      validation: '缺少功能、数据库事务、像素几何或最终意图证据时拒绝发布',
       actionType: 'local-check', executable: true
     })] : []),
     ...(requiresDoorplateUi ? [releaseStep({

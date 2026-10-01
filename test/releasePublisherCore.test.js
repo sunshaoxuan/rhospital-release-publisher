@@ -3702,6 +3702,33 @@ test('client fingerprint check runs before publication and rejects unknown subst
   assert.throws(()=>createPlan(root,request()));
 });
 
+test('void rewards check runs before publication and rejects unknown substitutes', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'void rewards');
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
+    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-void-rewards'];
+  writeReleaseImpact(root, {assessmentId:'20261001-void-rewards', coveredRuntimePaths:[runtimePath],
+    checklistDecision:'checklist-updated', requiredChecks});
+  runGit(root, ['add','.']);
+  runGit(root, ['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','void rewards']);
+  const request = () => releaseImpactPlanRequest(runGit(root,['rev-parse','HEAD']).trim(), baseline,
+    [runtimePath], ['release/release-impact.json']);
+  const plan = createPlan(root, request());
+  const index = key => plan.steps.findIndex(step => step.key === key);
+  const check = plan.steps[index('verify-game-void-rewards')];
+  assert.equal(check.executable,true);
+  assert.equal(check.command, 'node scripts/validation/void-rewards/validate-evidence.mjs');
+  assert.ok(index(check.key)>index('test-game-backend'));
+  assert.ok(index(check.key)<index('build-image'));
+  writeReleaseImpact(root, {assessmentId:'20261001-void-rewards-invalid', coveredRuntimePaths:[runtimePath],
+    checklistDecision:'checklist-updated', requiredChecks:requiredChecks.map(k=>k===check.key?'verify-void-unknown':k)});
+  runGit(root,['add','.']);
+  runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','invalid gate']);
+  assert.throws(()=>createPlan(root,request()));
+});
+
 test('hospital skin fallback check runs before publication and rejects unknown substitutes', () => {
   const root = releaseImpactGitProject();
   const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
