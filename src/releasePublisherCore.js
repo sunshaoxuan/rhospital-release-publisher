@@ -63,6 +63,7 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-epidemic-flow',
     'verify-game-doorplate-ui',
     'verify-design-level-packages',
+    'verify-game-special-clinic-atlas',
     'verify-bacteria-region-covers',
     'verify-bacteria-result-ui',
     'verify-bacteria-entry-style',
@@ -253,6 +254,8 @@ function createPlan(projectRoot, request, env = process.env) {
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-hospital-skin-fallback'));
   const requiresEpidemicFlow = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-epidemic-flow'));
+  const requiresSpecialClinicAtlas = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-special-clinic-atlas'));
   const requiresDesignPackages = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-design-level-packages'));
   const requiresRegionCovers = Boolean(releaseImpactAssessment
@@ -321,6 +324,7 @@ function createPlan(projectRoot, request, env = process.env) {
       'node --test src/test/js/bacteriaLabEntry.test.mjs',
       'node scripts/bacteria-lab/validate-entry-style-evidence.mjs'
     ]), timeoutSeconds: 180}] : []),
+    ...(requiresSpecialClinicAtlas ? [{key: 'verify-game-special-clinic-atlas', command: 'node scripts/validation/special-clinic/validate-evidence.mjs', timeoutSeconds: 180}] : []),
     ...(requiresDesignPackages ? [{key: 'verify-design-level-packages', command: designPackagesCommand, timeoutSeconds: 1800}] : []),
     ...(requiresPotionLab ? [{key: 'verify-game-potion-lab', command: potionLabCommand, timeoutSeconds: 600}] : []),
     ...(requiresEmergencyGuard ? [{key: 'verify-game-emergency-guard', command: emergencyGuardCommand, timeoutSeconds: 600}] : [])
@@ -499,6 +503,13 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '执行关卡编辑、消耗与揭盖、并发培养皿和手机坐标映射回归，绑定最终真实容器证据',
       command: regionCoversCommand,
       validation: '单数字区域、真实消耗倒计数、隐藏组织、手机最终几何及用户意图回执全部通过',
+      actionType: 'local-check', executable: true
+    })] : []),
+    ...(requiresSpecialClinicAtlas ? [releaseStep({
+      key: 'verify-game-special-clinic-atlas', title: '核验特需病例图谱保存与发布',
+      summary: '校验完整表单原子发布、真实 PostgreSQL 替换并发回滚、固定关闭提交区及非零处方置顶证据',
+      command: 'node scripts/validation/special-clinic/validate-evidence.mjs',
+      validation: '请求行为、数据库与四视口几何截图必须通过并绑定当前源码',
       actionType: 'local-check', executable: true
     })] : []),
     ...(requiresDesignPackages ? [releaseStep({

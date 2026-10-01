@@ -3500,6 +3500,38 @@ test('tracked publisher files contain only current production identifiers', () =
     }
   }
 });
+test('special clinic atlas check is registered, selected in preflight and runs before image build', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'special clinic change\n');
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
+    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-special-clinic-atlas'];
+  writeReleaseImpact(root, {assessmentId: '20261001-special-clinic', coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated', requiredChecks});
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'clinic gate']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
+  const index = key => plan.steps.findIndex(step => step.key === key);
+  assert.ok(index('verify-game-special-clinic-atlas') > index('test-game-backend'));
+  assert.ok(index('verify-game-special-clinic-atlas') < index('build-image'));
+  assert.equal(plan.steps[index('verify-game-special-clinic-atlas')].executable, true);
+  assert.equal(plan.steps[index('verify-game-special-clinic-atlas')].command, 'node scripts/validation/special-clinic/validate-evidence.mjs');
+  const encoded = plan.steps[index('validate-game-release-preflight')].command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/);
+  assert.ok(encoded);
+  const checks = JSON.parse(Buffer.from(encoded[1], 'base64').toString('utf8')).checks;
+  assert.deepEqual(checks.map(check => check.key), ['verify-game-special-clinic-atlas']);
+  assert.equal(checks[0].command, 'node scripts/validation/special-clinic/validate-evidence.mjs');
+  assert.equal(index('verify-design-level-packages'), -1);
+  writeReleaseImpact(root, {assessmentId: '20261001-invalid-clinic-check', coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated', requiredChecks: requiredChecks.map(k => k === 'verify-game-special-clinic-atlas' ? 'verify-game-special-clinic-unknown' : k)});
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'unknown clinic gate']);
+  const invalid = runGit(root, ['rev-parse', 'HEAD']).trim();
+  assert.throws(() => createPlan(root, releaseImpactPlanRequest(invalid, baseline, [runtimePath], ['release/release-impact.json'])));
+});
+
 test('design package check is registered and runs after backend tests before image publication', () => {
   const root = releaseImpactGitProject();
   const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
