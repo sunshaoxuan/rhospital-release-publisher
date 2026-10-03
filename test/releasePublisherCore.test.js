@@ -3846,3 +3846,64 @@ test('epidemic flow check is executable before image publication and rejects unk
   runGit(root,['add','.']);runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','invalid epidemic gate']);
   assert.throws(()=>createPlan(root,request()));
 });
+
+test('Steam release pairs ticket tests and runtime DNS validation with a guarded update', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'steam auth change\n');
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
+    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-steam-auth', 'verify-game-steam-runtime'];
+  writeReleaseImpact(root, {assessmentId: '20261002-steam-auth', coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated', requiredChecks});
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'steam gate']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const request = releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']);
+  request.dockerServer = 'GAME_PRD2';
+  const plan = createPlan(root, request);
+  const step = key => plan.steps.find(item => item.key === key);
+  const index = key => plan.steps.findIndex(item => item.key === key);
+  assert.equal(step('verify-game-steam-auth').command, 'node --test src/test/js/steamLogin.test.cjs');
+  assert.ok(index('game-steam-preflight') < index('publish-image'));
+  assert.ok(index('verify-game-steam-runtime') > index('final-runtime-check'));
+  const preflight = decodedRemoteScript(step('game-steam-preflight').command);
+  assert.match(preflight, /python3 -c/);
+  assert.match(preflight, /runtime_container/);
+  const update = decodedRemoteScript(step('update-remote-compose').command);
+  assert.ok(update.indexOf('cp docker-compose.yml docker-compose.yml.bak.') < update.indexOf('game_steam_dns_compose=PASS'));
+  const mutationMatch = update.match(/printf %s '?([A-Za-z0-9+/=]+)'? \| base64 -d \| python3/);
+  assert.ok(mutationMatch);
+  const mutation = Buffer.from(mutationMatch[1], 'base64').toString('utf8');
+  assert.match(mutation, /yaml.safe_load/);
+  assert.match(mutation, /document\["services"\]\["hospital-backend"\]\["dns"\]/);
+  assert.match(mutation, /os.replace/);
+  assert.equal(mutation.includes('daemon.json'), false);
+  const runtime = decodedRemoteScript(step('verify-game-steam-runtime').command);
+  assert.match(runtime, /DNSConfig.Nameservers/);
+  assert.match(runtime, /1.1.1.1/);
+  assert.match(runtime, /127\[.\]0\[.\]0\[.\]11/);
+  assert.match(runtime, /getent ahostsv4 hospital-backend/);
+  assert.match(runtime, /steamcommunity.com\/openid\/login/);
+  const probeMatch = runtime.match(/printf %s '?([A-Za-z0-9+/=]+)'? \| base64 -d \| python3/);
+  const probe = Buffer.from(probeMatch[1], 'base64').toString('utf8');
+  assert.match(probe, /partner.steam-api.com/);
+  assert.match(probe, /"identity": "rhospital"/);
+  assert.match(probe, /"docker", "exec", "-i", container, "curl"/);
+  assert.match(probe, /capture_output=True/);
+  assert.equal(probe.includes('print(key)'), false);
+  assert.equal(probe.includes('str(error)'), false);
+  const encoded = step('validate-game-release-preflight').command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/);
+  const checks = JSON.parse(Buffer.from(encoded[1], 'base64').toString('utf8')).checks;
+  assert.ok(checks.some(check => check.key === 'verify-game-steam-auth'));
+  assert.equal(checks.some(check => check.key === 'verify-game-steam-runtime'), false);
+
+  for (const missing of ['verify-game-steam-auth', 'verify-game-steam-runtime']) {
+    writeReleaseImpact(root, {assessmentId: '20261002-steam-missing-' + missing, coveredRuntimePaths: [runtimePath],
+      checklistDecision: 'checklist-updated', requiredChecks: requiredChecks.filter(key => key !== missing)});
+    runGit(root, ['add', '.']);
+    runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'missing gate']);
+    const invalid = runGit(root, ['rev-parse', 'HEAD']).trim();
+    assert.throws(() => createPlan(root, {...request, gitCommit: invalid}), /Steam/);
+  }
+});

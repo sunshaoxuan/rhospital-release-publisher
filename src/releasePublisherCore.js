@@ -65,6 +65,8 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-epidemic-flow',
     'verify-game-doorplate-ui',
     'verify-design-level-packages',
+    'verify-game-steam-auth',
+    'verify-game-steam-runtime',
     'verify-game-special-clinic-atlas',
     'verify-bacteria-region-covers',
     'verify-bacteria-result-ui',
@@ -258,6 +260,13 @@ function createPlan(projectRoot, request, env = process.env) {
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-void-rewards'));
   const requiresEpidemicFlow = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-epidemic-flow'));
+  const requiresSteamAuth = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-steam-auth'));
+  const requiresSteamRuntime = Boolean(releaseImpactAssessment
+    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-steam-runtime'));
+  if (requiresSteamAuth !== requiresSteamRuntime) {
+    throw new Error('Steam 修复必须同时选择客户端行为和生产验票/DNS验收');
+  }
   const requiresSpecialClinicAtlas = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-special-clinic-atlas'));
   const requiresDesignPackages = Boolean(releaseImpactAssessment
@@ -329,6 +338,7 @@ function createPlan(projectRoot, request, env = process.env) {
       'node --test src/test/js/bacteriaLabEntry.test.mjs',
       'node scripts/bacteria-lab/validate-entry-style-evidence.mjs'
     ]), timeoutSeconds: 180}] : []),
+    ...(requiresSteamAuth ? [{key: 'verify-game-steam-auth', command: 'node --test src/test/js/steamLogin.test.cjs', timeoutSeconds: 120}] : []),
     ...(requiresSpecialClinicAtlas ? [{key: 'verify-game-special-clinic-atlas', command: 'node scripts/validation/special-clinic/validate-evidence.mjs', timeoutSeconds: 180}] : []),
     ...(requiresDesignPackages ? [{key: 'verify-design-level-packages', command: designPackagesCommand, timeoutSeconds: 1800}] : []),
     ...(requiresPotionLab ? [{key: 'verify-game-potion-lab', command: potionLabCommand, timeoutSeconds: 600}] : []),
@@ -517,6 +527,13 @@ function createPlan(projectRoot, request, env = process.env) {
       validation: '单数字区域、真实消耗倒计数、隐藏组织、手机最终几何及用户意图回执全部通过',
       actionType: 'local-check', executable: true
     })] : []),
+    ...(requiresSteamAuth ? [releaseStep({
+      key: 'verify-game-steam-auth', title: '核验 Steam 票据与客户端生命周期',
+      summary: '验证客户端持票至后端结束、成功失败超时均释放、重试新票及脱敏诊断；后端正式验票协议由完整后端测试覆盖',
+      command: 'node --test src/test/js/steamLogin.test.cjs',
+      validation: '客户端票据行为测试全部通过，真实有效票据和游戏进入仍须发布前受控验收',
+      actionType: 'local-check', executable: true, timeoutSeconds: 120
+    })] : []),
     ...(requiresSpecialClinicAtlas ? [releaseStep({
       key: 'verify-game-special-clinic-atlas', title: '核验特需病例图谱保存与发布',
       summary: '校验完整表单原子发布、真实 PostgreSQL 替换并发回滚、固定关闭提交区及非零处方置顶证据',
@@ -674,6 +691,18 @@ function createPlan(projectRoot, request, env = process.env) {
         executable: true
       }));
     }
+    if (requiresSteamAuth) {
+      steps.push(releaseStep({
+        key: 'game-steam-preflight', title: '核验现有 Steam Publisher Key 与编排依赖',
+        summary: '镜像上传前只读验证现有验票 Key 及服务 DNS 更新工具',
+        command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
+          'service_name=' + shellToken(config.stackName + '_' + config.containerName),
+          ...gameSteamPartnerProbeCommands()
+        ])),
+        validation: '无效票据业务拒绝且结构化更新依赖可用，秘密不进入输出',
+        actionType: 'remote-check', executable: true, timeoutSeconds: 60
+      }));
+    }
     steps.push(releaseStep({
       key: 'read-remote-compose',
       title: '读取生产编排当前版本',
@@ -799,6 +828,7 @@ function createPlan(projectRoot, request, env = process.env) {
         `sed -i -E 's#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\1${escapeSedReplacement(imageTag)}#' docker-compose.yml`,
         `sed -i -E 's#^([[:space:]]*-[[:space:]]*IMAGE_TAG=).*$#\\1${escapeSedReplacement(appTag)}#' docker-compose.yml`,
         `sed -i -E 's#^([[:space:]]*IMAGE_TAG:[[:space:]]*).*$#\\1"${escapeSedReplacement(appTag)}"#' docker-compose.yml`,
+        ...(requiresSteamAuth ? gameSteamDnsUpdateCommands() : []),
         `docker stack config -c docker-compose.yml >/dev/null`
       ])),
       validation: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
@@ -938,6 +968,18 @@ function createPlan(projectRoot, request, env = process.env) {
         executable: true,
         finalCheck: true,
         timeoutSeconds: 180
+      }));
+    }
+    if (requiresSteamRuntime) {
+      steps.push(releaseStep({
+        key: 'verify-game-steam-runtime', title: '核验生产 Steam 入口和服务 DNS',
+        summary: '验证现有 Publisher Key、服务 DNSConfig、内部服务发现和网页 OpenID 可达性',
+        command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
+          'service_name=' + shellToken(config.stackName + '_' + config.containerName),
+          ...gameSteamRuntimeCommands()
+        ])),
+        validation: '无效票据正确拒绝、任务 DNS 映射和内部解析保持、网页地址可达；有效票据另行验收',
+        actionType: 'remote-check', executable: true, finalCheck: true, timeoutSeconds: 90
       }));
     }
     if (requiresEmergencyGuard) {
@@ -4073,6 +4115,65 @@ function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName
     'done',
     'echo "game_rollback_completed_from=$backup_dir"',
     'echo "automatic_rollback_validation=PASS"'
+  ];
+}
+
+function gameSteamPartnerProbeCommands() {
+  const script = [
+    'import json, subprocess, sys, urllib.parse',
+    'try:',
+    '    container = sys.argv[1]',
+    '    key = subprocess.check_output(["docker", "exec", container, "cat", "/run/secrets/steam.web.api.key"], text=True).strip()',
+    '    query = urllib.parse.urlencode({"key": key, "appid": "4417110", "ticket": "00", "identity": "rhospital"})',
+    '    url = "https://partner.steam-api.com/ISteamUserAuth/AuthenticateUserTicket/v1/?" + query',
+    '    config = "url = " + json.dumps(url) + "\\n"',
+    '    result = subprocess.run(["docker", "exec", "-i", container, "curl", "--config", "-", "--silent", "--show-error", "--connect-timeout", "4", "--max-time", "10", "--write-out", "\\n%{http_code}"], input=config, text=True, capture_output=True, timeout=15)',
+    '    body, status = result.stdout.rsplit("\\n", 1)',
+    '    if result.returncode != 0 or status != "200" or json.loads(body).get("response", {}).get("error", {}).get("errorcode") != 3:',
+    '        raise ValueError("Unexpected invalid-ticket response")',
+    '    print("game_steam_publisher_key=PASS invalid_ticket_rejected=true")',
+    'except Exception as error:',
+    '    print("game_steam_publisher_key=FAIL failureType=" + type(error).__name__)',
+    '    sys.exit(1)'
+  ].join('\n');
+  return [
+    'runtime_container=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy)',
+    `[ -n "$runtime_container" ] && [ "$(printf '%s\n' "$runtime_container" | wc -l)" -eq 1 ] || { echo "ERROR: expected one healthy game task"; exit 1; }`,
+    'python3 -c ' + shellToken('import yaml') + ' >/dev/null',
+    'printf %s ' + shellToken(Buffer.from(script, 'utf8').toString('base64')) + ' | base64 -d | python3 - "$runtime_container"'
+  ];
+}
+
+function gameSteamRuntimeCommands() {
+  return [
+    ...gameSteamPartnerProbeCommands(),
+    `docker service inspect "$service_name" --format '{{json .Spec.TaskTemplate.ContainerSpec.DNSConfig.Nameservers}}' | jq -e '. == ["1.1.1.1", "8.8.8.8"]' >/dev/null`,
+    'docker exec "$runtime_container" sh -c ' + shellToken('grep -Eq "^nameserver[[:space:]]+127[.]0[.]0[.]11$" /etc/resolv.conf && getent ahostsv4 hospital-backend >/dev/null'),
+    'docker exec "$runtime_container" curl -fsS --connect-timeout 4 --max-time 6 -o /dev/null https://steamcommunity.com/openid/login',
+    'echo game_steam_runtime=PASS'
+  ];
+}
+
+function gameSteamDnsUpdateCommands() {
+  const script = [
+    'import os, stat, tempfile, yaml',
+    'target = "docker-compose.yml"',
+    'with open(target, encoding="utf-8") as source: document = yaml.safe_load(source)',
+    'document["services"]["hospital-backend"]["dns"] = ["1.1.1.1", "8.8.8.8"]',
+    'mode = stat.S_IMODE(os.stat(target).st_mode)',
+    'fd, temporary = tempfile.mkstemp(prefix=".steam-dns-", dir=".")',
+    'try:',
+    '    with os.fdopen(fd, "w", encoding="utf-8") as output: yaml.safe_dump(document, output, sort_keys=False)',
+    '    os.chmod(temporary, mode)',
+    '    os.replace(temporary, target)',
+    'finally:',
+    '    if os.path.exists(temporary): os.unlink(temporary)'
+  ].join('\n');
+  return [
+    'python3 -c ' + shellToken('import yaml') + " || { echo 'ERROR: PyYAML is required for service-scoped DNS'; exit 1; }",
+    'printf %s ' + shellToken(Buffer.from(script, 'utf8').toString('base64')) + ' | base64 -d | python3',
+    `docker compose -f docker-compose.yml config --format json | jq -e '.services["hospital-backend"].dns == ["1.1.1.1", "8.8.8.8"]' >/dev/null`,
+    'echo game_steam_dns_compose=PASS'
   ];
 }
 
