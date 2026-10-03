@@ -102,7 +102,7 @@ function gameProductionImageConfigCommands() {
   return [
     `production_import_count=$(grep -Ec '^[[:space:]]*spring[.]config[.]import([[:space:]]+|[:=])' BOOT-INF/classes/application-prod.properties || true)`,
     `[ "$production_import_count" -eq 1 ] || { echo 'ERROR: production image must contain exactly one configuration import'; exit 1; }`,
-    `grep -Fxq 'spring.config.import=configtree:/run/secrets/,file:/run/secrets/steam-auth.properties,file:/run/secrets/snail-job.properties' BOOT-INF/classes/application-prod.properties || { echo 'ERROR: production image must load controlled runtime secrets'; exit 1; }`,
+    `sed 's/\\r$//' BOOT-INF/classes/application-prod.properties | grep -Fxq 'spring.config.import=configtree:/run/secrets/,file:/run/secrets/steam-auth.properties,file:/run/secrets/snail-job.properties' || { echo 'ERROR: production image must load controlled runtime secrets'; exit 1; }`,
     `! grep -Eq '^[[:space:]]*stripe[.](api[.]key|webhook[.]secret)([[:space:]]+|[:=])' BOOT-INF/classes/application-prod.properties || { echo 'ERROR: production image contains a Stripe credential override'; exit 1; }`
   ];
 }

@@ -109,7 +109,7 @@ function createAcceptanceIsolation(publisherRoot) {
   fs.mkdirSync(bin, {recursive: true});
   fs.writeFileSync(shimScript, acceptanceShimSource(), 'utf8');
   const nodeExe = process.execPath;
-  for (const tool of ['docker', 'scp', 'node']) {
+  for (const tool of ['docker', 'scp', 'node', 'npm']) {
     writeCmdWrapper(path.join(bin, `${tool}.cmd`), nodeExe, shimScript, tool);
   }
   writeSshWrapper(path.join(bin, 'ssh.ps1'));

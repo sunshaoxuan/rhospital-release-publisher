@@ -2709,6 +2709,17 @@ test('SSH runner streams oversized remote scripts through stdin instead of argv'
   }
 });
 
+test('full-flow acceptance isolates npm checks from the current application checkout', async () => {
+  const isolation = createAcceptanceIsolation(path.join(__dirname, '..'));
+  try {
+    const output = await runPowerShell(process.cwd(), 'npm run unavailable-in-this-checkout',
+      isolation.env, null, null, null, 30);
+    assert.match(output, /isolated_npm=PASS/);
+  } finally {
+    isolation.cleanup();
+  }
+});
+
 test('full-flow acceptance invokes every executable command and continues after failures', async () => {
   const commands = [];
   const plan = {

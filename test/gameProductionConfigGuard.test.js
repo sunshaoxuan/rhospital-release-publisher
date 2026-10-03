@@ -218,6 +218,8 @@ test('actual image contract accepts configtree and rejects missing imports or em
   try {
     for (const [text, passes] of [
       ['spring.config.import=configtree:/run/secrets/,file:/run/secrets/steam-auth.properties,file:/run/secrets/snail-job.properties\n', true],
+      ['spring.config.import=configtree:/run/secrets/,file:/run/secrets/steam-auth.properties,file:/run/secrets/snail-job.properties\r\n', true],
+      ['spring.config.import=configtree:/run/secrets/,file:/run/secrets/steam-auth.properties,file:/run/secrets/snail-job.properties,optional:file:/private.properties\r\n', false],
       ['spring.config.import=configtree:/run/secrets/\n', false],
       ['spring.config.import=optional:configtree:/run/secrets/\n', false],
       ['spring.config.import=classpath:application-dev.properties\n', false],
