@@ -4,6 +4,8 @@ const os = require('os');
 const crypto = require('crypto');
 const {spawn, spawnSync} = require('child_process');
 const {buildReleaseDiagnostics, addSemanticDiagnosis} = require('./releaseDiagnostics');
+const {GAME_DATABASE, gameDatabasePsqlCommand, gameDatabaseContainerResolutionCommands} = require('./gameProductionDatabase');
+const {gameFormalComposeCommands, gameServiceSnapshotCommands} = require('./gameFormalProductionTransition');
 const {expectedTomcatVersion, tomcatJarCheckScript} = require('./tomcatSecurityCheck');
 const {gameProductionConfigGuardCommands, gameStripeAuthenticationCommands, gameProductionImageConfigCommands} = require('./gameProductionConfigGuard');
 
@@ -86,27 +88,18 @@ const KNOWN_RELEASE_CHECKS = {
     'final-runtime-check'
   ])
 };
-const GAME_DATABASE_CONTAINER_NAME = 'postgresql';
-const GAME_DATABASE_NAME = 'hospital';
+const GAME_DATABASE_NAME = GAME_DATABASE.name;
 const GAME_PRODUCTION_SECRET_MAPPINGS = [
-  ['firebase_service_account', 'firebase_service_account'],
+  ['game_failback_firebase_service_account', 'firebase_service_account'],
   ['forum_sso_secret', 'forum_sso_secret'],
   ['game_new_relic_license_key', 'newrelic.license.key'],
   ['game_paddle_api_key', 'paddle.api.key'],
   ['game_paddle_client_token', 'paddle.client.token'],
   ['game_paddle_webhook_secret', 'paddle.webhook.secret'],
-  ['game_snail_job_host', 'snail-job.host'],
-  ['game_snail_job_namespace', 'snail-job.namespace'],
-  ['game_snail_job_port', 'snail-job.port'],
-  ['game_snail_job_server_host', 'snail-job.server.host'],
-  ['game_snail_job_server_port', 'snail-job.server.port'],
-  ['game_snail_job_token', 'snail-job.token'],
-  ['game_spring_datasource_password', 'spring.datasource.password'],
-  ['game_spring_datasource_url', 'spring.datasource.url'],
-  ['game_spring_datasource_username', 'spring.datasource.username'],
+  ['game_snailjob_recovery_properties_20261003', 'snail-job.properties'],
+  ['game_failback_spring_datasource_password', 'spring.datasource.password'],
+  ['game_failback_steam_auth', 'steam-auth.properties'],
   ['game_steam_microtxn_publisher_key', 'steam.microtxn.publisher.key'],
-  ['game_steam_web_api_key', 'steam.web.api.key'],
-  ['game_steam_web_login_api_key', 'steam.web-login.api.key'],
   ['game_stripe_api_key', 'stripe.api.key'],
   ['game_stripe_webhook_secret', 'stripe.webhook.secret'],
   ['support_mail_password', 'spring.mail.password'],
@@ -659,6 +652,9 @@ function createPlan(projectRoot, request, env = process.env) {
   });
 
   if (includeStackDeploy) {
+    const formalComposeSource = gitCommit === 'latest'
+      ? fs.readFileSync(resolveInside(projectRoot, DEFAULT_COMPOSE_FILE), 'utf8')
+      : runGit(projectRoot, ['show', `${gitCommit}:${DEFAULT_COMPOSE_FILE}`]);
     steps.push(releaseStep({
       key: 'resolve-ssh-target',
       title: '确认 SSH 连接配置',
@@ -676,17 +672,18 @@ function createPlan(projectRoot, request, env = process.env) {
       steps.push(releaseStep({
         key: 'game-prd2-migration-readiness',
         title: '验证 Prd2 迁移发布门禁',
-        summary: '确认新生产数据库角色、论坛、SnailJob、New Relic、持久化防火墙和生产 Secret 已就绪',
+        summary: '确认当前生产数据库身份、论坛、SnailJob、持久化防火墙和生产 Secret 已就绪',
         command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
-          `test "$(docker exec postgresql psql -U hospital -d hospital -Atc 'select pg_is_in_recovery();')" = f`,
+          ...gameDatabaseContainerResolutionCommands(),
           `curl -fsS --max-time 10 http://127.0.0.1:40020 >/dev/null`,
           `docker ps --format '{{.Names}}' | grep -Fxq snail-job`,
           `docker ps --format '{{.Names}}' | grep -Eq 'newrelic|new-relic'`,
+
           `iptables -C DOCKER-USER -j RH-GAME-PRD2`,
           `test "$(docker secret ls --format '{{.Name}}' | grep -Ec '^(game_|firebase_service_account|forum_sso_secret|support_mail_password)')" -ge 20`,
           `echo game_prd2_migration_readiness=PASS`
         ])),
-        validation: '新生产必须为唯一可写主库，论坛、调度、监控、防火墙和全部运行时 Secret 均通过',
+        validation: '当前库身份和可写角色匹配，论坛、调度、监控、防火墙和运行时 Secret 均通过',
         actionType: 'remote-check',
         executable: true
       }));
@@ -710,9 +707,12 @@ function createPlan(projectRoot, request, env = process.env) {
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
         `grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:|^[[:space:]]*(-[[:space:]]*)?(IMAGE_TAG|FORUM_SSO_ENABLED|FORUM_SSO_SECRET_FILE)([[:space:]]*[:=])' docker-compose.yml`,
-        ...gameComposeSsoContractCommands(config.stackName, config.containerName)
+        `service_name=${shellToken(gameServiceName(config.stackName, config.containerName))}`,
+        ...gameFormalComposeCommands(formalComposeSource, imageTag, appTag),
+        ...gameComposeSsoContractCommands(config.stackName, config.containerName, '$compose_candidate', true),
+        'rm -f "$compose_candidate"'
       ])),
-      validation: `必须同时读到游戏镜像、IMAGE_TAG、FORUM_SSO_ENABLED=true 和论坛 SSO Secret`,
+      validation: `目标提交正式编排必须通过完整合同；当前服务必须为已核验恢复配置或匹配正式配置`,
       actionType: 'remote-check',
       executable: true
     }));
@@ -819,30 +819,28 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '备份 docker-compose.yml，同时替换服务镜像和前端运行版本，并校验编排文件',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
-        `image_line_count=$(grep -Ec '^[[:space:]]*image:[[:space:]]*hospital-backend:' docker-compose.yml)`,
-        `version_line_count=$(grep -Ec '^[[:space:]]*(-[[:space:]]*)?IMAGE_TAG([[:space:]]*[:=])' docker-compose.yml)`,
-        `[ "$image_line_count" -eq 1 ] || { echo "ERROR: expected exactly one hospital-backend image line, found $image_line_count"; exit 1; }`,
-        `[ "$version_line_count" -eq 1 ] || { echo "ERROR: expected exactly one IMAGE_TAG line, found $version_line_count"; exit 1; }`,
-        ...gameComposeSsoContractCommands(config.stackName, config.containerName),
-        `cp docker-compose.yml docker-compose.yml.bak.$(date +%Y%m%d%H%M%S)`,
-        `sed -i -E 's#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\1${escapeSedReplacement(imageTag)}#' docker-compose.yml`,
-        `sed -i -E 's#^([[:space:]]*-[[:space:]]*IMAGE_TAG=).*$#\\1${escapeSedReplacement(appTag)}#' docker-compose.yml`,
-        `sed -i -E 's#^([[:space:]]*IMAGE_TAG:[[:space:]]*).*$#\\1"${escapeSedReplacement(appTag)}"#' docker-compose.yml`,
-        ...(requiresSteamAuth ? gameSteamDnsUpdateCommands() : []),
+        `service_name=${shellToken(gameServiceName(config.stackName, config.containerName))}`,
+        'backup_dir=$(cat .last-game-release-backup)',
+        ...gameServiceSnapshotCommands(),
+        ...gameFormalComposeCommands(formalComposeSource, imageTag, appTag),
+        ...gameComposeSsoContractCommands(config.stackName, config.containerName, '$compose_candidate', true),
+        'cp "$compose_candidate" docker-compose.yml',
+        'rm -f "$compose_candidate"',
         `docker stack config -c docker-compose.yml >/dev/null`
+
       ])),
       validation: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
         `grep -nE '^[[:space:]]*image:[[:space:]]*${escapeEgrepPattern(imageTag)}$' docker-compose.yml`,
         `grep -nE '^[[:space:]]*-[[:space:]]*IMAGE_TAG=${escapeEgrepPattern(appTag)}[[:space:]]*$|^[[:space:]]*IMAGE_TAG:[[:space:]]*"?${escapeEgrepPattern(appTag)}"?[[:space:]]*$' docker-compose.yml`,
-        ...gameComposeSsoContractCommands(config.stackName, config.containerName),
+        ...gameComposeSsoContractCommands(config.stackName, config.containerName, 'docker-compose.yml', true),
         `docker stack config -c docker-compose.yml >/dev/null`
       ])),
       validationCommand: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
         `grep -nE '^[[:space:]]*image:[[:space:]]*${escapeEgrepPattern(imageTag)}$' docker-compose.yml`,
         `grep -nE '^[[:space:]]*-[[:space:]]*IMAGE_TAG=${escapeEgrepPattern(appTag)}[[:space:]]*$|^[[:space:]]*IMAGE_TAG:[[:space:]]*"?${escapeEgrepPattern(appTag)}"?[[:space:]]*$' docker-compose.yml`,
-        ...gameComposeSsoContractCommands(config.stackName, config.containerName),
+        ...gameComposeSsoContractCommands(config.stackName, config.containerName, 'docker-compose.yml', true),
         `docker stack config -c docker-compose.yml >/dev/null`
       ])),
       actionType: 'production',
@@ -855,10 +853,12 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '在同一远程脚本内复核完整生产合同和旧健康副本，再执行 stack deploy 并确认服务没有缩容',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
-        ...gameComposeSsoContractCommands(config.stackName, config.containerName),
+        ...gameComposeSsoContractCommands(config.stackName, config.containerName, 'docker-compose.yml', true),
         `service_name=${shellToken(`${config.stackName}_${config.containerName}`)}`,
         `healthy_before_deploy=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | wc -l)`,
         `[ "$healthy_before_deploy" -ge 1 ] || { echo 'ERROR: deploy blocked because no healthy old container is serving'; exit 1; }`,
+        'backup_dir=$(cat .last-game-release-backup)',
+        ...gameServiceSnapshotCommands(),
         `docker stack deploy -c docker-compose.yml ${shellToken(config.stackName)}`,
         `replicas_after_submit=$(docker service inspect "$service_name" --format '{{.Spec.Mode.Replicated.Replicas}}')`,
         `[ "$replicas_after_submit" -eq 1 ] || { echo "ERROR: deploy submitted an invalid replica count: $replicas_after_submit"; exit 1; }`,
@@ -947,6 +947,9 @@ function createPlan(projectRoot, request, env = process.env) {
           `test "$(docker service inspect "$service_name" --format '{{.Spec.TaskTemplate.ContainerSpec.StopGracePeriod}}')" = 1m0s`,
           `test "$(printf '%s\n' "$service_env" | sed -n 's/^FORUM_SSO_ENABLED=//p')" = true`,
           `test "$(printf '%s\n' "$service_env" | sed -n 's/^SPRING_PROFILE=//p')" = prod`,
+          ...gameDatabaseContainerResolutionCommands(),
+          "test \"$(printf '%s\\n' \"$service_env\" | sed -n 's/^SNAIL_JOB_ENABLED=//p')\" = true",
+          "test \"$(printf '%s\\n' \"$service_env\" | sed -n 's/^STEAM_MICROTXN_SANDBOX=//p')\" = false",
           `test "$(printf '%s\n' "$service_env" | sed -n 's/^NEW_RELIC_LICENSE_KEY_FILE=//p')" = /run/secrets/newrelic.license.key`,
           `test "$(printf '%s\n' "$service_env" | sed -n 's/^FIREBASE_SERVICE_ACCOUNT_FILE=//p')" = /run/secrets/firebase_service_account`,
           `! printf '%s\n' "$service_env" | grep -q '^NEW_RELIC_LICENSE_KEY='`,
@@ -3594,17 +3597,16 @@ function gameDatabaseAuditContainerScript() {
     'case "$profile" in *[!0-9A-Za-z_.-]*) echo "ERROR: invalid SPRING_PROFILE"; exit 1;; esac',
     'cd "$work_dir"',
     'properties_entry=$(jar tf /app/app.jar | grep -E "^BOOT-INF/classes/application-${profile}\\.properties$" | head -n 1)',
-    '[ -n "$properties_entry" ] || { echo "ERROR: application profile properties are missing"; exit 1; }',
-    'jar xf /app/app.jar "$properties_entry"',
-    'properties_file="$work_dir/$properties_entry"',
-    'read_property() { grep -F "$1=" "$properties_file" | head -n 1 | cut -d= -f2- | tr -d "\\r"; }',
+    'properties_file="$work_dir/profile.properties"',
+    'if [ -n "$properties_entry" ]; then jar xf /app/app.jar "$properties_entry"; properties_file="$work_dir/$properties_entry"; fi',
+    'read_property() { [ ! -f "$properties_file" ] || { grep -F "$1=" "$properties_file" | head -n 1 | cut -d= -f2- | tr -d "\\r"; }; }',
     'read_secret() { secret_file="/run/secrets/$1"; [ -f "$secret_file" ] && tr -d "\\r\\n" < "$secret_file"; }',
-    'db_url="${SPRING_DATASOURCE_URL:-$(read_property spring.datasource.url)}"',
-    'db_user="${SPRING_DATASOURCE_USERNAME:-$(read_property spring.datasource.username)}"',
-    'db_password="${SPRING_DATASOURCE_PASSWORD:-$(read_property spring.datasource.password)}"',
-    '[ -n "$db_url" ] || db_url=$(read_secret spring.datasource.url)',
-    '[ -n "$db_user" ] || db_user=$(read_secret spring.datasource.username)',
-    '[ -n "$db_password" ] || db_password=$(read_secret spring.datasource.password)',
+    'db_url="${SPRING_DATASOURCE_URL:-$(read_secret spring.datasource.url)}"',
+    'db_user="${SPRING_DATASOURCE_USERNAME:-$(read_secret spring.datasource.username)}"',
+    'db_password="${SPRING_DATASOURCE_PASSWORD:-$(read_secret spring.datasource.password)}"',
+    '[ -n "$db_url" ] || db_url=$(read_property spring.datasource.url)',
+    '[ -n "$db_user" ] || db_user=$(read_property spring.datasource.username)',
+    '[ -n "$db_password" ] || db_password=$(read_property spring.datasource.password)',
     '[ -n "$db_url" ] && [ -n "$db_user" ] && [ -n "$db_password" ] || { echo "ERROR: database connection settings are incomplete"; exit 1; }',
     'driver_entry=$(jar tf /app/app.jar | grep -E "^BOOT-INF/lib/postgresql-[^/]+\\.jar$" | head -n 1)',
     '[ -n "$driver_entry" ] || { echo "ERROR: PostgreSQL JDBC driver is missing"; exit 1; }',
@@ -3637,6 +3639,7 @@ function gameDatabasePreflightCommand(stackName, containerName, expectedVersion)
     'docker service inspect "$service_name" >/dev/null',
     'container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
     '[ -n "$container_id" ] || { echo "ERROR: no healthy game container is available for database preflight"; exit 1; }',
+    ...gameDatabaseContainerResolutionCommands(),
     gameDatabaseAuditExecCommand('"$container_id"', 'inspect', expectedVersion),
     "echo 'game_database_preflight=PASS'"
   ];
@@ -3659,6 +3662,7 @@ function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName, ex
     'docker image inspect "$current_image" > "$backup_dir/image.inspect.json"',
     'container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
     '[ -n "$container_id" ] || { echo "ERROR: no healthy game container is available for backup"; exit 1; }',
+    ...gameDatabaseContainerResolutionCommands(),
     gameDatabaseAuditExecCommand('"$container_id"', 'backup', expectedVersion, '"$container_backup_dir"'),
     'docker cp "$container_id:$container_backup_dir/." "$backup_dir/database/"',
     'docker exec "$container_id" rm -rf "$container_backup_dir"'
@@ -3724,15 +3728,7 @@ function gameDesignImageSettingsRetirementCommand(remoteComposeDir, stackName, c
   ];
 }
 
-function gameDatabaseContainerResolutionCommands() {
-  return [
-    `database_container_name=${shellToken(GAME_DATABASE_CONTAINER_NAME)}`,
-    'database_container_ids=$(docker ps -q --filter "name=^/${database_container_name}$")',
-    'database_container_count=$(printf "%s\n" "$database_container_ids" | sed \'/^$/d\' | wc -l)',
-    '[ "$database_container_count" -eq 1 ] || { echo "ERROR: expected one running database container named $database_container_name, found $database_container_count"; exit 1; }',
-    'database_container_id=$(printf "%s\n" "$database_container_ids" | head -n 1)'
-  ];
-}
+
 
 function gamePreDeployChecklistCommand(remoteComposeDir, stackName, containerName, imageTag, releaseMigrations) {
   const serviceName = gameServiceName(stackName, containerName);
@@ -3765,7 +3761,8 @@ function gamePreDeployChecklistCommand(remoteComposeDir, stackName, containerNam
     'echo "checklist_backup=PASS path=$backup_dir"',
     'echo "checklist_database_migrations=PASS count=$actual_migrations"',
     'echo "checklist_migration_image_source=PASS image=$target_image"',
-    'echo "checklist_rollback_source=PASS compose=$backup_dir/docker-compose.yml"',
+    ...gameServiceSnapshotCommands(),
+    'echo "checklist_rollback_source=PASS snapshot=$backup_dir/service.inspect.json"',
     'echo "pre_deploy_checklist=PASS"'
   ];
 }
@@ -3898,7 +3895,7 @@ CROSS JOIN ownership_mismatches;
       'test -f "$migration_file" || { echo "ERROR: target image migration is missing: $migration_path"; exit 1; }',
       'actual_sha256=$(sha256sum "$migration_file" | cut -d" " -f1)',
       '[ "$actual_sha256" = "$migration_sha256" ] || { echo "ERROR: migration checksum mismatch for $migration_path"; exit 1; }',
-      'docker exec -i "$database_container_id" sh -lc \'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$1" -f -\' sh "$database_name" < "$migration_file"',
+      `${gameDatabasePsqlCommand('-f -')} < "$migration_file"`,
       `migration_receipt="$backup_dir/database/migrations/${safeName}.applied"`,
       'printf "%s|%s|%s|%s\n" "$migration_path" "$migration_sha256" "$target_image_id" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$migration_receipt"',
       'echo "database_migration_applied=$migration_path sha256=$migration_sha256"'
@@ -3909,9 +3906,9 @@ CROSS JOIN ownership_mismatches;
     `application_service_name=${shellToken(gameServiceName(stackName, containerName))}`,
     'application_container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$application_service_name" --filter health=healthy | head -n 1)',
     '[ -n "$application_container_id" ] || { echo "ERROR: no healthy application container is available for database ownership validation"; exit 1; }',
-    'application_database_role=$(docker exec "$application_container_id" sh -lc \'IFS= read -r value < /run/secrets/spring.datasource.username; printf "%s" "$value"\')',
+    "application_database_role=$(docker exec \"$application_container_id\" sh -lc 'if [ -n \"${SPRING_DATASOURCE_USERNAME:-}\" ]; then printf \"%s\" \"$SPRING_DATASOURCE_USERNAME\"; else IFS= read -r value < /run/secrets/spring.datasource.username; printf \"%s\" \"$value\"; fi')",
     '[ -n "$application_database_role" ] || { echo "ERROR: application database role Secret is empty"; exit 1; }',
-    'application_ownership_check=$(printf "%s\\n" "$application_ownership_sql" | docker exec -i -e APPLICATION_DATABASE_ROLE="$application_database_role" "$database_container_id" sh -lc \'psql -X -v ON_ERROR_STOP=1 -v application_role="$APPLICATION_DATABASE_ROLE" -U "$POSTGRES_USER" -d "$1" -At -F "|" -f -\' sh "$database_name")',
+    `application_ownership_check=$(printf "%s\\n" "$application_ownership_sql" | ${gameDatabasePsqlCommand('-v application_role="$application_database_role" -At -F "|" -f -')})`,
     'unset application_database_role',
     '[ "$application_ownership_check" = "true|true|0" ] || { echo "ERROR: application database object ownership validation failed result=$application_ownership_check"; exit 1; }',
     'echo "game_database_application_ownership=PASS mismatches=0"',
@@ -3978,7 +3975,7 @@ ROLLBACK;
     'set -eu',
     ...gameDatabaseContainerResolutionCommands(),
     `database_name=${shellToken(GAME_DATABASE_NAME)}`,
-    `printf %s '${encoded}' | base64 -d | docker exec -i "$database_container_id" sh -lc 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$1" -f -' sh "$database_name"`,
+    `printf %s '${encoded}' | base64 -d | ${gameDatabasePsqlCommand('-f -')}`,
     `echo "game_database_migration_compatibility=PASS migrations=${releaseMigrations.length} hashes=${hashes.length}"`
   ];
 }
@@ -4076,21 +4073,18 @@ function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName
     `service_name=${shellToken(serviceName)}`,
     'backup_dir=$(cat .last-game-release-backup)',
     'test -s "$backup_dir/docker-compose.yml"',
-    '(',
-    '  cd "$backup_dir"',
-    ...gameComposeSsoContractCommands(stackName, containerName),
-    ')',
+    '(cd "$backup_dir" && sha256sum -c SHA256SUMS)',
+    ...gameServiceSnapshotCommands('rollback'),
     'if [ -f "$backup_dir/design-image.json" ] && [ ! -e data/private/design-image.json ]; then mkdir -p data/private && cp "$backup_dir/design-image.json" data/private/design-image.json && chmod 600 data/private/design-image.json; fi',
     'echo "WARNING: suspending all ACTIVE ADMIN listings before old-code rollback"',
-    ...gameDatabaseContainerResolutionCommands(),
+    ...gameDatabaseContainerResolutionCommands(false),
     `database_name=${shellToken(GAME_DATABASE_NAME)}`,
-    `printf %s "${suspendSqlEncoded}" | base64 -d | docker exec -i "$database_container_id" sh -lc 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$1" -f -' sh "$database_name"`,
-    `rollback_image=$(grep -E '^[[:space:]]*image:[[:space:]]*' "$backup_dir/docker-compose.yml" | grep 'hospital-backend:' | head -n 1 | awk '{print $2}' | tr -d '"')`,
-    `rollback_version=$(grep -E 'IMAGE_TAG(=|:)' "$backup_dir/docker-compose.yml" | head -n 1 | sed -E 's/.*IMAGE_TAG(=|:)[[:space:]]*//' | tr -d ' "')`,
-    '[ -n "$rollback_image" ] && [ -n "$rollback_version" ] || { echo "ERROR: rollback image or IMAGE_TAG is missing from backup Compose"; exit 1; }',
-    'cp "$backup_dir/docker-compose.yml" docker-compose.yml',
-    'docker stack config -c docker-compose.yml >/dev/null',
-    `docker stack deploy -c docker-compose.yml ${shellToken(stackName)}`,
+    `printf %s "${suspendSqlEncoded}" | base64 -d | ${gameDatabasePsqlCommand('-f -')}`,
+    `rollback_image=$(jq -r '.[0].Spec.TaskTemplate.ContainerSpec.Image' "$backup_dir/service.inspect.json")`,
+    `rollback_version=$(jq -r '.[0].Spec.TaskTemplate.ContainerSpec.Env[] | select(startswith("IMAGE_TAG=")) | ltrimstr("IMAGE_TAG=")' "$backup_dir/service.inspect.json")`,
+    '[ -n "$rollback_image" ] && [ -n "$rollback_version" ] || { echo "ERROR: rollback image or IMAGE_TAG is missing from live snapshot"; exit 1; }',
+    'docker service update --detach=true --rollback "$service_name"',
+
     `rollback_timeout_seconds="${'${RELEASE_PUBLISHER_ROLLBACK_TIMEOUT_SECONDS:-1800}'}"`,
     'rollback_deadline=$(( $(date +%s) + rollback_timeout_seconds ))',
     'while true; do',
@@ -4108,11 +4102,13 @@ function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName
     '  image_matches=false',
     '  case "$service_image" in "$rollback_image"|"$rollback_image"@*) image_matches=true ;; esac',
     '  echo "automatic_rollback_state=$update_state image=$service_image version=$service_version healthy=$healthy_count/$expected_replicas"',
-    '  if [ "$image_matches" = true ] && [ "$service_version" = "$rollback_version" ] && [ "$update_state" = completed ] && [ "$healthy_count" -eq "$expected_replicas" ]; then break; fi',
+    '  if [ "$image_matches" = true ] && [ "$service_version" = "$rollback_version" ] && { [ "$update_state" = completed ] || [ "$update_state" = rollback_completed ]; } && [ "$healthy_count" -eq "$expected_replicas" ]; then break; fi',
     '  case "$update_state" in paused|rollback_paused) echo "ERROR: automatic rollback ended in $update_state"; exit 1 ;; esac',
     '  [ "$(date +%s)" -lt "$rollback_deadline" ] || { echo "ERROR: automatic rollback did not converge within ${rollback_timeout_seconds} seconds"; exit 1; }',
     '  sleep 5',
     'done',
+    ...gameServiceSnapshotCommands('restored'),
+    'cp "$backup_dir/docker-compose.yml" docker-compose.yml',
     'echo "game_rollback_completed_from=$backup_dir"',
     'echo "automatic_rollback_validation=PASS"'
   ];
@@ -4120,10 +4116,14 @@ function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName
 
 function gameSteamPartnerProbeCommands() {
   const script = [
-    'import json, subprocess, sys, urllib.parse',
+    'import configparser, json, subprocess, sys, urllib.parse',
     'try:',
     '    container = sys.argv[1]',
-    '    key = subprocess.check_output(["docker", "exec", container, "cat", "/run/secrets/steam.web.api.key"], text=True).strip()',
+    '    contents = subprocess.check_output(["docker", "exec", container, "cat", "/run/secrets/steam-auth.properties"], text=True)',
+    '    properties = configparser.ConfigParser(interpolation=None, strict=True)',
+    '    properties.read_string("[runtime]\\n" + contents)',
+    '    key = properties["runtime"]["steam.web.api.key"].strip()',
+    '    if not key: raise ValueError("Missing Steam key")',
     '    query = urllib.parse.urlencode({"key": key, "appid": "4417110", "ticket": "00", "identity": "rhospital"})',
     '    url = "https://partner.steam-api.com/ISteamUserAuth/AuthenticateUserTicket/v1/?" + query',
     '    config = "url = " + json.dumps(url) + "\\n"',
@@ -4154,41 +4154,18 @@ function gameSteamRuntimeCommands() {
   ];
 }
 
-function gameSteamDnsUpdateCommands() {
-  const script = [
-    'import os, stat, tempfile, yaml',
-    'target = "docker-compose.yml"',
-    'with open(target, encoding="utf-8") as source: document = yaml.safe_load(source)',
-    'document["services"]["hospital-backend"]["dns"] = ["1.1.1.1", "8.8.8.8"]',
-    'mode = stat.S_IMODE(os.stat(target).st_mode)',
-    'fd, temporary = tempfile.mkstemp(prefix=".steam-dns-", dir=".")',
-    'try:',
-    '    with os.fdopen(fd, "w", encoding="utf-8") as output: yaml.safe_dump(document, output, sort_keys=False)',
-    '    os.chmod(temporary, mode)',
-    '    os.replace(temporary, target)',
-    'finally:',
-    '    if os.path.exists(temporary): os.unlink(temporary)'
-  ].join('\n');
-  return [
-    'python3 -c ' + shellToken('import yaml') + " || { echo 'ERROR: PyYAML is required for service-scoped DNS'; exit 1; }",
-    'printf %s ' + shellToken(Buffer.from(script, 'utf8').toString('base64')) + ' | base64 -d | python3',
-    `docker compose -f docker-compose.yml config --format json | jq -e '.services["hospital-backend"].dns == ["1.1.1.1", "8.8.8.8"]' >/dev/null`,
-    'echo game_steam_dns_compose=PASS'
-  ];
-}
 
-function gameComposeSsoContractCommands() {
-  const [stackName = DEFAULT_STACK_NAME, containerName = 'hospital-backend'] = arguments;
+function gameComposeSsoContractCommands(stackName = DEFAULT_STACK_NAME, containerName = 'hospital-backend', composeFile = 'docker-compose.yml', allowFormalTransition = false) {
   return [
     `service_name=${shellToken(gameServiceName(stackName, containerName))}`,
     'compose_contract_file=$(mktemp)',
-    'trap \'rm -f "$compose_contract_file"\' EXIT',
-    'docker compose -f docker-compose.yml config --format json > "$compose_contract_file"',
+    'trap \'rm -f "$compose_contract_file" ${compose_candidate:+"$compose_candidate"}\' EXIT',
+    `docker compose -f ${composeFile === '$compose_candidate' ? '"$compose_candidate"' : shellToken(composeFile)} config --format json > "$compose_contract_file"`,
     `test "$(jq -r '.services["hospital-backend"].deploy.replicas // 0' "$compose_contract_file")" -eq 1 || { echo 'ERROR: hospital-backend deploy replicas must equal 1'; exit 1; }`,
     `jq -e '.services["hospital-backend"].deploy.update_config.failure_action == "pause" and .services["hospital-backend"].deploy.update_config.order == "start-first"' "$compose_contract_file" >/dev/null || { echo 'ERROR: update_config must use start-first and failure_action pause'; exit 1; }`,
     `jq -e '.services["hospital-backend"].deploy.rollback_config.failure_action == "pause" and .services["hospital-backend"].deploy.rollback_config.order == "start-first"' "$compose_contract_file" >/dev/null || { echo 'ERROR: rollback_config must use start-first and failure_action pause'; exit 1; }`,
     `jq -e '.services["hospital-backend"].stop_grace_period == "1m0s" and .services["hospital-backend"].healthcheck.test == ["CMD", "curl", "-f", "http://localhost:8090/"] and .services["hospital-backend"].healthcheck.start_period == "8m0s" and .services["hospital-backend"].healthcheck.interval == "30s" and .services["hospital-backend"].healthcheck.timeout == "15s" and .services["hospital-backend"].healthcheck.retries == 4' "$compose_contract_file" >/dev/null || { echo 'ERROR: graceful stop or healthcheck contract is invalid'; exit 1; }`,
-    `jq -e '.services["hospital-backend"] as $service | ($service.environment | keys) == ["EXECUTOR_PORT", "FIREBASE_SERVICE_ACCOUNT_FILE", "FORUM_BASE_URL", "FORUM_SSO_ENABLED", "FORUM_SSO_SECRET_FILE", "HOST_IP", "IMAGE_TAG", "JAVA_EXTRA_OPTS", "JAVA_OPTS", "NEW_RELIC_APP_NAME", "NEW_RELIC_DISTRIBUTED_TRACING_ENABLED", "NEW_RELIC_LICENSE_KEY_FILE", "NEW_RELIC_LOG_FILE_NAME", "SPRING_PROFILE", "SUPPORT_MAIL_PASSWORD_FILE"] and ($service.ports | length) == 3 and any($service.ports[]; .target == 8090 and .published == "8190" and .protocol == "tcp" and .mode == "ingress") and any($service.ports[]; .target == 9996 and .published == "9996" and .protocol == "tcp" and .mode == "ingress") and any($service.ports[]; .target == 17889 and .published == "17889" and .protocol == "tcp" and .mode == "ingress") and $service.volumes == [{"type":"bind","source":"/opt/1panel/docker/compose/hospital-stack/data","target":"/data","bind":{"create_host_path":true}}] and $service.deploy.restart_policy.condition == "any" and $service.deploy.restart_policy.delay == "10s" and ($service.networks | keys) == ["default"]' "$compose_contract_file" >/dev/null || { echo 'ERROR: environment, port, volume, network or restart contract is invalid'; exit 1; }`,
+    `jq -e '.services["hospital-backend"] as $service | ($service.environment | keys) == ["EXECUTOR_PORT", "FIREBASE_SERVICE_ACCOUNT_FILE", "FORUM_BASE_URL", "FORUM_SSO_ENABLED", "FORUM_SSO_SECRET_FILE", "HOST_IP", "IMAGE_TAG", "JAVA_EXTRA_OPTS", "JAVA_OPTS", "NEW_RELIC_APP_NAME", "NEW_RELIC_DISTRIBUTED_TRACING_ENABLED", "NEW_RELIC_LICENSE_KEY_FILE", "NEW_RELIC_LOG_FILE_NAME", "SNAIL_JOB_ENABLED", "SPRING_DATASOURCE_URL", "SPRING_DATASOURCE_USERNAME", "SPRING_PROFILE", "STEAM_MICROTXN_SANDBOX", "SUPPORT_MAIL_PASSWORD_FILE"] and ($service.ports | length) == 3 and any($service.ports[]; .target == 8090 and .published == "8190" and .protocol == "tcp" and .mode == "ingress") and any($service.ports[]; .target == 9996 and .published == "9996" and .protocol == "tcp" and .mode == "ingress") and any($service.ports[]; .target == 17889 and .published == "17889" and .protocol == "tcp" and .mode == "ingress") and ($service.volumes | map(if .bind == {"create_host_path":true} then del(.bind) else . end)) == [{"type":"bind","source":"/opt/1panel/docker/compose/hospital-stack/data","target":"/data"}] and $service.deploy.restart_policy.condition == "any" and $service.deploy.restart_policy.delay == "10s" and ($service.networks | keys) == ["default"]' "$compose_contract_file" >/dev/null || { echo 'ERROR: environment, port, volume, network or restart contract is invalid'; exit 1; }`,
     `jq -e '.services["hospital-backend"].environment.FORUM_SSO_ENABLED == "true" and .services["hospital-backend"].environment.FORUM_SSO_SECRET_FILE == "/run/secrets/forum_sso_secret"' "$compose_contract_file" >/dev/null || { echo 'ERROR: forum SSO environment contract is incomplete'; exit 1; }`,
     `jq -e '.services["hospital-backend"].environment.SPRING_PROFILE == "prod" and .services["hospital-backend"].environment.NEW_RELIC_LICENSE_KEY_FILE == "/run/secrets/newrelic.license.key" and .services["hospital-backend"].environment.FIREBASE_SERVICE_ACCOUNT_FILE == "/run/secrets/firebase_service_account" and (.services["hospital-backend"].environment | has("NEW_RELIC_LICENSE_KEY") | not)' "$compose_contract_file" >/dev/null || { echo 'ERROR: production profile or secret file environment contract is invalid'; exit 1; }`,
     `test "$(jq -r '.services["hospital-backend"].secrets | length' "$compose_contract_file")" -eq ${GAME_PRODUCTION_SECRET_MAPPINGS.length} || { echo 'ERROR: hospital-backend Secret mapping count is invalid'; exit 1; }`,
@@ -4196,7 +4173,7 @@ function gameComposeSsoContractCommands() {
       `jq -e --arg source ${shellToken(source)} --arg target ${shellToken(target)} '. as $root | any($root.services["hospital-backend"].secrets[]?; (($root.secrets[.source].name // .source) == $source) and .target == $target)' "$compose_contract_file" >/dev/null || { echo ${shellToken(`ERROR: missing Secret mapping ${source}:${target}`)}; exit 1; }`,
       `docker secret inspect ${shellToken(source)} >/dev/null`
     ]),
-    ...gameProductionConfigGuardCommands(),
+    ...gameProductionConfigGuardCommands(allowFormalTransition),
     'rm -f "$compose_contract_file"',
     'trap - EXIT',
     'echo game_compose_runtime_contract=PASS'
@@ -5026,6 +5003,8 @@ module.exports = {
   resolveCatalogSchemaVersion,
   tradePoolCatalogLogCheckCommands,
   gamePostReleaseCleanupCommand,
+  gameSteamPartnerProbeCommands,
+  gameComposeSsoContractCommands,
   runPowerShell,
   remoteSshCommand
 };

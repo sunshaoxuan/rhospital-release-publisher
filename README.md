@@ -224,7 +224,7 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 游戏正式发布在上传目标镜像前依次完成 SSH 目标解析、Prd2 迁移就绪检查、生产 Compose 合同和数据库只读预检。数据库预检与应用生产配置保持一致，优先使用显式环境变量或 profile properties，并支持 `configtree:/run/secrets/`；Secret 文件的行尾 CR/LF 会在容器内规范化，凭据内容不会进入命令输出或发布历史。任一上传前门禁失败时，发布器停止在 `publish-image` 之前。
 
-2026-10-03 补充：生产 Compose 必须与在线服务的环境变量、启动覆盖、数据挂载和 Secret 映射一致，仅允许 IMAGE_TAG 随应用版本变化。在线恢复规格与旧 Compose 有差异时，在镜像上传前停止；编排更新、部署以及自动回滚的数据库或文件副作用前重复检查。环境交接及配置修订需独立授权，不提供忽略漂移或从在线配置自动覆盖文件的选项。生产入口由目标镜像维护，Compose 禁止覆盖 entrypoint/command，JAVA_OPTS/JAVA_EXTRA_OPTS 禁止覆盖 Stripe 凭据、配置导入和运行 profile。目标镜像的生产 properties 必须仅从 /run/secrets 配置树导入运行凭据，不能内置 Stripe API Key 或 webhook Secret。最终运行合同增加应用容器内 Stripe 正式认证 GET，不创建 Checkout、不扣款，错误输出仅保留失败类型。
+2026-10-03 补充：发布前由目标提交的docker-compose.yml渲染正式候选，完整核对prod、现行35433、SnailJob=true、Steam非沙箱、SSO=true、原持久目录及14项显式Secret映射。常规发布继续要求在线配置一致，仅允许IMAGE_TAG差异。本次交接仅接受已只读核验的恢复服务完整Spec指纹61529d8807e2a443383462e6c2a39eb2ef521c2c08399dfb6919e2f1933b22d0，未知漂移直接停止。更新编排和部署前复核备份Spec；回滚检查Docker PreviousSpec与发布前快照相等，再执行service rollback并核对恢复结果，防止旧Compose关闭恢复后的SnailJob或连接旧库。Compose禁止启动覆盖，JVM禁止覆盖Stripe、配置导入和profile；目标镜像必须加载配置树及Steam、SnailJob文件，最终运行合同执行不扣款的Stripe正式认证GET。生产部署由用户在发布器操作，本次任务只修订发布器和进行只读预检。
 
 论坛正式发布同样先完成 SSH 目标解析、生产 Compose 读取和论坛只读 preflight，再允许上传新镜像。复用已有论坛镜像时保持只读镜像存在性检查，不产生重复上传。
 
@@ -250,7 +250,7 @@ npm run acceptance:full-flow -- --project-root C:\workspace\hospital-backend --g
 
 游戏影响评估选择菌落结果、关卡包、药剂实验室或急救防刷本地证据门禁时，发布计划会先在隔离工作树执行 `npm ci`，再于完整 Docker 构建之前执行 `validate-game-release-preflight`。依赖安装严格使用目标提交的锁文件。聚合预检对全部适用门禁逐项执行并在末尾统一报告所有失败项，避免一次发布只暴露一个后续阻断。原有独立门禁继续保留，作为同一候选的逐项审计复核。预检自身不执行远程写入，也不替代镜像构建后检查和生产只读检查。
 
-`GAME_PRD2` 是唯一游戏生产发布目标。发布计划增加 `game-prd2-migration-readiness` 与 `game-prd2-runtime-contract`，检查主库角色、论坛、生产 Secret、防火墙、Firebase 初始化、论坛 SSO、Stripe 与 Paddle 无签名拒绝、SnailJob 和 New Relic。生产 Compose 在任何镜像上传前必须解析为 1 个游戏副本、更新与回滚均为 `start-first` 和 `failure_action: pause`、固定健康检查、停止宽限期、生产 profile、文件型凭据配置和 22 个精确 Secret 挂载。`deploy-stack` 在调用 Docker 前的同一远程脚本中再次执行该合同，并确认旧健康容器存在；提交后立即确认副本仍为 1 且健康容器没有归零。跨主机灾难恢复属于环境知识库管理范围，发布器不注册其他生产主机。
+`GAME_PRD2` 是唯一游戏生产发布目标。发布计划增加 `game-prd2-migration-readiness` 与 `game-prd2-runtime-contract`，检查主库角色、论坛、生产 Secret、防火墙、Firebase 初始化、论坛 SSO、Stripe 与 Paddle 无签名拒绝、SnailJob 和 New Relic。生产 Compose 在任何镜像上传前必须解析为 1 个游戏副本、更新与回滚均为 `start-first` 和 `failure_action: pause`、固定健康检查、停止宽限期、生产 profile、文件型凭据配置和 14 个精确 Secret 挂载。`deploy-stack` 在调用 Docker 前的同一远程脚本中再次执行该合同，并确认旧健康容器存在；提交后立即确认副本仍为 1 且健康容器没有归零。现行数据库入口为 `rhospital-failback-game-db` 的 `127.0.0.1:35433/hospital`，连接角色为 `hospital`，系统标识绑定见 `src/gameProductionDatabase.js`。只读探针同时检查健康游戏任务的实际 JDBC 地址，身份漂移时停止所有数据库操作。Steam 登录与 SnailJob 使用当前完整配置文件 Secret，正式镜像必需加载两文件。已验收恢复规格到正式prod的交接由本次发布计划完成，只接受固定的已核验Spec指纹，不采纳未知在线参数；常规漂移门禁保持。跨主机灾难恢复属于环境知识库管理范围，发布器不注册其他生产主机。
 
 游戏静态资源采用应用切换前交付：
 

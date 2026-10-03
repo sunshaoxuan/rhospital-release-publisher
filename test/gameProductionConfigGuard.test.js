@@ -10,7 +10,9 @@ function pythonScript(command) {
 }
 
 function productionFixture() {
-  const environment = {SPRING_PROFILE: 'prod', JAVA_OPTS: '-Xmx512m', JAVA_EXTRA_OPTS: '', IMAGE_TAG: 'old'};
+  const environment = {SPRING_PROFILE: 'prod', JAVA_OPTS: '-Xmx512m', JAVA_EXTRA_OPTS: '', IMAGE_TAG: 'old',
+    SNAIL_JOB_ENABLED: 'true', STEAM_MICROTXN_SANDBOX: 'false', FORUM_SSO_ENABLED: 'true',
+    SPRING_DATASOURCE_URL: 'jdbc:postgresql://92.113.124.185:35433/hospital', SPRING_DATASOURCE_USERNAME: 'hospital'};
   const mappings = [['game_stripe_api_key', 'stripe.api.key'], ['game_stripe_webhook_secret', 'stripe.webhook.secret'], ['game_spring_datasource_url', 'spring.datasource.url']];
   return {
     compose: {services: {'hospital-backend': {environment, command: null, entrypoint: null,
@@ -26,12 +28,13 @@ function productionFixture() {
 }
 
 function runGuard(fixture) {
-  const script = pythonScript(gameProductionConfigGuardCommands()[0]);
+  let script = pythonScript(gameProductionConfigGuardCommands()[0]);
+  if (fixture.approved_digest) script = script.replace('61529d8807e2a443383462e6c2a39eb2ef521c2c08399dfb6919e2f1933b22d0', fixture.approved_digest);
   const harness = [
     'import io, json, subprocess, sys, types',
     'from unittest.mock import patch',
     'fixture = json.load(sys.stdin)',
-    'sys.argv = ["guard", "fixture.json", "hospital_stack_hospital-backend"]',
+    'sys.argv = ["guard", "fixture.json", "hospital_stack_hospital-backend", "formal" if fixture.get("transition") else "strict"]',
     'def inspect(args, **options):',
     '    assert args == ["docker", "service", "inspect", sys.argv[2]]',
     '    if fixture.get("inspect_error"): raise subprocess.CalledProcessError(1, args, stderr="private-do-not-print")',
@@ -43,12 +46,64 @@ function runGuard(fixture) {
     {input: JSON.stringify(fixture), encoding: 'utf8', windowsHide: true});
 }
 
+function recoveryFixture() {
+  const fixture = productionFixture();
+  const live = fixture.live[0].Spec.TaskTemplate.ContainerSpec;
+  live.Env = live.Env.map(value => value === 'SPRING_PROFILE=prod' ? 'SPRING_PROFILE=dr' : value);
+  live.Command = ['/bin/bash'];
+  live.Args = ['-c', 'exec java -jar /app/app.jar'];
+  live.Mounts[0].Source = '/recovery/data';
+
+  // Compute the same recursive canonical form as Python json.dumps(sort_keys=True).
+  const sort = value => Array.isArray(value) ? value.map(sort) : value && typeof value === 'object'
+    ? Object.fromEntries(Object.keys(value).sort().map(key => [key, sort(value[key])])) : value;
+  fixture.approved_digest = require('node:crypto').createHash('sha256').update(JSON.stringify(sort(fixture.live[0].Spec))).digest('hex');
+  fixture.transition = true;
+  return fixture;
+}
+
+test('formal handoff accepts only the exact approved recovery source and a valid production target', () => {
+  const fixture = recoveryFixture();
+  assert.equal(runGuard(fixture).status, 0);
+  fixture.transition = false;
+  assert.notEqual(runGuard(fixture).status, 0);
+});
+
+test('formal handoff refuses changed recovery state and unsafe target configurations', () => {
+  for (const mutate of [
+    f => f.live[0].Spec.TaskTemplate.ContainerSpec.Env.push('SNAIL_JOB_ENABLED=false'),
+    f => f.live[0].Spec.TaskTemplate.ContainerSpec.Secrets.pop(),
+    f => f.live[0].Spec.Mode = {Replicated: {Replicas: 2}},
+    f => f.compose.services['hospital-backend'].environment.SNAIL_JOB_ENABLED = 'false',
+    f => f.compose.services['hospital-backend'].environment.FORUM_SSO_ENABLED = 'false',
+    f => f.compose.services['hospital-backend'].environment.SPRING_PROFILE = 'dr',
+    f => f.compose.services['hospital-backend'].command = ['unsafe-override']
+  ]) {
+    const fixture = recoveryFixture();
+    mutate(fixture);
+    assert.notEqual(runGuard(fixture).status, 0);
+  }
+});
+
 test('production guard accepts a matching baseline and only ignores the release version', () => {
   const fixture = productionFixture();
   fixture.compose.services['hospital-backend'].environment.IMAGE_TAG = 'next';
   const result = runGuard(fixture);
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /game_compose_live_config=PASS/);
+});
+
+test('production guard rejects disabled restored services and the old database even when Compose matches live', () => {
+  for (const [key, value] of [['SNAIL_JOB_ENABLED', 'false'], ['STEAM_MICROTXN_SANDBOX', 'true'],
+    ['FORUM_SSO_ENABLED', 'false'],
+    ['SPRING_DATASOURCE_URL', 'jdbc:postgresql://92.113.124.185:35432/hospital']]) {
+    const fixture = productionFixture();
+    fixture.compose.services['hospital-backend'].environment[key] = value;
+    fixture.live[0].Spec.TaskTemplate.ContainerSpec.Env = Object.entries(fixture.compose.services['hospital-backend'].environment).map(([k, v]) => k + '=' + v);
+    const result = runGuard(fixture);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stdout, /production_services/);
+  }
 });
 
 for (const [field, mutate] of [
@@ -162,8 +217,9 @@ test('actual image contract accepts configtree and rejects missing imports or em
   const bash = process.platform === 'win32' ? path.join(process.env.ProgramFiles || 'C:/Program Files', 'Git/bin/bash.exe') : 'bash';
   try {
     for (const [text, passes] of [
-      ['spring.config.import=configtree:/run/secrets/\n', true],
-      ['spring.config.import=optional:configtree:/run/secrets/\n', true],
+      ['spring.config.import=configtree:/run/secrets/,file:/run/secrets/steam-auth.properties,file:/run/secrets/snail-job.properties\n', true],
+      ['spring.config.import=configtree:/run/secrets/\n', false],
+      ['spring.config.import=optional:configtree:/run/secrets/\n', false],
       ['spring.config.import=classpath:application-dev.properties\n', false],
       ['spring.config.import=configtree:/run/secrets/,file:/private.properties\n', false],
       ['spring.config.import=configtree:/run/secrets/\nstripe.api.key=placeholder\n', false],

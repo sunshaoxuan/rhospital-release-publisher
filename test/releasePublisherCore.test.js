@@ -335,7 +335,7 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('forum SSO environment contract is incomplete')
     && decodedRemoteScript(step.command).includes('production profile or secret file environment contract is invalid')
     && decodedRemoteScript(step.command).includes('Secret mapping count is invalid')
-    && decodedRemoteScript(step.command).includes('game_spring_datasource_password:spring.datasource.password')
+    && decodedRemoteScript(step.command).includes('game_failback_spring_datasource_password:spring.datasource.password')
     && decodedRemoteScript(step.command).includes('game_new_relic_license_key:newrelic.license.key')
     && decodedRemoteScript(step.command).includes('game_compose_runtime_contract=PASS')));
   assert.ok(plan.steps.some(step => step.key === 'game-database-preflight'
@@ -358,10 +358,9 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedScriptTree(step.command).includes('.last-game-release-backup')));
   assert.ok(plan.steps.some(step => step.key === 'update-remote-compose'
     && step.command.includes('base64 -d | bash')
-    && decodedRemoteScript(step.command).includes('sed -i -E')
-    && decodedRemoteScript(step.command).includes('s#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\1hospital-backend:2026070702#')
-    && decodedRemoteScript(step.command).includes('s#^([[:space:]]*-[[:space:]]*IMAGE_TAG=).*$#\\12026070702#')
-    && decodedRemoteScript(step.command).includes('s#^([[:space:]]*IMAGE_TAG:[[:space:]]*).*$#\\1"2026070702"#')
+    && decodedRemoteScript(step.command).includes("export APP_TAG='2026070702'")
+    && decodedRemoteScript(step.command).includes("--arg image 'hospital-backend:2026070702' --arg version '2026070702'")
+    && decodedRemoteScript(step.command).includes('cp "$compose_candidate" docker-compose.yml')
     && decodedRemoteScript(step.command).includes('game_compose_runtime_contract=PASS')
     && decodedRemoteScript(step.command).includes('docker stack config -c docker-compose.yml')));
   assert.ok(plan.steps.some(step => step.key === 'deploy-stack'
@@ -419,7 +418,7 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('Spec.RollbackConfig.Order')
     && decodedRemoteScript(step.command).includes('Spec.TaskTemplate.ContainerSpec.StopGracePeriod')
     && decodedRemoteScript(step.command).includes('{{.SecretName}}|{{.File.Name}}{{println}}')
-    && decodedRemoteScript(step.command).includes('game_spring_datasource_password|spring.datasource.password')
+    && decodedRemoteScript(step.command).includes('game_failback_spring_datasource_password|spring.datasource.password')
     && decodedRemoteScript(step.command).includes('game_new_relic_license_key|newrelic.license.key')
     && decodedRemoteScript(step.command).includes('NEW_RELIC_LICENSE_KEY=')));
   const deployIndex = plan.steps.findIndex(step => step.key === 'deploy-stack');
@@ -2296,9 +2295,15 @@ test('game guards are repeated at deployment and Stripe authentication is a fina
   assert.equal(byKey('game-prd2-runtime-contract').finalCheck, true);
   assert.match(decodedScriptTree(byKey('game-prd2-runtime-contract').command), /game_stripe_authentication=PASS/);
   const rollback = decodedRemoteScript(byKey('game-rollback-command').command);
-  assert.match(decodedScriptTree(byKey('game-rollback-command').command), /game_compose_live_config=PASS/);
+  assert.match(decodedScriptTree(byKey('game-rollback-command').command), /game_service_snapshot=PASS/);
   assert.ok(rollback.indexOf('python3 -') < rollback.indexOf('WARNING: suspending'));
-  assert.ok(rollback.indexOf('python3 -') < rollback.indexOf('docker stack deploy'));
+  assert.ok(rollback.indexOf('python3 -') < rollback.indexOf('docker service update --detach=true --rollback'));
+  assert.doesNotMatch(rollback, /docker stack deploy/);
+  assert.match(rollback, /rollback_completed/);
+  for (const item of plan.steps.filter(item => item.command && item.command.includes('$remoteScript ='))) {
+    const syntax = spawnSync(testBashExecutable(), ['-n'], {input: decodedRemoteScript(item.command), encoding: 'utf8'});
+    assert.equal(syntax.status, 0, item.key + ': ' + syntax.stderr);
+  }
 });
 
 test('forum preflight failure stops before image upload', async () => {
@@ -3258,6 +3263,7 @@ test('release console exposes game and forum targets with target-aware API paylo
 function tempProject(_xml) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-'));
   fs.writeFileSync(path.join(root, 'mvnw.cmd'), '@echo off\r\nexit /b 0\r\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'docker-compose.yml'), 'services:\n  hospital-backend:\n    image: hospital-backend:${APP_TAG}\n', 'utf8');
   const catalogSource = path.join(root, 'src', 'main', 'java', 'com', 'zly', 'hospital', 'service', 'catalog');
   fs.mkdirSync(catalogSource, {recursive: true});
   fs.writeFileSync(path.join(catalogSource, 'CatalogDatabaseUpgradeService.java'), [
@@ -3274,6 +3280,7 @@ function tempGitProject() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-git-'));
   runGit(root, ['init']);
   fs.writeFileSync(path.join(root, 'README.md'), 'demo\n', 'utf8');
+  fs.writeFileSync(path.join(root, 'docker-compose.yml'), 'services:\n  hospital-backend:\n    image: hospital-backend:${APP_TAG}\n', 'utf8');
   runGit(root, ['add', '.']);
   runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'initial commit']);
   return root;
@@ -3871,14 +3878,10 @@ test('Steam release pairs ticket tests and runtime DNS validation with a guarded
   assert.match(preflight, /python3 -c/);
   assert.match(preflight, /runtime_container/);
   const update = decodedRemoteScript(step('update-remote-compose').command);
-  assert.ok(update.indexOf('cp docker-compose.yml docker-compose.yml.bak.') < update.indexOf('game_steam_dns_compose=PASS'));
-  const mutationMatch = update.match(/printf %s '?([A-Za-z0-9+/=]+)'? \| base64 -d \| python3/);
-  assert.ok(mutationMatch);
-  const mutation = Buffer.from(mutationMatch[1], 'base64').toString('utf8');
-  assert.match(mutation, /yaml.safe_load/);
-  assert.match(mutation, /document\["services"\]\["hospital-backend"\]\["dns"\]/);
-  assert.match(mutation, /os.replace/);
-  assert.equal(mutation.includes('daemon.json'), false);
+  assert.ok(update.indexOf('python3 -') < update.indexOf('cp "$compose_candidate" docker-compose.yml'));
+  assert.match(update, /docker stack config -c -/);
+  assert.match(decodedScriptTree(step('update-remote-compose').command), /game_service_snapshot=PASS/);
+  assert.equal(update.includes('daemon.json'), false);
   const runtime = decodedRemoteScript(step('verify-game-steam-runtime').command);
   assert.match(runtime, /DNSConfig.Nameservers/);
   assert.match(runtime, /1.1.1.1/);

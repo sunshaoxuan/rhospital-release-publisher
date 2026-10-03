@@ -1,5 +1,5 @@
 const PRODUCTION_CONFIG_GUARD_SCRIPT = String.raw`
-import json, re, subprocess, sys
+import hashlib, json, re, subprocess, sys
 
 try:
     with open(sys.argv[1], encoding="utf-8") as source:
@@ -7,7 +7,8 @@ try:
     service = root["services"]["hospital-backend"]
     result = subprocess.run(["docker", "service", "inspect", sys.argv[2]],
                             capture_output=True, text=True, check=True, timeout=15)
-    live = json.loads(result.stdout)[0]["Spec"]["TaskTemplate"]["ContainerSpec"]
+    inspected = json.loads(result.stdout)[0]
+    live = inspected["Spec"]["TaskTemplate"]["ContainerSpec"]
     failures = set()
     environment = service.get("environment", {})
     live_environment = dict(item.split("=", 1) for item in live.get("Env", []))
@@ -17,6 +18,12 @@ try:
         failures.add("environment")
     if environment.get("SPRING_PROFILE") != "prod":
         failures.add("production_profile")
+    required_environment = {"SNAIL_JOB_ENABLED": "true", "STEAM_MICROTXN_SANDBOX": "false",
+                            "FORUM_SSO_ENABLED": "true",
+                            "SPRING_DATASOURCE_URL": "jdbc:postgresql://92.113.124.185:35433/hospital",
+                            "SPRING_DATASOURCE_USERNAME": "hospital"}
+    if any(str(environment.get(key, "")) != value for key, value in required_environment.items()):
+        failures.add("production_services")
     if any(re.sub(r"[._-]", "", key).lower() in ("stripeapikey", "stripewebhooksecret") for key in environment):
         failures.add("stripe_override")
     options = " ".join(str(environment.get(key, "")) for key in ("JAVA_OPTS", "JAVA_EXTRA_OPTS"))
@@ -44,10 +51,14 @@ try:
         failures.add("stripe_secrets")
     if service.get("configs") or live.get("Configs"):
         failures.add("configs")
+    source_digest = hashlib.sha256(json.dumps(inspected["Spec"], sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    transition = len(sys.argv) > 3 and sys.argv[3] == "formal" and source_digest == "61529d8807e2a443383462e6c2a39eb2ef521c2c08399dfb6919e2f1933b22d0"
+    if transition and not service.get("entrypoint") and not service.get("command"):
+        failures.difference_update({"environment", "mounts", "secrets", "entrypoint", "command"})
     if failures:
         print("game_compose_live_config=FAIL fields=" + ",".join(sorted(failures)))
         sys.exit(1)
-    print("game_compose_live_config=PASS ignored=IMAGE_TAG")
+    print("game_compose_live_config=PASS ignored=IMAGE_TAG transition=" + ("formal" if transition else "none"))
 except Exception as error:
     print("game_compose_live_config=FAIL failureType=" + type(error).__name__)
     sys.exit(1)
@@ -79,8 +90,8 @@ function encodedPythonCommand(script, argumentsText) {
   return `printf %s "${encoded}" | base64 -d | python3 - ${argumentsText}`;
 }
 
-function gameProductionConfigGuardCommands() {
-  return [encodedPythonCommand(PRODUCTION_CONFIG_GUARD_SCRIPT, '"$compose_contract_file" "$service_name"')];
+function gameProductionConfigGuardCommands(allowFormalTransition = false) {
+  return [encodedPythonCommand(PRODUCTION_CONFIG_GUARD_SCRIPT, '"$compose_contract_file" "$service_name" ' + (allowFormalTransition ? 'formal' : 'strict'))];
 }
 
 function gameStripeAuthenticationCommands() {
@@ -91,7 +102,7 @@ function gameProductionImageConfigCommands() {
   return [
     `production_import_count=$(grep -Ec '^[[:space:]]*spring[.]config[.]import([[:space:]]+|[:=])' BOOT-INF/classes/application-prod.properties || true)`,
     `[ "$production_import_count" -eq 1 ] || { echo 'ERROR: production image must contain exactly one configuration import'; exit 1; }`,
-    `grep -Eq '^spring[.]config[.]import=(optional:)?configtree:/run/secrets/[[:space:]]*$' BOOT-INF/classes/application-prod.properties || { echo 'ERROR: production image must load controlled configuration secrets'; exit 1; }`,
+    `grep -Fxq 'spring.config.import=configtree:/run/secrets/,file:/run/secrets/steam-auth.properties,file:/run/secrets/snail-job.properties' BOOT-INF/classes/application-prod.properties || { echo 'ERROR: production image must load controlled runtime secrets'; exit 1; }`,
     `! grep -Eq '^[[:space:]]*stripe[.](api[.]key|webhook[.]secret)([[:space:]]+|[:=])' BOOT-INF/classes/application-prod.properties || { echo 'ERROR: production image contains a Stripe credential override'; exit 1; }`
   ];
 }
