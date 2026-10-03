@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const {spawn, spawnSync} = require('child_process');
 const {buildReleaseDiagnostics, addSemanticDiagnosis} = require('./releaseDiagnostics');
 const {expectedTomcatVersion, tomcatJarCheckScript} = require('./tomcatSecurityCheck');
+const {gameProductionConfigGuardCommands, gameStripeAuthenticationCommands, gameProductionImageConfigCommands} = require('./gameProductionConfigGuard');
 
 const DEFAULT_IMAGE_NAME = 'hospital-backend';
 const DEFAULT_COMPOSE_FILE = 'docker-compose.yml';
@@ -680,7 +681,7 @@ function createPlan(projectRoot, request, env = process.env) {
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
         `grep -nE '^[[:space:]]*image:[[:space:]]*hospital-backend:|^[[:space:]]*(-[[:space:]]*)?(IMAGE_TAG|FORUM_SSO_ENABLED|FORUM_SSO_SECRET_FILE)([[:space:]]*[:=])' docker-compose.yml`,
-        ...gameComposeSsoContractCommands()
+        ...gameComposeSsoContractCommands(config.stackName, config.containerName)
       ])),
       validation: `必须同时读到游戏镜像、IMAGE_TAG、FORUM_SSO_ENABLED=true 和论坛 SSO Secret`,
       actionType: 'remote-check',
@@ -793,7 +794,7 @@ function createPlan(projectRoot, request, env = process.env) {
         `version_line_count=$(grep -Ec '^[[:space:]]*(-[[:space:]]*)?IMAGE_TAG([[:space:]]*[:=])' docker-compose.yml)`,
         `[ "$image_line_count" -eq 1 ] || { echo "ERROR: expected exactly one hospital-backend image line, found $image_line_count"; exit 1; }`,
         `[ "$version_line_count" -eq 1 ] || { echo "ERROR: expected exactly one IMAGE_TAG line, found $version_line_count"; exit 1; }`,
-        ...gameComposeSsoContractCommands(),
+        ...gameComposeSsoContractCommands(config.stackName, config.containerName),
         `cp docker-compose.yml docker-compose.yml.bak.$(date +%Y%m%d%H%M%S)`,
         `sed -i -E 's#^([[:space:]]*image:[[:space:]]*)hospital-backend:[^[:space:]]+#\\1${escapeSedReplacement(imageTag)}#' docker-compose.yml`,
         `sed -i -E 's#^([[:space:]]*-[[:space:]]*IMAGE_TAG=).*$#\\1${escapeSedReplacement(appTag)}#' docker-compose.yml`,
@@ -804,14 +805,14 @@ function createPlan(projectRoot, request, env = process.env) {
         `cd ${shellToken(remoteComposeDir)}`,
         `grep -nE '^[[:space:]]*image:[[:space:]]*${escapeEgrepPattern(imageTag)}$' docker-compose.yml`,
         `grep -nE '^[[:space:]]*-[[:space:]]*IMAGE_TAG=${escapeEgrepPattern(appTag)}[[:space:]]*$|^[[:space:]]*IMAGE_TAG:[[:space:]]*"?${escapeEgrepPattern(appTag)}"?[[:space:]]*$' docker-compose.yml`,
-        ...gameComposeSsoContractCommands(),
+        ...gameComposeSsoContractCommands(config.stackName, config.containerName),
         `docker stack config -c docker-compose.yml >/dev/null`
       ])),
       validationCommand: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
         `grep -nE '^[[:space:]]*image:[[:space:]]*${escapeEgrepPattern(imageTag)}$' docker-compose.yml`,
         `grep -nE '^[[:space:]]*-[[:space:]]*IMAGE_TAG=${escapeEgrepPattern(appTag)}[[:space:]]*$|^[[:space:]]*IMAGE_TAG:[[:space:]]*"?${escapeEgrepPattern(appTag)}"?[[:space:]]*$' docker-compose.yml`,
-        ...gameComposeSsoContractCommands(),
+        ...gameComposeSsoContractCommands(config.stackName, config.containerName),
         `docker stack config -c docker-compose.yml >/dev/null`
       ])),
       actionType: 'production',
@@ -824,7 +825,7 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '在同一远程脚本内复核完整生产合同和旧健康副本，再执行 stack deploy 并确认服务没有缩容',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
-        ...gameComposeSsoContractCommands(),
+        ...gameComposeSsoContractCommands(config.stackName, config.containerName),
         `service_name=${shellToken(`${config.stackName}_${config.containerName}`)}`,
         `healthy_before_deploy=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | wc -l)`,
         `[ "$healthy_before_deploy" -ge 1 ] || { echo 'ERROR: deploy blocked because no healthy old container is serving'; exit 1; }`,
@@ -923,6 +924,7 @@ function createPlan(projectRoot, request, env = process.env) {
           `[ "$service_secret_count" -eq ${GAME_PRODUCTION_SECRET_MAPPINGS.length} ] || { echo "ERROR: runtime Secret mapping count expected ${GAME_PRODUCTION_SECRET_MAPPINGS.length}, actual $service_secret_count"; exit 1; }`,
           ...GAME_PRODUCTION_SECRET_MAPPINGS.map(([source, target]) =>
             `docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Secrets}}{{.SecretName}}|{{.File.Name}}{{println}}{{end}}' | grep -Fxq ${shellToken(`${source}|${target}`)}`),
+          ...gameStripeAuthenticationCommands(),
           `stripe_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8190/api/payment/webhook -H 'Content-Type: application/json' --data '{}')`,
           `paddle_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8190/api/paddle/webhook -H 'Content-Type: application/json' --data '{}')`,
           `echo "$stripe_code" | grep -Eq '^(400|401|403)$'`,
@@ -4032,6 +4034,10 @@ function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName
     `service_name=${shellToken(serviceName)}`,
     'backup_dir=$(cat .last-game-release-backup)',
     'test -s "$backup_dir/docker-compose.yml"',
+    '(',
+    '  cd "$backup_dir"',
+    ...gameComposeSsoContractCommands(stackName, containerName),
+    ')',
     'if [ -f "$backup_dir/design-image.json" ] && [ ! -e data/private/design-image.json ]; then mkdir -p data/private && cp "$backup_dir/design-image.json" data/private/design-image.json && chmod 600 data/private/design-image.json; fi',
     'echo "WARNING: suspending all ACTIVE ADMIN listings before old-code rollback"',
     ...gameDatabaseContainerResolutionCommands(),
@@ -4071,7 +4077,9 @@ function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName
 }
 
 function gameComposeSsoContractCommands() {
+  const [stackName = DEFAULT_STACK_NAME, containerName = 'hospital-backend'] = arguments;
   return [
+    `service_name=${shellToken(gameServiceName(stackName, containerName))}`,
     'compose_contract_file=$(mktemp)',
     'trap \'rm -f "$compose_contract_file"\' EXIT',
     'docker compose -f docker-compose.yml config --format json > "$compose_contract_file"',
@@ -4087,6 +4095,7 @@ function gameComposeSsoContractCommands() {
       `jq -e --arg source ${shellToken(source)} --arg target ${shellToken(target)} '. as $root | any($root.services["hospital-backend"].secrets[]?; (($root.secrets[.source].name // .source) == $source) and .target == $target)' "$compose_contract_file" >/dev/null || { echo ${shellToken(`ERROR: missing Secret mapping ${source}:${target}`)}; exit 1; }`,
       `docker secret inspect ${shellToken(source)} >/dev/null`
     ]),
+    ...gameProductionConfigGuardCommands(),
     'rm -f "$compose_contract_file"',
     'trap - EXIT',
     'echo game_compose_runtime_contract=PASS'
@@ -4116,6 +4125,8 @@ function gameImageValidationCommand(dockerTarget, imageTag, appTag, expectedCata
     'work_dir=$(mktemp -d)',
     'trap \'rm -rf "$work_dir"\' EXIT',
     'cd "$work_dir"',
+    'jar xf /app/app.jar BOOT-INF/classes/application-prod.properties',
+    ...gameProductionImageConfigCommands(),
     "jar xf /app/app.jar BOOT-INF/classes/com/zly/hospital/service/catalog/CatalogDatabaseUpgradeService.class",
     'catalog_class=com.zly.hospital.service.catalog.CatalogDatabaseUpgradeService',
     'catalog_bytecode="$work_dir/catalog-upgrade.javap"',

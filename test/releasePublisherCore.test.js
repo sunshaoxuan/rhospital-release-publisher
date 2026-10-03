@@ -2260,6 +2260,47 @@ test('migration compatibility failure stops before image upload and production m
   assert.equal(runCommand.commands.some(command => command.includes('docker save -o')), false);
 });
 
+test('live configuration drift blocks game image upload and deployment', async () => {
+  const root = tempProject(sampleXml);
+  const runCommand = testCommandRunner({failOnIncludes: 'game_compose_live_config=PASS'});
+  const result = await executePlan(root, {
+    appTag: '2026100301', dryRun: false, includeStackDeploy: true, gitCommit: 'latest'
+  }, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'stripe-guard-history.json')
+  }, {runCommand});
+  assert.equal(result.status, 'ERROR');
+  assert.equal(result.plan.steps.find(step => step.key === 'read-remote-compose').status, 'failed');
+  for (const key of ['publish-image', 'update-remote-compose', 'deploy-stack']) {
+    assert.equal(result.plan.steps.find(step => step.key === key).status, 'pending');
+  }
+  assert.equal(runCommand.commands.some(command => decodedScriptTree(command).includes('docker stack deploy')), false);
+});
+
+test('game guards are repeated at deployment and Stripe authentication is a final check', () => {
+  const root = tempProject(sampleXml);
+  const plan = createPlan(root, {appTag: '2026100301', dryRun: true, includeStackDeploy: true}, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+  });
+  const byKey = key => plan.steps.find(step => step.key === key);
+  for (const key of ['read-remote-compose', 'update-remote-compose', 'deploy-stack']) {
+    assert.match(decodedScriptTree(byKey(key).command), /game_compose_live_config=PASS/);
+  }
+  const deploy = decodedRemoteScript(byKey('deploy-stack').command);
+  assert.ok(deploy.indexOf('python3 -') < deploy.indexOf('docker stack deploy'));
+  assert.match(decodedScriptTree(byKey('validate-game-image').command), /production image contains a Stripe credential override/);
+  assert.equal(byKey('game-prd2-runtime-contract').finalCheck, true);
+  assert.match(decodedScriptTree(byKey('game-prd2-runtime-contract').command), /game_stripe_authentication=PASS/);
+  const rollback = decodedRemoteScript(byKey('game-rollback-command').command);
+  assert.match(decodedScriptTree(byKey('game-rollback-command').command), /game_compose_live_config=PASS/);
+  assert.ok(rollback.indexOf('python3 -') < rollback.indexOf('WARNING: suspending'));
+  assert.ok(rollback.indexOf('python3 -') < rollback.indexOf('docker stack deploy'));
+});
+
 test('forum preflight failure stops before image upload', async () => {
   const root = tempProject(sampleXml);
   const historyPath = path.join(root, 'forum-preflight-history.json');

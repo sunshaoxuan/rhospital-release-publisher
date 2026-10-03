@@ -223,6 +223,8 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 游戏正式发布在上传目标镜像前依次完成 SSH 目标解析、Prd2 迁移就绪检查、生产 Compose 合同和数据库只读预检。数据库预检与应用生产配置保持一致，优先使用显式环境变量或 profile properties，并支持 `configtree:/run/secrets/`；Secret 文件的行尾 CR/LF 会在容器内规范化，凭据内容不会进入命令输出或发布历史。任一上传前门禁失败时，发布器停止在 `publish-image` 之前。
 
+2026-10-03 补充：生产 Compose 必须与在线服务的环境变量、启动覆盖、数据挂载和 Secret 映射一致，仅允许 IMAGE_TAG 随应用版本变化。在线恢复规格与旧 Compose 有差异时，在镜像上传前停止；编排更新、部署以及自动回滚的数据库或文件副作用前重复检查。环境交接及配置修订需独立授权，不提供忽略漂移或从在线配置自动覆盖文件的选项。生产入口由目标镜像维护，Compose 禁止覆盖 entrypoint/command，JAVA_OPTS/JAVA_EXTRA_OPTS 禁止覆盖 Stripe 凭据、配置导入和运行 profile。目标镜像的生产 properties 必须仅从 /run/secrets 配置树导入运行凭据，不能内置 Stripe API Key 或 webhook Secret。最终运行合同增加应用容器内 Stripe 正式认证 GET，不创建 Checkout、不扣款，错误输出仅保留失败类型。
+
 论坛正式发布同样先完成 SSH 目标解析、生产 Compose 读取和论坛只读 preflight，再允许上传新镜像。复用已有论坛镜像时保持只读镜像存在性检查，不产生重复上传。
 
 Windows 执行器通过 PowerShell 标准输入传递发布脚本，避免备份、迁移和恢复命令超过系统命令行长度上限。总进度阶段按实际依赖顺序分组，Prd2、Compose 和数据库只读预检归入镜像交付前置阶段，备份与迁移归入数据安全阶段，历史容器清理位于恢复判定之前。
