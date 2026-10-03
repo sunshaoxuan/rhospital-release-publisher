@@ -34,6 +34,7 @@ const {
 } = require('./src/releasePublisherCore');
 const {
   isActiveJobStatus,
+  publisherActivity,
   selectPersistedJobs
 } = require('./src/releaseJobStore');
 const {
@@ -208,8 +209,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 202, job);
     }
     if (pathname === '/api/jobs/active' && req.method === 'GET') {
-      const job = [...jobs.values()].find(item => isActiveJobStatus(item.status)) || null;
-      return sendJson(res, 200, {job});
+      return sendJson(res, 200, publisherActivity(jobs.values(), jobControllers.size));
     }
     if (pathname.startsWith('/api/jobs/') && req.method === 'GET') {
       const id = decodeURIComponent(pathname.slice('/api/jobs/'.length));

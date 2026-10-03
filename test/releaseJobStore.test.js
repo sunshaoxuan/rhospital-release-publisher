@@ -6,8 +6,27 @@ const test = require('node:test');
 const {
   compactPersistedJob,
   isActiveJobStatus,
+  publisherActivity,
   selectPersistedJobs
 } = require('../src/releaseJobStore');
+
+test('candidate activity includes game/forum active states and terminal-job cleanup', () => {
+  assert.deepEqual(publisherActivity([], 0), {job: null, busy: false});
+  for (const status of ['RUNNING', 'CANCELLING', 'RECOVERING']) {
+    for (const releaseTarget of ['game', 'forum']) {
+      const job = {status, releaseTarget};
+      assert.deepEqual(publisherActivity([job], 0), {job, busy: true});
+    }
+  }
+  const terminal = {status: 'EXECUTED'};
+  assert.deepEqual(publisherActivity([terminal], 1), {job: null, busy: true});
+  assert.deepEqual(publisherActivity([terminal], 0), {job: null, busy: false});
+});
+
+test('active endpoint reports cleanup occupancy and preserves the existing job field', () => {
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  assert.match(server, /sendJson\(res, 200, publisherActivity\(jobs.values\(\), jobControllers.size\)\)/);
+});
 
 test('persists only running and cancelling jobs', () => {
   const jobs = [

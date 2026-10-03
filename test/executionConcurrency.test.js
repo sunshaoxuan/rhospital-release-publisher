@@ -168,5 +168,5 @@ test('active job discovery route takes precedence over the job id route', () => 
   const idRoute = source.indexOf("pathname.startsWith('/api/jobs/') && req.method === 'GET'");
   assert.ok(activeRoute > 0);
   assert.ok(idRoute > activeRoute);
-  assert.match(source.slice(activeRoute, idRoute), /find\(item => isActiveJobStatus\(item\.status\)\)/);
+  assert.match(source.slice(activeRoute, idRoute), /publisherActivity\(jobs\.values\(\), jobControllers\.size\)/);
 });

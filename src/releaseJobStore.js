@@ -7,6 +7,11 @@ function isActiveJobStatus(status) {
   return ACTIVE_JOB_STATUSES.has(String(status || ''));
 }
 
+function publisherActivity(items, controllerCount = 0) {
+  const job = Array.from(items || []).find(item => isActiveJobStatus(item.status)) || null;
+  return {job, busy: Boolean(job) || controllerCount > 0};
+}
+
 function selectPersistedJobs(items, limit = 50) {
   const safeLimit = Math.max(1, Number(limit) || 50);
   return Array.from(items || [])
@@ -43,5 +48,6 @@ function compactLogs(logs, limit) {
 module.exports = {
   compactPersistedJob,
   isActiveJobStatus,
+  publisherActivity,
   selectPersistedJobs
 };
