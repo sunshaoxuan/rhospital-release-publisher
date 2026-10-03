@@ -412,6 +412,26 @@ function headAsset(gateway, entry) {
     });
 }
 
+export function latestGatewayManifestEntry(gateway, runCommand = run) {
+    const script = String.raw`set -eu
+root="$1"
+manifest="$(find "$root/manifests" -maxdepth 1 -type f -name '*.tsv' -printf '%T@ %p\n' | sort -nr | sed -n '1s/^[^ ]* //p')"
+test -n "$manifest"
+sed -n '1p' "$manifest"`;
+    const line = runCommand('ssh', [...sshArgs(gateway), 'bash', '-s', '--', gateway.remoteAssetRoot], {
+        input: script
+    });
+    return parseManifest(`${line}\n`)[0];
+}
+
+export async function verifyGatewayRoutes(gateways, readEntry = latestGatewayManifestEntry, probe = headAsset) {
+    for (const gateway of gateways) {
+        const entry = readEntry(gateway);
+        await probe(gateway, entry);
+        console.log(`gateway_static_route_preflight=PASS gateway=${gateway.id} sample=${entry.publicPath}`);
+    }
+}
+
 async function verifyGateway(gateway, entries, concurrency = 16) {
     let cursor = 0;
     const workers = Array.from({ length: Math.min(concurrency, entries.length) }, async () => {
@@ -528,11 +548,14 @@ function parseArgs(argv) {
         }
         values[name.slice(2)] = value;
     }
-    if (!['validate', 'stage', 'verify', 'rehearse'].includes(values.mode)) {
-        throw new Error('--mode must be validate, stage, verify or rehearse');
+    if (!['validate', 'stage', 'verify', 'rehearse', 'route-check'].includes(values.mode)) {
+        throw new Error('--mode must be validate, stage, verify, rehearse or route-check');
     }
-    if (!values.image || !SAFE_TAG_PATTERN.test(values['app-tag'] || '')) {
+    if (values.mode !== 'route-check' && (!values.image || !SAFE_TAG_PATTERN.test(values['app-tag'] || ''))) {
         throw new Error('--image and a safe --app-tag are required');
+    }
+    if (values.mode === 'route-check' && !values.config) {
+        throw new Error('--config is required for route-check');
     }
     if (values.mode === 'rehearse' && !values['production-config']) {
         throw new Error('--production-config is required for rehearsal');
@@ -542,6 +565,11 @@ function parseArgs(argv) {
 
 async function main() {
     const args = parseArgs(process.argv.slice(2));
+    if (args.mode === 'route-check') {
+        const gateways = loadConfig(path.resolve(args.config));
+        await verifyGatewayRoutes(gateways);
+        return;
+    }
     const workRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rhospital-static-assets-'));
     try {
         const artifactRoot = path.join(workRoot, 'artifact');

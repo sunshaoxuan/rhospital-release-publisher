@@ -458,8 +458,11 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.command.includes('--app-tag 2026070702')
     && step.command.includes("--auth-token-file 'C:\\ProgramData\\RHospital\\secrets\\game-smoke-token.txt'")
     && step.command.includes('--check-prerequisites')
+    && step.command.includes('--mode route-check')
+    && step.command.includes('game-static-assets.mjs')
     && step.validation.includes('game_static_delivery_browser=PASS')
-    && step.validation.includes('game_static_delivery_prerequisites=PASS')));
+    && step.validation.includes('game_static_delivery_prerequisites=PASS')
+    && step.validation.includes('gateway_static_route_preflight=PASS')));
   const prerequisiteIndex = plan.steps.findIndex(step => step.key === 'validate-game-static-delivery-prerequisites');
   const backendTestIndex = plan.steps.findIndex(step => step.key === 'test-game-backend');
   const gitUpdateIndex = plan.steps.findIndex(step => step.key === 'git-update');

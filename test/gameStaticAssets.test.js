@@ -43,3 +43,27 @@ test('gateway verifier enforces the root scope header for the content addressed 
   assert.match(source, /service-worker-allowed/);
   assert.match(source, /does not allow the root service worker scope/);
 });
+
+test('route preflight samples a real manifest entry and rejects a failed gateway probe', async () => {
+  const { latestGatewayManifestEntry, verifyGatewayRoutes } = await import('../scripts/game-static-assets.mjs');
+  const sha256 = crypto.createHash('sha256').update('asset').digest('hex');
+  const line = `${sha256.slice(0, 20)}\t${sha256}\t5\t/CHANGELOG.md`;
+  let command;
+  const gateway = {id: 'gate', host: 'example.test', username: 'root', remoteAssetRoot: '/objects'};
+  const entry = latestGatewayManifestEntry(gateway, (tool, args, options) => {
+    command = {tool, args, input: options.input};
+    return line;
+  });
+  assert.equal(command.tool, 'ssh');
+  assert.deepEqual(command.args.slice(-4), ['bash', '-s', '--', '/objects']);
+  assert.match(command.input, /find "\$root\/manifests"/);
+  assert.equal(entry.publicPath, '/CHANGELOG.md');
+  const probed = [];
+  await verifyGatewayRoutes([gateway], () => entry, async (target, sample) => {
+    probed.push([target.id, sample.publicPath]);
+  });
+  assert.deepEqual(probed, [['gate', '/CHANGELOG.md']]);
+  await assert.rejects(() => verifyGatewayRoutes([gateway], () => entry, async () => {
+    throw new Error('missing LOCAL object');
+  }), /missing LOCAL object/);
+});

@@ -254,6 +254,8 @@ npm run acceptance:full-flow -- --project-root C:\workspace\hospital-backend --g
 
 游戏静态资源采用应用切换前交付：
 
+正式游戏发布开始时，`validate-game-static-delivery-prerequisites` 先从两台前置各自最新的生产清单抽取一个真实对象，直连 HTTPS 检查 HTTP 200、`X-Cache=LOCAL` 与 `X-Asset-Source=gate-object`。此只读门禁在代码切换、构建和镜像上传前发现已加载路由漂移；完整目标清单仍由下列逐文件检查验收。
+
 1. `build-game-static-assets` 从业务仓库 `frontend-assets` Docker 目标生成清单与内容寻址对象。
 2. `stage-game-static-assets` 按 `C:\workspace\rhospital\release\game-static-gateways.json` 向 Riven 与 VMISS 增量安装对象，远端逐文件复算完整 SHA-256，保留全部旧对象。需要使用其他受管清单时可设置 `RELEASE_PUBLISHER_GATEWAY_STATIC_CONFIG`。
 3. `verify-game-static-assets-predeploy` 直连两台前置，对清单每个 `/assets/**?h=` 地址执行 HTTPS HEAD，全部要求 HTTP 200、`X-Cache=LOCAL` 与 `X-Asset-Source=gate-object`。`.js` 和 `.mjs` 还必须返回浏览器认可的 JavaScript Content-Type，避免完整文件已经预置却在运行时被严格 MIME 检查拒绝。

@@ -362,9 +362,12 @@ function createPlan(projectRoot, request, env = process.env) {
     releaseStep({
       key: 'validate-game-static-delivery-prerequisites',
       title: '校验登录验收运行条件',
-      summary: '在代码切换、耗时测试和所有生产动作前确认登录令牌文件、Chrome WebGL framebuffer、双前置地址和目标域名可用于发布后真实加载验收',
-      command: gameStaticDeliveryPrerequisiteCheckCommand(appTag, env),
-      validation: '必须输出 game_static_delivery_browser=PASS 和 game_static_delivery_prerequisites=PASS，令牌内容不得写入命令、日志或发布历史',
+      summary: '在代码切换、耗时测试和所有生产动作前确认登录验收条件，并用现有清单中的真实对象检查双前置已加载本地内容寻址路由',
+      command: chainPowerShellCommands([
+        gameStaticDeliveryPrerequisiteCheckCommand(appTag, env),
+        gameStaticAssetRoutePreflightCommand(gatewayStaticConfigPath(env))
+      ]),
+      validation: '必须输出 game_static_delivery_browser=PASS、game_static_delivery_prerequisites=PASS 和两台 gateway_static_route_preflight=PASS，令牌内容不得写入命令、日志或发布历史',
       actionType: 'local-check',
       executable: true
     }),
@@ -1239,6 +1242,11 @@ function gameStaticAssetArtifactCommand(mode, imageTag, appTag, configPath, dock
     ? ` --production-config ${shellToken(options.productionConfigPath)}`
     : '';
   return `node ${shellToken(scriptPath)} --mode ${shellToken(mode)} --image ${shellToken(`${imageTag}-frontend-assets`)} --app-tag ${shellToken(appTag)} --config ${shellToken(configPath)}${productionConfigArgument}${dockerContextArgument}`;
+}
+
+function gameStaticAssetRoutePreflightCommand(configPath) {
+  const scriptPath = path.resolve(__dirname, '..', 'scripts', 'game-static-assets.mjs');
+  return `node ${shellToken(scriptPath)} --mode route-check --config ${shellToken(configPath)}`;
 }
 
 function gameReleasePreflightCommand(checks) {
