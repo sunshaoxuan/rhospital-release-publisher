@@ -1233,13 +1233,17 @@ test('adds a secret-safe SMTP sender probe when the game impact assessment requi
   assert.ok(plan.steps.findIndex(item => item.key === 'verify-game-smtp-sender')
     > plan.steps.findIndex(item => item.key === 'final-runtime-check'));
   assert.match(script, /spring\.mail\.password/);
-  assert.match(script, /openssl s_client -starttls smtp/);
-  assert.match(script, /AUTH PLAIN/);
-  assert.match(script, /MAIL FROM:<%s>/);
+  assert.match(script, /python3 - <<'PY'/);
+  assert.match(script, /smtplib\.SMTP\(host, port, timeout=10\)/);
+  assert.match(script, /smtp\.starttls\(context=ssl\.create_default_context\(\)\)/);
+  assert.match(script, /smtp\.auth\('PLAIN', smtp\.auth_plain\)/);
+  assert.doesNotMatch(script, /smtp\.login\(/);
+  assert.match(script, /smtp\.mail\(sender\)/);
+  assert.match(script, /smtp\.rset\(\)/);
+  assert.match(script, /stage=\{stage\} code=\{error\.smtp_code\}/);
   assert.match(script, /support@rhospital\.cc/);
-  assert.match(script, /sleep 1; printf 'EHLO[\s\S]+sleep 1; printf 'AUTH PLAIN[\s\S]+sleep 1; printf 'MAIL FROM/);
-  assert.doesNotMatch(script, /printf 'DATA/);
-  assert.doesNotMatch(step.command, /smtp_password=/);
+  assert.doesNotMatch(script, /smtp\.data\(|smtp\.sendmail\(|sleep 1|openssl s_client/);
+  assert.doesNotMatch(step.command, /password =/);
 });
 
 test('blocks the SMTP sender probe when the authenticated user and From address differ', () => {

@@ -3890,7 +3890,7 @@ function resolveProductionMailIdentity(projectRoot, commit) {
     throw new Error('生产 SMTP 发件探针缺少 spring.mail.host、spring.mail.port、spring.mail.username 或 mail.verify.from');
   }
   if (username !== fromAddress) {
-    throw new Error(`生产 SMTP 认证账号与发件地址不一致: username=${username}, from=${fromAddress}`);
+    throw new Error('生产 SMTP 认证账号与发件地址不一致');
   }
   return {host, port, username, fromAddress};
 }
@@ -3898,20 +3898,51 @@ function resolveProductionMailIdentity(projectRoot, commit) {
 function gameSmtpSenderProbeCommands(stackName, containerName, identity) {
   const serviceName = `${stackName}_${containerName}`;
   return [
-    `service_name=${shellToken(serviceName)}`,
-    'container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
-    '[ -n "$container_id" ] || { echo "ERROR: no healthy game container for SMTP sender verification"; exit 1; }',
-    `smtp_password=$(docker exec "$container_id" sh -lc 'IFS= read -r secret < /run/secrets/spring.mail.password; printf "%s" "$secret"')`,
-    '[ -n "$smtp_password" ] || { echo "ERROR: spring.mail.password Secret is empty"; exit 1; }',
-    `auth_plain=$(printf '\\0%s\\0%s' ${shellToken(identity.username)} "$smtp_password" | openssl base64 -A)`,
-    'unset smtp_password',
-    '[ -n "$auth_plain" ] || { echo "ERROR: SMTP AUTH payload generation failed"; exit 1; }',
-    `smtp_output=$( { sleep 1; printf 'EHLO rhospital-release-check\\r\\n'; sleep 1; printf 'AUTH PLAIN %s\\r\\n' "$auth_plain"; sleep 1; printf 'MAIL FROM:<%s>\\r\\n' ${shellToken(identity.fromAddress)}; sleep 1; printf 'QUIT\\r\\n'; } | timeout 25 openssl s_client -starttls smtp -crlf -quiet -connect ${shellToken(`${identity.host}:${identity.port}`)} 2>/dev/null)`,
-    'unset auth_plain',
-    `post_auth_code=$(printf '%s\\n' "$smtp_output" | awk '/^235[ -]/{authenticated=1; next} authenticated && /^[0-9][0-9][0-9][ -]/{print substr($0,1,3); exit}')`,
-    `if [ "$post_auth_code" != 250 ]; then smtp_codes=$(printf '%s\\n' "$smtp_output" | sed -n 's/^\\([0-9][0-9][0-9]\\).*/\\1/p' | tr '\\n' ' '); echo "ERROR: SMTP sender verification failed response_codes=$smtp_codes"; exit 1; fi`,
-    'unset smtp_output post_auth_code',
-    `echo ${shellToken(`game_smtp_sender=PASS host=${identity.host} port=${identity.port} identity=${identity.fromAddress}`)}`
+    "python3 - <<'PY'",
+    'import smtplib, ssl, subprocess, sys',
+    `service = ${JSON.stringify(serviceName)}`,
+    `host = ${JSON.stringify(identity.host)}`,
+    `port = ${identity.port}`,
+    `username = ${JSON.stringify(identity.username)}`,
+    `sender = ${JSON.stringify(identity.fromAddress)}`,
+    "stage = 'container'",
+    'try:',
+    "    containers = subprocess.check_output(['docker', 'ps', '-q', '--filter', 'label=com.docker.swarm.service.name=' + service, '--filter', 'health=healthy'], text=True, stderr=subprocess.DEVNULL).splitlines()",
+    "    if len(containers) != 1: raise RuntimeError('healthy_container_count')",
+    "    stage = 'secret'",
+    "    password = subprocess.check_output(['docker', 'exec', containers[0], 'sh', '-lc', 'IFS= read -r secret < /run/secrets/spring.mail.password; printf \"%s\" \"$secret\"'], text=True, stderr=subprocess.DEVNULL)",
+    "    if not password: raise RuntimeError('empty_secret')",
+    "    stage = 'connect'",
+    '    smtp = smtplib.SMTP(host, port, timeout=10)',
+    '    try:',
+    "        for stage, expected, action in [",
+    "            ('ehlo', 250, smtp.ehlo),",
+    "            ('starttls', 220, lambda: smtp.starttls(context=ssl.create_default_context())),",
+    "            ('tls_ehlo', 250, smtp.ehlo),",
+    '        ]:',
+    '            code, _ = action()',
+    '            if code != expected: raise smtplib.SMTPResponseException(code, b\'\')',
+    "        stage = 'auth'",
+    "        if 'PLAIN' not in smtp.esmtp_features.get('auth', '').upper().split(): raise smtplib.SMTPNotSupportedError('auth_plain_unavailable')",
+    '        smtp.user, smtp.password = username, password',
+    "        code, _ = smtp.auth('PLAIN', smtp.auth_plain)",
+    "        if code != 235: raise smtplib.SMTPResponseException(code, b'')",
+    "        stage = 'mail_from'",
+    '        code, _ = smtp.mail(sender)',
+    "        if code != 250: raise smtplib.SMTPResponseException(code, b'')",
+    "        stage = 'rset'",
+    '        code, _ = smtp.rset()',
+    "        if code != 250: raise smtplib.SMTPResponseException(code, b'')",
+    '    finally:',
+    '        smtp.close()',
+    'except smtplib.SMTPResponseException as error:',
+    "    print(f'ERROR: SMTP sender verification failed stage={stage} code={error.smtp_code}')",
+    '    sys.exit(1)',
+    'except Exception as error:',
+    "    print(f'ERROR: SMTP sender verification failed stage={stage} error_type={type(error).__name__}')",
+    '    sys.exit(1)',
+    "print('game_smtp_sender=PASS')",
+    'PY'
   ];
 }
 
