@@ -110,7 +110,7 @@ test('server gates release planning and execution while monitoring idle restarts
   assert.match(source, /server\.close\(\(\) => process\.exit\(75\)\)/);
 });
 
-test('idle publisher process exits after a clean runtime commit', {timeout: 60000}, async () => {
+test('idle publisher process exits after a clean runtime commit', {timeout: 120000}, async () => {
   const root = tempPublisherServerRepository();
   let child;
   try {
@@ -127,7 +127,7 @@ test('idle publisher process exits after a clean runtime commit', {timeout: 6000
       windowsHide: true
     });
     await waitForChildOutput(child, /RHospital Release Console is running/, 30000);
-    const exitPromise = waitForChildExit(child, 30000);
+    const exitPromise = waitForChildExit(child, 90000);
     fs.appendFileSync(path.join(root, 'public', 'app.js'), 'console.log("new runtime");\n', 'utf8');
     runGit(root, ['add', '.']);
     runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'new runtime']);

@@ -68,6 +68,7 @@
 
   let latestConfig = null;
   let configLoadRequestId = 0;
+  let planRequestId = 0;
   let gitBranches = [];
   let gitCommits = [];
   let historyPage = 1;
@@ -134,6 +135,7 @@
   }
 
   function renderPlanLoading() {
+    pipeline.replaceChildren();
     setLoadingValue(fields.targetImageFlow, '正在计算');
     setLoadingValue(fields.targetImage, '正在计算');
     pipeline.setAttribute('aria-busy', 'true');
@@ -765,6 +767,7 @@
 
   async function loadConfig(resetTargetValues = false, allowAutomaticTarget = true) {
     const requestId = ++configLoadRequestId;
+    ++planRequestId;
     setStatus('读取配置中', '');
     renderPlanLoading();
     renderProductionImage({});
@@ -966,17 +969,28 @@
   }
 
   async function plan() {
+    const requestId = ++planRequestId;
+    const request = payload();
     setStatus('正在生成发布流程', '');
     renderPlanLoading();
+    if (!request.appTag) {
+      pipeline.setAttribute('aria-busy', 'false');
+      setStaticValue(fields.targetImageFlow, '等待镜像 TAG');
+      setStaticValue(fields.targetImage, '等待镜像 TAG');
+      setStatus('等待镜像 TAG', '');
+      return null;
+    }
     try {
       const result = await requestJson('/api/plan', {
         method: 'POST',
-        body: JSON.stringify(payload())
+        body: JSON.stringify(request)
       });
+      if (requestId !== planRequestId) return null;
       renderPlan(result);
       setStatus('发布流程已生成', 'success');
       return result;
     } catch (error) {
+      if (requestId !== planRequestId) return null;
       setStaticValue(fields.targetImageFlow, '发布流程生成失败', true);
       setStaticValue(fields.targetImage, '发布流程生成失败', true);
       if (fields.productionImageFlow.classList.contains('is-loading')) {

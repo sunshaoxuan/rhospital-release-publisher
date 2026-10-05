@@ -3285,7 +3285,7 @@ test('successful plan regeneration clears an earlier error status', () => {
   const app = fs.readFileSync(path.join(__dirname, '..', 'public', 'app.js'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '..', 'public', 'styles.css'), 'utf8');
 
-  assert.match(app, /async function plan\(\) \{\s*setStatus\('正在生成发布流程', ''\);/);
+  assert.match(app, /async function plan\(\) \{\s*const requestId = \+\+planRequestId;\s*const request = payload\(\);\s*setStatus\('正在生成发布流程', ''\);/);
   assert.match(app, /renderPlan\(result\);\s*setStatus\('发布流程已生成', 'success'\);\s*return result;/);
   assert.match(app, /catch \(error\) \{[\s\S]*setStaticValue\(fields\.targetImageFlow, '发布流程生成失败', true\);/);
   assert.match(app, /function renderPlanError\(message\)/);
