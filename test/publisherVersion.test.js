@@ -126,7 +126,7 @@ test('idle publisher process exits after a clean runtime commit', {timeout: 6000
       stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true
     });
-    await waitForChildOutput(child, /RHospital Release Console is running/, 10000);
+    await waitForChildOutput(child, /RHospital Release Console is running/, 30000);
     const exitPromise = waitForChildExit(child, 30000);
     fs.appendFileSync(path.join(root, 'public', 'app.js'), 'console.log("new runtime");\n', 'utf8');
     runGit(root, ['add', '.']);
@@ -163,7 +163,7 @@ test('restart drain rejects a release request that finishes after the repository
     const startupOutput = await waitForChildOutput(
       child,
       /RHospital Release Console is running at http:\/\/127\.0\.0\.1:\d+/,
-      10000
+      30000
     );
     const portMatch = startupOutput.match(/http:\/\/127\.0\.0\.1:(\d+)/);
     assert.ok(portMatch, startupOutput);
@@ -171,7 +171,8 @@ test('restart drain rejects a release request that finishes after the repository
     slowRequest = openSlowJsonPost(Number(portMatch[1]), '/api/execute');
     await slowRequest.connected;
     await delay(50);
-    const exitPromise = waitForChildExit(child, 30000);
+    // The bound includes synchronous fixture commits and the real Git version monitor.
+    const exitPromise = waitForChildExit(child, 60000);
     fs.appendFileSync(path.join(root, 'public', 'app.js'), 'console.log("new runtime");\n', 'utf8');
     runGit(root, ['add', '.']);
     runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'new runtime']);

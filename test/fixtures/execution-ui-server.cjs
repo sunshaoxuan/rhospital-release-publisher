@@ -5,6 +5,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '../../public');
 const {buildReleaseDiagnostics} = require('../../src/releaseDiagnostics');
 const diagnosticsMode = process.env.DIAGNOSTICS_FIXTURE === '1';
+const standbyMode = process.env.STANDBY_CANDIDATE_FIXTURE === '1';
 const diagnosticCases = [
   ['warning', 'EXECUTED', [{key: 'cleanup-game-release-containers', title: '清理历史容器', status: 'done', logs: ['WARNING: cleanup failed']}]],
   ['held', 'RECOVERY_REQUIRED', [{key: 'commit-game-cutover', title: '新版本健康接管', status: 'done'},
@@ -33,7 +34,13 @@ function plan(status = 'pending') {
     {key: 'test-game-backend', title: '批量测试并编译后端产物', status: complete ? 'done' : 'pending'},
     {key: 'verify-game-doorplate-ui', title: '核验医院门牌', status: complete ? 'done' : 'pending'},
     {key: 'build-image', title: '制作 Docker 镜像', status: complete ? 'done' : 'pending'},
-    {key: 'publish-image', title: '交付镜像', status: complete ? 'done' : 'pending'}
+    {key: 'publish-image', title: '交付镜像', status: complete ? 'done' : 'pending'},
+    ...(standbyMode ? [
+      {key: 'verify-game-standby-candidate', title: '复核B发布前待命候选', status: complete ? 'done' : 'pending'},
+      {key: 'deploy-stack', title: '切换A生产版本', status: complete ? 'done' : 'pending'},
+      {key: 'final-runtime-check', title: 'A最终运行验收', status: complete ? 'done' : 'pending'},
+      {key: 'accept-game-standby-candidate', title: '提交B已验收接管标记', status: complete ? 'done' : 'pending'}
+    ] : [])
   ]};
 }
 function job() {
@@ -73,6 +80,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/git/commits') return json({commits: []});
   if (url.pathname === '/api/remote-tag') return json({resolved: true, imageTag: config.imageTag, appTag: 'ui-test'});
   if (url.pathname === '/api/version') return json({status: 'UP_TO_DATE', runtimeVersion: 'UI regression fixture', statusLabel: '隔离测试环境'});
+  if (url.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
   const files = {'/': ['index.html', 'text/html'], '/static/app.js': ['app.js', 'application/javascript'],
     '/static/styles.css': ['styles.css', 'text/css']};
   const file = files[url.pathname];

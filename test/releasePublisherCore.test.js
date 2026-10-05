@@ -93,6 +93,11 @@ const sampleXml = `<component name="ProjectRunConfigurationManager">
 </component>`;
 
 function decodedRemoteScript(command) {
+  if (String(command).includes('game-standby-candidate.cjs')) {
+    const encoded = String(command).match(/\$candidateRequest = '([0-9A-Za-z+/=]+)'/);
+    assert.ok(encoded, 'candidate cutover payload is required');
+    return JSON.parse(Buffer.from(encoded[1], 'base64').toString('utf8')).cutoverScript;
+  }
   const match = String(command).match(/(?:printf %s ["']|\$remoteScript = ["'])([0-9A-Za-z+/=]+)["']/);
   assert.ok(match, `command does not contain an encoded remote script: ${command}`);
   return Buffer.from(match[1], 'base64').toString('utf8');
@@ -105,6 +110,9 @@ function decodedScriptTree(command) {
   while (pending.length > 0) {
     const value = pending.shift();
     decoded.push(value);
+    if (value.includes('game-standby-candidate.cjs') && / cutover(?:;|\s)/.test(value)) {
+      pending.push(decodedRemoteScript(value));
+    }
     for (const match of value.matchAll(pattern)) {
       const child = Buffer.from(match[1], 'base64').toString('utf8');
       if (!decoded.includes(child) && !pending.includes(child)) pending.push(child);
@@ -316,9 +324,8 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('idx_toilet_tx_target_id')
     && decodedRemoteScript(step.command).includes('test "$IMAGE_TAG" = 2026070702')));
   assert.ok(plan.steps.some(step => step.key === 'publish-image'
-    && step.command.includes('docker save -o')
-    && step.command.includes('scp')
-    && step.command.includes('docker load -i')));
+    && step.command.includes('game-standby-candidate.cjs')
+    && step.command.includes('distribute')));
   const publishImageIndex = plan.steps.findIndex(step => step.key === 'publish-image');
   assert.ok(plan.steps.findIndex(step => step.key === 'resolve-ssh-target') < publishImageIndex);
   assert.ok(plan.steps.findIndex(step => step.key === 'game-prd2-migration-readiness') < publishImageIndex);
@@ -375,7 +382,7 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(plan.steps.some(step => step.key === 'test-game-backend'
     && step.validationCommand.includes('docker image inspect hospital-backend:2026070702-buildcheck')));
   assert.ok(plan.steps.some(step => step.key === 'publish-image'
-    && step.validationCommand.includes('docker image inspect hospital-backend:2026070702')));
+    && step.validation.includes('A/B') && !step.validationCommand));
   assert.ok(plan.steps.some(step => step.key === 'update-remote-compose'
     && decodedRemoteScript(step.validationCommand).includes('grep -nE')
     && decodedRemoteScript(step.validationCommand).includes('hospital-backend:2026070702')
@@ -2497,6 +2504,7 @@ test('three-round fatal full-chain evidence after cutover permits automatic roll
   assert.equal(result.status, 'ROLLED_BACK');
   assert.equal(runCommand.fatalDecisionRuns, 1);
   assert.equal(runCommand.rollbackRuns, 1);
+  assert.equal(result.plan.steps.find(step => step.key === 'accept-game-standby-candidate').status, 'pending');
 });
 
 test('confirmed unsafe target evidence before cutover commit permits automatic rollback', async () => {
@@ -2539,6 +2547,89 @@ test('rollback decision check failure before cutover commit preserves the target
   assert.match(result.logs.join('\n'), /复核异常，禁止自动回滚/);
   assert.equal(runCommand.rollbackRuns, 0);
   assert.equal(runCommand.decisionRuns, 1);
+});
+
+test('formal game dual-node gate is mandatory, precedes Compose mutation and accepts last', () => {
+  const root = tempProject(sampleXml);
+  const env = {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'};
+  const plan = createPlan(root, {appTag: 'dual-node', includeStackDeploy: true}, env);
+  const keys = plan.steps.filter(step => !step.recoveryOnly).map(step => step.key);
+  assert.ok(keys.indexOf('publish-image') < keys.indexOf('verify-game-standby-candidate'));
+  assert.ok(keys.indexOf('verify-game-standby-candidate') < keys.indexOf('update-remote-compose'));
+  assert.equal(keys.at(-1), 'accept-game-standby-candidate');
+  assert.ok(keys.indexOf('final-runtime-check') < keys.indexOf('accept-game-standby-candidate'));
+  const commands = plan.steps.filter(step => step.command.includes('game-standby-candidate.cjs'));
+  const candidateIds = commands.map(step => {
+    const encoded = step.command.match(/\$candidateRequest = '([0-9A-Za-z+/=]+)'/)[1];
+    return JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')).candidateId;
+  });
+  assert.equal(new Set(candidateIds).size, 1);
+  const build = plan.steps.find(step => step.key === 'build-image');
+  assert.match(build.command, /--iidfile/);
+  assert.ok(build.command.includes(candidateIds[0]));
+  assert.match(build.command, /build-image\.id/);
+  assert.equal(plan.steps.find(step => step.key === 'test-game-backend').command.includes('--iidfile'), false);
+  assert.equal(plan.config.standbyCandidate.standbyHost, '185.184.223.41');
+  const imageOnly = createPlan(root, {appTag: 'dual-node', includeStackDeploy: false}, env);
+  assert.equal(imageOnly.steps.some(step => step.key === 'accept-game-standby-candidate'), false);
+  assert.equal(imageOnly.steps.find(step => step.key === 'build-image').command.includes('--iidfile'), false);
+});
+
+test('B gate failure prevents A Compose changes and leaves acceptance pending', async () => {
+  const root = tempProject(sampleXml);
+  const env = {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'history.json')};
+  const runCommand = testCommandRunner();
+  // The script path may be quoted by PowerShell; fail on the stable action suffix.
+  const delegate = runCommand;
+  const runner = async (...args) => {
+    if (args[1].includes('game-standby-candidate.cjs') && / verify(?:;|\s)/.test(args[1])) throw new Error('B gate failed');
+    return delegate(...args);
+  };
+  const result = await executePlan(root, {appTag: 'dual-node', dryRun: false, includeStackDeploy: true}, env, {runCommand: runner});
+  assert.equal(result.status, 'ERROR');
+  for (const key of ['update-remote-compose', 'deploy-stack', 'accept-game-standby-candidate']) {
+    assert.equal(result.plan.steps.find(step => step.key === key).status, 'pending');
+  }
+});
+
+test('ambiguous B acceptance requires recovery and never invokes A rollback', async () => {
+  const root = tempProject(sampleXml);
+  const env = {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'history.json')};
+  const calls = [];
+  const runCommand = async (cwd, command, currentEnv, onChunk) => {
+    calls.push(command);
+    if (command.includes('game-standby-candidate.cjs') && / accept(?:;|\s)/.test(command)) throw new Error('lost CAS receipt');
+    if (onChunk) onChunk('mock=PASS');
+    return 'mock=PASS';
+  };
+  const result = await executePlan(root, {appTag: 'dual-node', dryRun: false, includeStackDeploy: true}, env, {runCommand});
+  assert.equal(result.status, 'RECOVERY_REQUIRED');
+  assert.ok(result.completedStepKeys.includes('final-runtime-check'));
+  assert.ok(!result.completedStepKeys.includes('accept-game-standby-candidate'));
+  assert.ok(!calls.some(command => decodedScriptTree(command).includes('automatic_rollback_validation=PASS')));
+});
+
+test('cutover helper refusal or lost submission receipt never rolls back an untouched A service', async () => {
+  const root = tempProject(sampleXml);
+  const env = {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'history.json')};
+  const commands = [];
+  const runner = async (cwd, command, currentEnv, onChunk) => {
+    commands.push(command);
+    if (command.includes('game-standby-candidate.cjs') && / cutover(?:;|\s)/.test(command)) throw new Error('B guard refused submission');
+    if (onChunk) onChunk('mock=PASS');
+    return 'mock=PASS';
+  };
+  const result = await executePlan(root, {appTag: 'dual-node', dryRun: false, includeStackDeploy: true}, env, {runCommand: runner});
+  assert.equal(result.status, 'RECOVERY_REQUIRED');
+  assert.equal(result.plan.steps.find(step => step.key === 'accept-game-standby-candidate').status, 'pending');
+  assert.ok(!commands.some(command => decodedScriptTree(command).includes('automatic_rollback_validation=PASS')));
 });
 
 test('test mode blocks operating-system publication commands when no runner is injected', async () => {
@@ -2676,6 +2767,10 @@ test('pipeline phases follow execution order when game build starts', () => {
   ]);
   assert.equal(phases[1].validation, '7 项检查，详情与原始日志保留在下方');
   assert.equal(phases[1].status, 'running');
+  const candidatePhases = phaseContext.buildPipelinePhases(gamePlan.steps.filter(step =>
+    ['verify-game-standby-candidate', 'accept-game-standby-candidate'].includes(step.key)));
+  assert.deepEqual(Array.from(candidatePhases, phase => phase.title),
+    ['数据安全与迁移', '备用接管版本验收']);
 });
 
 test('PowerShell runner accepts scripts beyond the Windows command-line limit through stdin', {

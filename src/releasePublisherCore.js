@@ -8,6 +8,7 @@ const {GAME_DATABASE, gameDatabasePsqlCommand, gameDatabaseContainerResolutionCo
 const {gameFormalComposeCommands, gameServiceSnapshotCommands} = require('./gameFormalProductionTransition');
 const {expectedTomcatVersion, tomcatJarCheckScript} = require('./tomcatSecurityCheck');
 const {gameProductionConfigGuardCommands, gameStripeAuthenticationCommands, gameProductionImageConfigCommands} = require('./gameProductionConfigGuard');
+const {PRIMARY, STANDBY, publicReceipt} = require('./gameStandbyCandidate');
 
 const DEFAULT_IMAGE_NAME = 'hospital-backend';
 const DEFAULT_COMPOSE_FILE = 'docker-compose.yml';
@@ -47,6 +48,8 @@ const KNOWN_RELEASE_CHECKS = {
     'compile-artifact',
     'build-game-static-assets',
     'validate-game-image',
+    'verify-game-standby-candidate',
+    'accept-game-standby-candidate',
     'game-database-preflight',
     'validate-game-database-migration-compatibility',
     'apply-database-migrations',
@@ -206,8 +209,12 @@ function createPlan(projectRoot, request, env = process.env) {
   const dockerTarget = resolveDockerCommandTarget(dockerContext, dockerContextResolution);
   const remoteImageTarget = resolveRemoteImageTarget(remoteSshTarget, ideaDockerServerResolution);
   const includeStackDeploy = Boolean(request.includeStackDeploy);
+  const standbyCandidateId = includeStackDeploy ? crypto.randomUUID() : '';
+  const gameImageIdentityFile = includeStackDeploy
+    ? path.resolve(projectRoot, '.release-candidates', standbyCandidateId, 'build-image.id') : '';
   const dryRun = request.dryRun !== false;
   const remoteRehearsal = request.remoteRehearsal === true;
+  let standbyCandidate = null;
   const rehearsalConfigPath = remoteRehearsal ? rehearsalGatewayStaticConfigPath(env) : '';
   if (remoteRehearsal && !dryRun) {
     throw new Error('远程前置演练只能在 dry run 模式下执行');
@@ -565,8 +572,11 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'build-image',
       title: '制作 Docker 镜像',
       summary: '在本机 Docker 执行完整 Dockerfile，把已编译产物组装成可运行镜像',
-      command: dockerCommand(dockerTarget, [
+      command: (gameImageIdentityFile
+        ? `[System.IO.Directory]::CreateDirectory(${shellToken(path.dirname(gameImageIdentityFile))}) | Out-Null; ` : '')
+        + dockerCommand(dockerTarget, [
         'build',
+        ...(gameImageIdentityFile ? ['--iidfile', gameImageIdentityFile] : []),
         '-f', config.dockerfile,
         '--build-arg', `APP_TAG=${appTag}`,
         '-t', imageTag,
@@ -658,6 +668,24 @@ function createPlan(projectRoot, request, env = process.env) {
     const formalComposeSource = gitCommit === 'latest'
       ? fs.readFileSync(resolveInside(projectRoot, DEFAULT_COMPOSE_FILE), 'utf8')
       : runGit(projectRoot, ['show', `${gitCommit}:${DEFAULT_COMPOSE_FILE}`]);
+    standbyCandidate = {
+      candidateId: standbyCandidateId, imageTag,
+      configVersion: crypto.createHash('sha256').update(formalComposeSource).digest('hex'),
+      docker: dockerTarget,
+      ssh: {user: remoteImageTarget.user || sshResolution.user || 'root',
+        keyPath: remoteImageTarget.keyPath || (sshResolution.identityFiles || [])[0] || '',
+        port: remoteImageTarget.port || sshResolution.port || 22},
+      primaryHost: PRIMARY, standbyHost: STANDBY
+    };
+    const resolvedPrimaryHost = remoteImageTarget.host || sshResolution.hostName;
+    if (resolvedPrimaryHost && resolvedPrimaryHost !== PRIMARY) {
+      throw new Error('双节点正式发布的A目标身份不匹配');
+    }
+    publishImageStep.command = standbyCandidateCommand('distribute', standbyCandidate);
+    publishImageStep.validationCommand = '';
+    publishImageStep.validation = 'A/B必须加载同一镜像ID及归档摘要，B候选配置及Secret完整且保持停机待命';
+    publishImageStep.summary = '导出一次不可变应用镜像并向A/B分发，节点契约缺失或B预置失败时阻断后续切换';
+    publishImageStep.timeoutSeconds = 1800;
     steps.push(releaseStep({
       key: 'resolve-ssh-target',
       title: '确认 SSH 连接配置',
@@ -1119,6 +1147,29 @@ function createPlan(projectRoot, request, env = process.env) {
     steps.push(publishImageStep);
   }
 
+  if (standbyCandidate) {
+    const updateIndex = steps.findIndex(step => step.key === 'update-remote-compose');
+    steps.splice(updateIndex, 0, releaseStep({
+      key: 'verify-game-standby-candidate', title: '复核B发布前待命候选',
+      summary: '核对A/B镜像身份、B配置版本及私有Secret预置，禁止B应用和业务任务运行',
+      command: standbyCandidateCommand('verify', standbyCandidate),
+      validation: '全部身份、配置和待命约束必须通过',
+      actionType: 'remote-check', executable: true, timeoutSeconds: 180
+    }));
+    const deployStep = steps.find(step => step.key === 'deploy-stack');
+    const encoded = deployStep.command.match(/\$remoteScript = '([0-9A-Za-z+/=]+)'/);
+    if (!encoded) throw new Error('无法绑定A不可变镜像切换脚本');
+    deployStep.command = standbyCandidateCommand('cutover', {...standbyCandidate,
+      cutoverScript: Buffer.from(encoded[1], 'base64').toString('utf8')});
+    const acceptanceStep = releaseStep({
+      key: 'accept-game-standby-candidate', title: '提交B已验收接管标记',
+      summary: 'A全部最终检查成功后复核实际镜像ID，原子提交B已验收候选，保留上一版本',
+      command: standbyCandidateCommand('accept', standbyCandidate),
+      validation: '原子CAS回执必须与同一镜像、配置及Secret版本一致，B持续待命',
+      actionType: 'production', productionAction: true, executable: true, timeoutSeconds: 180
+    });
+    steps.splice(steps.findIndex(step => step.recoveryOnly), 0, acceptanceStep);
+  }
   assertReleaseImpactPlanCoverage(releaseImpactAssessment, steps, includeStackDeploy);
 
   return {
@@ -1142,7 +1193,8 @@ function createPlan(projectRoot, request, env = process.env) {
         filePath: item.filePath,
         sha256: item.sha256
       })),
-      executionEnabled: true
+      executionEnabled: true,
+      standbyCandidate
     },
     releaseTarget: 'game',
     releaseTargetLabel: '游戏',
@@ -1171,6 +1223,14 @@ function gameStaticDeliveryCheckCommand(appTag, env = process.env) {
   const authTokenFile = resolveGameStaticDeliveryAuthTokenFile(env);
   const authTokenArgument = authTokenFile ? ` --auth-token-file ${shellToken(authTokenFile)}` : '';
   return `node ${shellToken(scriptPath)} --app-tag ${shellToken(appTag)}${authTokenArgument}`;
+}
+
+function standbyCandidateCommand(action, settings) {
+  const script = path.resolve(__dirname, '..', 'scripts', 'game-standby-candidate.cjs');
+  const encoded = Buffer.from(JSON.stringify(settings)).toString('base64');
+  return [`$candidateRequest = '${encoded}'`,
+    `$candidateRequest | & ${['node', script, action].map(shellToken).join(' ')}`,
+    'if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }'].join('; ');
 }
 
 function gameStaticDeliveryPrerequisiteCheckCommand(appTag, env = process.env) {
@@ -1783,7 +1843,7 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
             updateStep(step.key, 'running');
           }, signal, step.timeoutSeconds);
         }
-        assertNotCancelled();
+        if (step.key !== 'accept-game-standby-candidate') assertNotCancelled();
         if (step.cutoverCommit) {
           cutoverCommitted = true;
           cutoverCommittedAt = new Date().toISOString();
@@ -1808,6 +1868,16 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
     pushStepLog(failedStepKey, `${error.name === 'CancellationError' ? 'CANCELLED' : 'ERROR'}: ${error.message}`);
     runtimePlan = markStepStatus(runtimePlan, completedStepKeys, failedStepKey,
       error.name === 'CancellationError' ? 'cancelled' : 'failed', stepLogs, stepTiming);
+    if (failedStepKey === 'deploy-stack' && plan.config.standbyCandidate) {
+      pushStepLog(failedStepKey, 'RECOVERY_REQUIRED: A候选切换提交结果需要核对，禁止依据目标版本尚未运行自动回滚');
+      return {status: 'RECOVERY_REQUIRED', plan: runtimePlan, logs: logs.slice(),
+        completedStepKeys, cutoverCommitted, cutoverCommittedAt};
+    }
+    if (failedStepKey === 'accept-game-standby-candidate') {
+      pushStepLog(failedStepKey, 'RECOVERY_REQUIRED: B原子标记提交结果需要核对，保持A及上一接管版本，禁止自动回滚');
+      return {status: 'RECOVERY_REQUIRED', plan: runtimePlan, logs: logs.slice(),
+        completedStepKeys, cutoverCommitted, cutoverCommittedAt};
+    }
     if (plan.releaseTarget === 'game' && cutoverCommitted && error.name === 'CancellationError') {
       pushStepLog(failedStepKey,
         'RECOVERY_REQUIRED: 用户取消只停止观察，不构成致命故障证据，保留目标版本和现场');
@@ -2038,6 +2108,13 @@ function clearReleaseHistory(projectRoot, env = process.env) {
 }
 
 function buildHistoryEntry(status, plan, logs, completedStepKeys) {
+  let candidateReceipt = null;
+  for (const line of logs || []) {
+    const match = String(line).match(/^standby_candidate_receipt=(.+)$/m);
+    if (match) {
+      try { candidateReceipt = publicReceipt(JSON.parse(match[1])); } catch { /* Invalid evidence is not audit data. */ }
+    }
+  }
   const completedDurations = plan.steps
     .filter(step => Number.isFinite(step.durationMs))
     .map(step => ({key: step.key, title: step.title, durationMs: step.durationMs}));
@@ -2074,6 +2151,14 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
       ? releaseImpactAssessment.requiredChecks.map(item => item.stepKey)
       : [],
     includeStackDeploy: plan.includeStackDeploy,
+    standbyCandidate: plan.config.standbyCandidate ? {
+      candidateId: plan.config.standbyCandidate.candidateId,
+      primaryHost: PRIMARY, standbyHost: STANDBY,
+      configVersion: plan.config.standbyCandidate.configVersion,
+      publishedCandidate: candidateReceipt,
+      acceptedCandidate: candidateReceipt && candidateReceipt.accepted ? candidateReceipt : null,
+      accepted: completedStepKeys.includes('accept-game-standby-candidate') && !plan.dryRun
+    } : null,
     projectRoot: plan.config.projectRoot,
     dockerTarget: plan.config.dockerCommandTarget
       ? plan.config.dockerCommandTarget.description

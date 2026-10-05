@@ -393,7 +393,7 @@
       ] },
       { key: 'data', title: '数据安全与迁移', members: [
         'backup-game-release', 'apply-database-migrations', 'pre-deploy-checklist',
-        'backup-forum-release'
+        'verify-game-standby-candidate', 'backup-forum-release'
       ] },
       { key: 'switch', title: '切换生产版本', members: [
         'update-remote-compose', 'deploy-stack', 'deploy-forum-compose'
@@ -404,6 +404,9 @@
       ] },
       { key: 'cleanup', title: '清理游戏发布历史容器', members: [
         'cleanup-game-release-containers'
+      ] },
+      { key: 'standby', title: '备用接管版本验收', members: [
+        'accept-game-standby-candidate'
       ] },
       { key: 'recovery', title: '致命故障恢复', members: [
         'game-rollback-decision', 'game-fatal-rollback-decision', 'game-rollback-command',
