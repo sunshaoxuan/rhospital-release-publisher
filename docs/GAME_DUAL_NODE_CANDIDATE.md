@@ -2,8 +2,20 @@
 
 ## Scope And Status
 
-Publisher code implements mandatory protocol-v1 client steps and fail-closed
-validation. Local mocked-node tests verify publisher behavior. Real A/B deployment
+Formal game release defaults to the existing A-only pipeline. The normal console
+request does not enable B candidate distribution, verification, helper cutover or
+acceptance. A's existing source, build, database, CheckList and runtime safety gates
+remain mandatory. B interface/configuration defects do not block this mode, and it
+never marks a new B takeover version as accepted.
+
+This mode does not exempt publisher version consistency: the running console must
+use a clean committed publisher revision and report `UP_TO_DATE`. Unrelated dirty
+publisher changes and an older loaded runtime still block planning/execution.
+
+An API request with the boolean `requireStandbyCandidate: true` and
+`includeStackDeploy: true` explicitly selects dual-node release. Other supplied
+types are rejected. Publisher code then implements mandatory protocol-v1 client
+steps and fail-closed validation. Local mocked-node tests verify publisher behavior. Real A/B deployment
 acceptance has not run. No production release, application start, database migration
 on B, promotion, traffic switch, shutdown or infrastructure edit is part of this task.
 Forum releases and game image-only exports retain their existing behavior.
@@ -15,7 +27,7 @@ lock is `/etc/rhospital-ha/stage.lock` (`prepare.py` uses `ROOT + '/stage.lock'`
 with `ROOT = '/etc/rhospital-ha'`). The monitor's post-release transfer does
 not count as the mandatory pre-cutover gate.
 
-## Publisher Sequence
+## Dual-Node Sequence
 
 1. Existing source, application, database compatibility and build checks run.
 2. `build-image` records its full immutable ID with Docker `--iidfile` in the
@@ -35,7 +47,7 @@ not count as the mandatory pre-cutover gate.
    No subsequent cancellation check or fallible release step can trigger rollback.
 
 New steps are registered executable assessment checks. They are unconditional for
-formal game deployment; business assessments cannot opt out. Existing game/forum
+explicit dual-node deployment; business assessments cannot opt out. Existing game/forum
 assessment requirements remain intact.
 
 Full Docker image ID identifies image content; archive SHA-256 binds transferred
@@ -46,7 +58,8 @@ No rebuild on B or mutable-tag-only equality is allowed.
 
 The following **cross-repository dependency is currently missing** in the read-only
 infrastructure reference. It must be implemented, installed and independently
-verified before a formal game release can pass. There is no legacy fallback.
+verified before an explicit dual-node game release can pass. Selecting dual-node
+never silently falls back to A-only. Default A-only release does not require it.
 
 Both nodes must expose root-owned executable
 `/usr/local/sbin/rhospital-release-candidate-v1`. Invocation is authenticated SSH

@@ -324,8 +324,9 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('idx_toilet_tx_target_id')
     && decodedRemoteScript(step.command).includes('test "$IMAGE_TAG" = 2026070702')));
   assert.ok(plan.steps.some(step => step.key === 'publish-image'
-    && step.command.includes('game-standby-candidate.cjs')
-    && step.command.includes('distribute')));
+    && step.command.includes('docker save -o')
+    && step.command.includes('scp')
+    && !step.command.includes('game-standby-candidate.cjs')));
   const publishImageIndex = plan.steps.findIndex(step => step.key === 'publish-image');
   assert.ok(plan.steps.findIndex(step => step.key === 'resolve-ssh-target') < publishImageIndex);
   assert.ok(plan.steps.findIndex(step => step.key === 'game-prd2-migration-readiness') < publishImageIndex);
@@ -382,7 +383,7 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(plan.steps.some(step => step.key === 'test-game-backend'
     && step.validationCommand.includes('docker image inspect hospital-backend:2026070702-buildcheck')));
   assert.ok(plan.steps.some(step => step.key === 'publish-image'
-    && step.validation.includes('A/B') && !step.validationCommand));
+    && step.validationCommand.includes('docker image inspect hospital-backend:2026070702')));
   assert.ok(plan.steps.some(step => step.key === 'update-remote-compose'
     && decodedRemoteScript(step.validationCommand).includes('grep -nE')
     && decodedRemoteScript(step.validationCommand).includes('hospital-backend:2026070702')
@@ -2493,7 +2494,8 @@ test('three-round fatal full-chain evidence after cutover permits automatic roll
   const result = await executePlan(root, {
     appTag: '2026070702',
     dryRun: false,
-    includeStackDeploy: true
+    includeStackDeploy: true,
+    requireStandbyCandidate: true
   }, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
@@ -2549,11 +2551,40 @@ test('rollback decision check failure before cutover commit preserves the target
   assert.equal(runCommand.decisionRuns, 1);
 });
 
-test('formal game dual-node gate is mandatory, precedes Compose mutation and accepts last', () => {
+test('default A-only formal release succeeds without any B helper and keeps core safety checks', async () => {
+  const root = tempProject(sampleXml);
+  const env = {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'history.json')};
+  const runner = testCommandRunner();
+  const result = await executePlan(root, {appTag: 'primary-only', dryRun: false, includeStackDeploy: true}, env, {
+    runCommand: async (...args) => {
+      assert.equal(args[1].includes('game-standby-candidate.cjs'), false);
+      return runner(...args);
+    }
+  });
+  assert.equal(result.status, 'EXECUTED');
+  assert.equal(result.plan.config.standbyCandidate, null);
+  for (const key of ['test-game-backend', 'verify-game-static-assets-predeploy',
+    'pre-deploy-checklist', 'publish-image', 'deploy-stack', 'final-runtime-check',
+    'verify-game-static-delivery', 'cleanup-game-release-containers']) {
+    assert.ok(result.completedStepKeys.includes(key), key);
+  }
+  assert.equal(result.plan.steps.some(step => /standby-candidate/.test(step.key)), false);
+  assert.equal(result.plan.steps.find(step => step.key === 'build-image').command.includes('--iidfile'), false);
+  assert.match(decodedRemoteScript(result.plan.steps.find(step => step.key === 'deploy-stack').command), /docker stack deploy/);
+  assert.equal(readReleaseHistory(root, 1, env)[0].standbyCandidate, null);
+  assert.equal(createPlan(root, {appTag: 'primary-only', includeStackDeploy: true,
+    requireStandbyCandidate: false}, env).config.standbyCandidate, null);
+  assert.throws(() => createPlan(root, {appTag: 'primary-only', includeStackDeploy: true,
+    requireStandbyCandidate: 'false'}, env), /requireStandbyCandidate/);
+});
+
+test('explicit dual-node gate is mandatory, precedes Compose mutation and accepts last', () => {
   const root = tempProject(sampleXml);
   const env = {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'};
-  const plan = createPlan(root, {appTag: 'dual-node', includeStackDeploy: true}, env);
+  const plan = createPlan(root, {appTag: 'dual-node', includeStackDeploy: true, requireStandbyCandidate: true}, env);
   const keys = plan.steps.filter(step => !step.recoveryOnly).map(step => step.key);
   assert.ok(keys.indexOf('publish-image') < keys.indexOf('verify-game-standby-candidate'));
   assert.ok(keys.indexOf('verify-game-standby-candidate') < keys.indexOf('update-remote-compose'));
@@ -2588,7 +2619,7 @@ test('B gate failure prevents A Compose changes and leaves acceptance pending', 
     if (args[1].includes('game-standby-candidate.cjs') && / verify(?:;|\s)/.test(args[1])) throw new Error('B gate failed');
     return delegate(...args);
   };
-  const result = await executePlan(root, {appTag: 'dual-node', dryRun: false, includeStackDeploy: true}, env, {runCommand: runner});
+  const result = await executePlan(root, {appTag: 'dual-node', dryRun: false, includeStackDeploy: true, requireStandbyCandidate: true}, env, {runCommand: runner});
   assert.equal(result.status, 'ERROR');
   for (const key of ['update-remote-compose', 'deploy-stack', 'accept-game-standby-candidate']) {
     assert.equal(result.plan.steps.find(step => step.key === key).status, 'pending');
@@ -2607,7 +2638,7 @@ test('ambiguous B acceptance requires recovery and never invokes A rollback', as
     if (onChunk) onChunk('mock=PASS');
     return 'mock=PASS';
   };
-  const result = await executePlan(root, {appTag: 'dual-node', dryRun: false, includeStackDeploy: true}, env, {runCommand});
+  const result = await executePlan(root, {appTag: 'dual-node', dryRun: false, includeStackDeploy: true, requireStandbyCandidate: true}, env, {runCommand});
   assert.equal(result.status, 'RECOVERY_REQUIRED');
   assert.ok(result.completedStepKeys.includes('final-runtime-check'));
   assert.ok(!result.completedStepKeys.includes('accept-game-standby-candidate'));
@@ -2626,7 +2657,7 @@ test('cutover helper refusal or lost submission receipt never rolls back an unto
     if (onChunk) onChunk('mock=PASS');
     return 'mock=PASS';
   };
-  const result = await executePlan(root, {appTag: 'dual-node', dryRun: false, includeStackDeploy: true}, env, {runCommand: runner});
+  const result = await executePlan(root, {appTag: 'dual-node', dryRun: false, includeStackDeploy: true, requireStandbyCandidate: true}, env, {runCommand: runner});
   assert.equal(result.status, 'RECOVERY_REQUIRED');
   assert.equal(result.plan.steps.find(step => step.key === 'accept-game-standby-candidate').status, 'pending');
   assert.ok(!commands.some(command => decodedScriptTree(command).includes('automatic_rollback_validation=PASS')));
@@ -2740,10 +2771,13 @@ test('pipeline phases follow execution order when game build starts', () => {
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
   };
   const gamePlan = createPlan(root, {appTag: '2026070702', includeStackDeploy: true}, env);
+  const dualNodePlan = createPlan(root, {appTag: '2026070702', includeStackDeploy: true,
+    requireStandbyCandidate: true}, env);
   const forumPlan = createPlan(root, {
     releaseTarget: 'forum', forumImageMode: 'build', appTag: '2026071501', includeStackDeploy: true
   }, env);
   assert.deepEqual(gamePlan.steps.filter(step => !assignedKeys.has(step.key)).map(step => step.key), []);
+  assert.deepEqual(dualNodePlan.steps.filter(step => !assignedKeys.has(step.key)).map(step => step.key), []);
   assert.deepEqual(forumPlan.steps.filter(step => !assignedKeys.has(step.key)).map(step => step.key), []);
 
   const phaseContext = vm.createContext({});
@@ -2767,7 +2801,8 @@ test('pipeline phases follow execution order when game build starts', () => {
   ]);
   assert.equal(phases[1].validation, '7 项检查，详情与原始日志保留在下方');
   assert.equal(phases[1].status, 'running');
-  const candidatePhases = phaseContext.buildPipelinePhases(gamePlan.steps.filter(step =>
+  assert.equal(gamePlan.steps.some(step => step.key.includes('standby-candidate')), false);
+  const candidatePhases = phaseContext.buildPipelinePhases(dualNodePlan.steps.filter(step =>
     ['verify-game-standby-candidate', 'accept-game-standby-candidate'].includes(step.key)));
   assert.deepEqual(Array.from(candidatePhases, phase => phase.title),
     ['数据安全与迁移', '备用接管版本验收']);

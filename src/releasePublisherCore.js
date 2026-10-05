@@ -209,8 +209,12 @@ function createPlan(projectRoot, request, env = process.env) {
   const dockerTarget = resolveDockerCommandTarget(dockerContext, dockerContextResolution);
   const remoteImageTarget = resolveRemoteImageTarget(remoteSshTarget, ideaDockerServerResolution);
   const includeStackDeploy = Boolean(request.includeStackDeploy);
-  const standbyCandidateId = includeStackDeploy ? crypto.randomUUID() : '';
-  const gameImageIdentityFile = includeStackDeploy
+  if (request.requireStandbyCandidate !== undefined && typeof request.requireStandbyCandidate !== 'boolean') {
+    throw new Error('requireStandbyCandidate必须是布尔值');
+  }
+  const requireStandbyCandidate = includeStackDeploy && request.requireStandbyCandidate === true;
+  const standbyCandidateId = requireStandbyCandidate ? crypto.randomUUID() : '';
+  const gameImageIdentityFile = requireStandbyCandidate
     ? path.resolve(projectRoot, '.release-candidates', standbyCandidateId, 'build-image.id') : '';
   const dryRun = request.dryRun !== false;
   const remoteRehearsal = request.remoteRehearsal === true;
@@ -664,10 +668,12 @@ function createPlan(projectRoot, request, env = process.env) {
     executable: true
   });
 
-  if (includeStackDeploy) {
-    const formalComposeSource = gitCommit === 'latest'
+  const formalComposeSource = includeStackDeploy
+    ? (gitCommit === 'latest'
       ? fs.readFileSync(resolveInside(projectRoot, DEFAULT_COMPOSE_FILE), 'utf8')
-      : runGit(projectRoot, ['show', `${gitCommit}:${DEFAULT_COMPOSE_FILE}`]);
+      : runGit(projectRoot, ['show', `${gitCommit}:${DEFAULT_COMPOSE_FILE}`]))
+    : '';
+  if (requireStandbyCandidate) {
     standbyCandidate = {
       candidateId: standbyCandidateId, imageTag,
       configVersion: crypto.createHash('sha256').update(formalComposeSource).digest('hex'),
@@ -686,6 +692,8 @@ function createPlan(projectRoot, request, env = process.env) {
     publishImageStep.validation = 'A/B必须加载同一镜像ID及归档摘要，B候选配置及Secret完整且保持停机待命';
     publishImageStep.summary = '导出一次不可变应用镜像并向A/B分发，节点契约缺失或B预置失败时阻断后续切换';
     publishImageStep.timeoutSeconds = 1800;
+  }
+  if (includeStackDeploy) {
     steps.push(releaseStep({
       key: 'resolve-ssh-target',
       title: '确认 SSH 连接配置',
