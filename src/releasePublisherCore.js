@@ -1219,7 +1219,10 @@ function createPlan(projectRoot, request, env = process.env) {
   }
   for (const check of localEvidenceChecks) {
     const selectedStep = steps.find(step => step.key === check.key);
-    if (selectedStep) selectedStep.timeoutSeconds = check.timeoutSeconds;
+    if (selectedStep) {
+      selectedStep.timeoutSeconds = check.timeoutSeconds;
+      selectedStep.coveredByPreflight = 'validate-game-release-preflight';
+    }
   }
   doubleCheckLocalChecks(localEvidenceChecks, steps.filter(step => localEvidenceChecks.some(check => check.key === step.key)));
   assertReleaseImpactPlanCoverage(releaseImpactAssessment, steps, includeStackDeploy);
@@ -1854,6 +1857,19 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
       startStepTimer(step.key, stepTiming);
       pushStepLog(step.key, `[START] ${step.title}`);
       updateStep(step.key, 'running');
+      if (step.coveredByPreflight) {
+        const preflight = plan.steps.find(item => item.key === step.coveredByPreflight);
+        const encoded = preflight?.command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/)?.[1];
+        if (!completedStepKeys.includes(step.coveredByPreflight) || !encoded)
+          throw new Error('Missing completed preflight coverage: '+step.key);
+        const checks = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')).checks;
+        doubleCheckLocalChecks(checks, plan.steps.filter(item => item.coveredByPreflight).map(item => ({key:item.key,command:item.command,timeoutSeconds:item.timeoutSeconds})));
+        pushStepLog(step.key, '[PREFLIGHT_COVERED] '+step.coveredByPreflight);
+        completedStepKeys.push(step.key);
+        finishStepTimer(step.key, stepTiming);
+        updateStep(step.key, 'done');
+        continue;
+      }
       if (step.executable) {
         if (step.recoveryBoundary) {
           recoveryBoundaryEntered = true;

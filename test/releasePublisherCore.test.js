@@ -1153,6 +1153,35 @@ test('loading HUD and fault checks are independently selected with matching plan
   }
 });
 
+test('successful preflight covers audit steps once and failed preflight stops publication', async () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root,['rev-parse','HEAD']).trim();
+  const runtimePath='src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root,...runtimePath.split('/')),'loading scope');
+  writeReleaseImpact(root,{assessmentId:'20261007-once',coveredRuntimePaths:[runtimePath],checklistDecision:'checklist-updated',
+    requiredChecks:['test-game-backend','verify-game-static-assets-predeploy','pre-deploy-checklist','final-runtime-check',
+      'verify-game-static-delivery','verify-game-loading']});
+  runGit(root,['add','.']);runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','loading']);
+  const request={...releaseImpactPlanRequest(runGit(root,['rev-parse','HEAD']).trim(),baseline,[runtimePath],['release/release-impact.json']),dryRun:false,includeStackDeploy:false};
+  const env={RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE:'true',RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE:'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE:'true',RELEASE_PUBLISHER_HISTORY_FILE:path.join(root,'history.json')};
+  const runner=testCommandRunner();
+  const result=await executePlan(root,request,env,{runCommand:runner});
+  assert.equal(result.status,'EXECUTED');
+  assert.equal(runner.commands.filter(command=>command.includes('run-game-release-preflight')).length,1);
+  assert(!runner.commands.some(command=>command.includes('node scripts/ui/validate-game-loading-evidence.mjs')));
+  assert(result.completedStepKeys.includes('verify-game-loading'));
+  assert(result.logs.some(line=>line.includes('[PREFLIGHT_COVERED]')));
+  const failingRunner=testCommandRunner();
+  const failed=await executePlan(root,request,env,{runCommand:async(...args)=>{
+    if(args[1].includes('run-game-release-preflight')) throw new Error('preflight failed');
+    return failingRunner(...args);
+  }});
+  assert.equal(failed.status,'ERROR');
+  assert(!failed.completedStepKeys.includes('verify-game-loading'));
+  assert(!failingRunner.commands.some(command=>command.includes('docker save')));
+});
+
 test('emergency guard checks are paired, executable and ordered around deployment', () => {
   const root=releaseImpactGitProject();
   const baseline=runGit(root,['rev-parse','HEAD']).trim();

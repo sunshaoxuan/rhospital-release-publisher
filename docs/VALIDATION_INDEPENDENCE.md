@@ -11,6 +11,8 @@ The entrypoint allowlist is a conservative scope guard. It does not infer busine
 
 Loading tolerance, hospital HUD and fault reports have separate optional executable keys. Assessment selection controls each check independently. Descriptor commands and timeouts are identical to the audit steps. HUD invokes its validator from the CLI and reports its own completion marker.
 
+Formal execution runs each selected check in the aggregate preflight once. Later per-feature audit steps verify the completed preflight and the exact selected commands/timeouts, then display that result. No result is reused across plans, candidates or failed preflights.
+
 ## Success Contracts
 
 Node test checks require complete nonzero totals, equal pass counts and zero failure, skip, cancellation and TODO counts. Feature-specific completion markers are retained where applicable. Potion-lab and emergency evidence checks use their existing structured JSON protocols. Empty output, incomplete output, wrong protocols and process errors fail closed.
