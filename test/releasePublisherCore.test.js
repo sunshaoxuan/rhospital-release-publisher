@@ -1128,6 +1128,31 @@ test('aggregated game preflight includes every selected local evidence gate and 
   for (const key of selected) assert.ok(plan.steps.some(step => step.key === key && step.executable));
 });
 
+test('loading HUD and fault checks are independently selected with matching plan timeouts', () => {
+  const keys = ['verify-game-loading','verify-hospital-hud','verify-game-fault-reports'];
+  for (const selected of [[], ...keys.map(key => [key]), keys]) {
+    const root = releaseImpactGitProject();
+    const baseline = runGit(root, ['rev-parse','HEAD']).trim();
+    const runtimePath = 'src/main/resources/release-impact-demo.txt';
+    fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'independent feature selection');
+    writeReleaseImpact(root, {assessmentId:'20261007-independent', coveredRuntimePaths:[runtimePath],
+      checklistDecision:selected.length ? 'checklist-updated' : 'existing-checks-sufficient', requiredChecks:['test-game-backend','verify-game-static-assets-predeploy',
+        'pre-deploy-checklist','final-runtime-check','verify-game-static-delivery',...selected]});
+    runGit(root,['add','.']);
+    runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','independent']);
+    const plan = createPlan(root, releaseImpactPlanRequest(runGit(root,['rev-parse','HEAD']).trim(), baseline, [runtimePath], ['release/release-impact.json']));
+    const runner = plan.steps.find(step => step.key === 'validate-game-release-preflight');
+    const checks = runner ? JSON.parse(Buffer.from(runner.command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/)[1], 'base64').toString()).checks : [];
+    assert.deepEqual(checks.map(check => check.key), selected);
+    for (const check of checks) {
+      const step = plan.steps.find(step => step.key === check.key);
+      assert.equal(step.timeoutSeconds,check.timeoutSeconds);
+      assert.equal(step.command,check.command);
+    }
+    for (const key of keys.filter(key => !selected.includes(key))) assert(!plan.steps.some(step => step.key === key));
+  }
+});
+
 test('emergency guard checks are paired, executable and ordered around deployment', () => {
   const root=releaseImpactGitProject();
   const baseline=runGit(root,['rev-parse','HEAD']).trim();

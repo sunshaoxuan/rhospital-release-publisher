@@ -74,6 +74,9 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-steam-auth',
     'verify-game-steam-runtime',
     'verify-game-special-clinic-atlas',
+    'verify-game-loading',
+    'verify-hospital-hud',
+    'verify-game-fault-reports',
     'verify-bacteria-region-covers',
     'verify-bacteria-result-ui',
     'verify-bacteria-entry-style',
@@ -326,7 +329,35 @@ function createPlan(projectRoot, request, env = process.env) {
     'node --experimental-vm-modules --test scripts/tests/empty-hospital-ui.test.mjs scripts/tests/doorplate-countdown.test.mjs scripts/tests/world-chat.test.mjs',
     'node scripts/validation/world-chat/verify-empty-doorplate.mjs'
   ]);
+  const independentChecks = [
+  {
+    "key": "verify-game-loading",
+    "title": "核验加载容错",
+    "tests": "scripts/tests/game-loading-recovery.test.mjs scripts/tests/emergency-fetch.test.mjs",
+    "validator": "scripts/ui/validate-game-loading-evidence.mjs",
+    "vm": true
+  },
+  {
+    "key": "verify-hospital-hud",
+    "title": "核验医院 HUD",
+    "tests": "src/test/js/hospitalHudGeometry.test.mjs",
+    "validator": "scripts/ui/validate-hospital-hud.mjs",
+    "vm": true
+  },
+  {
+    "key": "verify-game-fault-reports",
+    "title": "核验故障报告",
+    "tests": "src/test/js/bacteriaDiagnostics.test.mjs src/test/js/bacteriaFaultReportEvidence.test.mjs",
+    "validator": "scripts/bacteria-lab/validate-fault-report-evidence.mjs",
+    "vm": false
+  }
+].filter(check => releaseImpactAssessment?.requiredChecks.some(item => item.stepKey === check.key))
+    .map(check => ({...check, command: chainPowerShellCommands([
+      'node '+(check.vm ? '--experimental-vm-modules ' : '')+'--test '+check.tests,
+      'node '+check.validator
+    ]), timeoutSeconds: 180}));
   const localEvidenceChecks = [
+    ...independentChecks.map(({key,command,timeoutSeconds}) => ({key,command,timeoutSeconds})),
     ...(requiresEpidemicFlow ? [{ key: 'verify-game-epidemic-flow', command: chainPowerShellCommands([
       'node --test src/test/js/epidemicBossSweep.test.mjs',
       'node scripts/validation/verify-epidemic-flow.cjs'
@@ -529,6 +560,12 @@ function createPlan(projectRoot, request, env = process.env) {
       validation: '公告与入口的高度、字形安全区、间距和原始像素证据均须通过',
       actionType: 'local-check', executable: true
     })] : []),
+    ...independentChecks.map(check => releaseStep({
+      key: check.key, title: check.title, command: check.command,
+      summary: '执行本功能行为测试和独立来源证据核验',
+      validation: '行为测试和本功能证据全部通过',
+      actionType: 'local-check', executable: true, timeoutSeconds: check.timeoutSeconds
+    })),
     ...(requiresRegionCovers ? [releaseStep({
       key: 'verify-bacteria-region-covers', title: '核验区域盖板与手机实验台',
       summary: '执行关卡编辑、消耗与揭盖、并发培养皿和手机坐标映射回归，绑定最终真实容器证据',
@@ -1180,6 +1217,11 @@ function createPlan(projectRoot, request, env = process.env) {
     });
     steps.splice(steps.findIndex(step => step.recoveryOnly), 0, acceptanceStep);
   }
+  for (const check of localEvidenceChecks) {
+    const selectedStep = steps.find(step => step.key === check.key);
+    if (selectedStep) selectedStep.timeoutSeconds = check.timeoutSeconds;
+  }
+  doubleCheckLocalChecks(localEvidenceChecks, steps.filter(step => localEvidenceChecks.some(check => check.key === step.key)));
   assertReleaseImpactPlanCoverage(releaseImpactAssessment, steps, includeStackDeploy);
 
   return {

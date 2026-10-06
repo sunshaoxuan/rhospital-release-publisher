@@ -43,3 +43,19 @@ test('JSON success is accepted only under its registered protocol and complete c
     assert.throws(()=>assertLocalCheckResult(check,{status:0,output:good.output+JSON.stringify({...report,protocol:'other',checkCount:0})}));
   }
 });
+
+test('independent loading HUD and fault protocols reject cross-feature additions and missing evidence', () => {
+  const specs = [
+    ['verify-game-loading', 'scripts/tests/game-loading-recovery.test.mjs scripts/tests/emergency-fetch.test.mjs', 'scripts/ui/validate-game-loading-evidence.mjs', 'PASS bounded loading recovery evidence, actual runtime and final source binding'],
+    ['verify-hospital-hud', 'src/test/js/hospitalHudGeometry.test.mjs', 'scripts/ui/validate-hospital-hud.mjs', 'PASS hospital HUD geometry, runtime evidence and final source binding'],
+    ['verify-game-fault-reports', 'src/test/js/bacteriaDiagnostics.test.mjs src/test/js/bacteriaFaultReportEvidence.test.mjs', 'scripts/bacteria-lab/validate-fault-report-evidence.mjs', 'PASS bounded fault reports, privacy, real persistence, authorization, four-view geometry and final source bindings']
+  ];
+  for (const [key, tests, validator, marker] of specs) {
+    const check = {key, command: 'node --test '+tests+'; node '+validator, timeoutSeconds:180};
+    assert(doubleCheckLocalChecks([check]));
+    assert(assertLocalCheckResult(check, {...good, output:good.output+marker}));
+    assert.throws(() => assertLocalCheckResult(check, good));
+    assert.throws(() => assertLocalCheckResult(check, {...good,status:1,output:good.output+marker}));
+    assert.throws(() => doubleCheckLocalChecks([{...check,command:check.command+'; '+steam.command}]));
+  }
+});

@@ -9,6 +9,8 @@ The publisher owns check selection and result protocols. A feature owns its busi
 
 The entrypoint allowlist is a conservative scope guard. It does not infer business relationships inside arbitrary JavaScript. Changes to nested calls require the second review and behavior tests. The application source-isolation regression catches renewed full-validator imports in cleaned leaf validators without loading business captures.
 
+Loading tolerance, hospital HUD and fault reports have separate optional executable keys. Assessment selection controls each check independently. Descriptor commands and timeouts are identical to the audit steps. HUD invokes its validator from the CLI and reports its own completion marker.
+
 ## Success Contracts
 
 Node test checks require complete nonzero totals, equal pass counts and zero failure, skip, cancellation and TODO counts. Feature-specific completion markers are retained where applicable. Potion-lab and emergency evidence checks use their existing structured JSON protocols. Empty output, incomplete output, wrong protocols and process errors fail closed.
