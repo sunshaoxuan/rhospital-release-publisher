@@ -2,6 +2,9 @@ import {spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {resolve} from 'node:path';
 
+import checkPolicy from '../src/localCheckPolicy.js';
+export const {doubleCheckLocalChecks, assertLocalCheckResult} = checkPolicy;
+
 const CHECK_KEY_PATTERN = /^[a-z0-9][a-z0-9-]{0,79}$/;
 
 export function decodeChecks(encoded) {
@@ -19,6 +22,7 @@ export function decodeChecks(encoded) {
     if (!Number.isSafeInteger(check.timeoutSeconds) || check.timeoutSeconds < 1 || check.timeoutSeconds > 3600) throw new Error(`预检超时无效: ${check.key}`);
     keys.add(check.key);
   }
+  doubleCheckLocalChecks(payload.checks);
   return payload.checks;
 }
 
@@ -57,12 +61,16 @@ export function runPowerShellCheck(check) {
 }
 
 export function runChecks(checks, {run = runPowerShellCheck, write = text => process.stdout.write(text)} = {}) {
+  doubleCheckLocalChecks(checks);
   const failures = [];
   for (const check of checks) {
     write(`preflight_check_begin=${check.key}\n`);
     const result = run(check);
     if (result.output) write(result.output.endsWith('\n') ? result.output : `${result.output}\n`);
-    if (result.status === 0 && !result.error && !result.signal) {
+    let complete = false;
+    try { assertLocalCheckResult(check, result); complete = true; }
+    catch (error) { write('preflight_protocol_error=' + error.message + '\n'); }
+    if (complete) {
       write(`preflight_check=PASS key=${check.key}\n`);
     } else {
       failures.push(check.key);

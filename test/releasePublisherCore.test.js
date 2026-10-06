@@ -3769,7 +3769,7 @@ test('region-cover check is registered, executable and runs before publication',
   assert.match(step.command,/validate-queue-distribution-evidence\.mjs/);
   assert.match(step.command,/bacteriaQueueDistribution\.test\.mjs/);
   assert.match(step.command,/validate-region-cover-evidence\.mjs/);assert.match(step.command,/bacteriaCoverReveal\.test\.mjs/);
-  assert.match(step.command,/npm run test:design-editor/);assert.match(step.command,/bacteriaMobileLayout\.test\.mjs/);
+  assert.doesNotMatch(step.command,/npm run|world-chat|test:ui-hud|game-fault/);assert.match(step.command,/bacteriaComplexSearch\.test\.mjs/);assert.match(step.command,/bacteriaMobileLayout\.test\.mjs/);
   writeReleaseImpact(root, {assessmentId:'20260922-invalid-cover-check',coveredRuntimePaths:[runtimePath],
     checklistDecision:'checklist-updated',requiredChecks:requiredChecks.map(k=>k==='verify-bacteria-region-covers'?'verify-bacteria-region-unknown':k)});
   runGit(root, ['add', '.']);runGit(root, ['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','unknown region gate']);

@@ -1,3 +1,4 @@
+const {doubleCheckLocalChecks} = require('./localCheckPolicy');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -314,8 +315,7 @@ function createPlan(projectRoot, request, env = process.env) {
   ]);
   const potionLabCommand = `node ${shellToken(path.resolve(__dirname, '../scripts/verify-potion-lab-release.mjs'))} --project-root .`;
   const regionCoversCommand = chainPowerShellCommands([
-    'npm run test:design-editor',
-    'npm run test:bacteria-lab',
+    'node --test src/test/js/bacteriaComplexSearch.test.mjs src/test/js/bacteriaSharedRules.test.mjs',
     'node --test src/test/js/bacteriaRegionCovers.test.mjs src/test/js/bacteriaCoverReveal.test.mjs src/test/js/bacteriaMobileLayout.test.mjs src/test/js/bacteriaConcurrentSelection.test.mjs src/test/js/bacteriaNormalStartup.test.mjs src/test/js/bacteriaSpeed.test.mjs src/test/js/bacteriaRegionCoverEvidence.test.mjs',
     'node scripts/bacteria-lab/validate-region-cover-evidence.mjs',
     'node --test src/test/js/bacteriaQueueDistribution.test.mjs',
@@ -348,6 +348,8 @@ function createPlan(projectRoot, request, env = process.env) {
     ...(requiresPotionLab ? [{key: 'verify-game-potion-lab', command: potionLabCommand, timeoutSeconds: 600}] : []),
     ...(requiresEmergencyGuard ? [{key: 'verify-game-emergency-guard', command: emergencyGuardCommand, timeoutSeconds: 600}] : [])
   ];
+
+  doubleCheckLocalChecks(localEvidenceChecks);
 
   const steps = [
     releaseStep({

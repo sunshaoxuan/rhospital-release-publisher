@@ -11,7 +11,7 @@ function encoded(checks) {
 
 test('decodes validated checks and preserves PowerShell command quoting', async () => {
   const {decodeChecks} = await moduleUnderTest();
-  const checks = [{key: 'quoted-check', command: `node -e "console.log('a b | c')"`, timeoutSeconds: 30}];
+  const checks = [{key: 'verify-game-steam-auth', command: "node --test 'src/test/js/steamLogin.test.cjs'", timeoutSeconds: 30}];
   assert.deepEqual(decodeChecks(encoded(checks)), checks);
   assert.throws(() => decodeChecks(encoded([...checks, {...checks[0]}])), /无效或重复/);
   assert.throws(() => decodeChecks(encoded([{key: '../bad', command: 'ok', timeoutSeconds: 30}])), /名称无效/);
@@ -21,22 +21,22 @@ test('runs every check and aggregates multiple failures', async () => {
   const {runChecks} = await moduleUnderTest();
   const seen = [], output = [];
   const checks = [
-    {key: 'first', command: 'one', timeoutSeconds: 30},
-    {key: 'second', command: 'two', timeoutSeconds: 30},
-    {key: 'third', command: 'three', timeoutSeconds: 30}
+    {key: 'verify-game-steam-auth', command: 'node --test src/test/js/steamLogin.test.cjs', timeoutSeconds: 30},
+    {key: 'verify-game-client-fingerprint', command: 'node --test src/test/js/clientFingerprint.test.mjs', timeoutSeconds: 30},
+    {key: 'verify-game-medical-contest-entry', command: 'node --test src/test/js/medicalContestEntry.test.mjs', timeoutSeconds: 30}
   ];
   const result = runChecks(checks, {
     run(check) {
       seen.push(check.key);
-      return check.key === 'second'
-        ? {status: 0, signal: null, error: '', output: 'second passed'}
+      return check.key === 'verify-game-client-fingerprint'
+        ? {status: 0, signal: null, error: '', output: '# tests 1\n# pass 1\n# fail 0\n# skipped 0\n# cancelled 0\n# todo 0\n'}
         : {status: 1, signal: null, error: '', output: `${check.key} failed`};
     },
     write(text) { output.push(text); }
   });
-  assert.deepEqual(seen, ['first', 'second', 'third']);
-  assert.deepEqual(result, {passed: false, failures: ['first', 'third']});
-  assert.match(output.join(''), /game_release_preflight=FAIL checks=3 failures=2 keys=first,third/);
+  assert.deepEqual(seen, checks.map(check => check.key));
+  assert.deepEqual(result, {passed: false, failures: [checks[0].key, checks[2].key]});
+  assert.match(output.join(''), /game_release_preflight=FAIL checks=3 failures=2 keys=verify-game-steam-auth,verify-game-medical-contest-entry/);
 });
 
 test('real PowerShell runner fails closed on parser and native-command errors', async () => {
