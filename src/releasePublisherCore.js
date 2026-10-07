@@ -77,6 +77,7 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-loading',
     'verify-hospital-hud',
     'verify-game-fault-reports',
+    'verify-bacteria-ranking',
     'verify-bacteria-region-covers',
     'verify-bacteria-result-ui',
     'verify-bacteria-entry-style',
@@ -343,6 +344,13 @@ function createPlan(projectRoot, request, env = process.env) {
     "tests": "src/test/js/hospitalHudGeometry.test.mjs",
     "validator": "scripts/ui/validate-hospital-hud.mjs",
     "vm": true
+  },
+  {
+    "key": "verify-bacteria-ranking",
+    "title": "核验菌落实验室排行榜",
+    "tests": "src/test/js/bacteriaRankingEvidence.test.mjs",
+    "validator": "scripts/bacteria-lab/validate-ranking-evidence.mjs",
+    "vm": false
   },
   {
     "key": "verify-game-fault-reports",

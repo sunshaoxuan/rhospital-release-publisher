@@ -6,6 +6,7 @@ const policies = {
   "verify-game-loading": {"inputs":["scripts/tests/game-loading-recovery.test.mjs","scripts/tests/emergency-fetch.test.mjs","scripts/ui/validate-game-loading-evidence.mjs"],"marker":"PASS bounded loading recovery evidence, actual runtime and final source binding"},
   "verify-hospital-hud": {"inputs":["src/test/js/hospitalHudGeometry.test.mjs","scripts/ui/validate-hospital-hud.mjs"],"marker":"PASS hospital HUD geometry, runtime evidence and final source binding"},
   "verify-game-fault-reports": {"inputs":["src/test/js/bacteriaDiagnostics.test.mjs","src/test/js/bacteriaFaultReportEvidence.test.mjs","scripts/bacteria-lab/validate-fault-report-evidence.mjs"],"marker":"PASS bounded fault reports, privacy, real persistence, authorization, four-view geometry and final source bindings"},
+  'verify-bacteria-ranking': {inputs:['src/test/js/bacteriaRankingEvidence.test.mjs','scripts/bacteria-lab/validate-ranking-evidence.mjs'],marker:'PASS bacteria ranking, modal isolation, four-view geometry and final source binding'},
   'verify-game-epidemic-flow': {inputs: ['src/test/js/epidemicBossSweep.test.mjs', 'scripts/validation/verify-epidemic-flow.cjs']},
   'verify-game-medical-contest-entry': {inputs: ['src/test/js/medicalContestEntry.test.mjs']},
   'verify-game-client-fingerprint': {inputs: ['src/test/js/clientFingerprint.test.mjs']},

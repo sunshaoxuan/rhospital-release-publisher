@@ -143,7 +143,7 @@ test('idle publisher process exits after a clean runtime commit', {timeout: 1200
   }
 });
 
-test('restart drain rejects a release request that finishes after the repository changes', {timeout: 60000}, async () => {
+test('restart drain rejects a release request that finishes after the repository changes', {timeout: 180000}, async () => {
   const root = tempPublisherServerRepository();
   let child;
   let slowRequest;

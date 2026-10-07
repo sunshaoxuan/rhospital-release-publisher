@@ -46,6 +46,7 @@ test('JSON success is accepted only under its registered protocol and complete c
 
 test('independent loading HUD and fault protocols reject cross-feature additions and missing evidence', () => {
   const specs = [
+    ['verify-bacteria-ranking', 'src/test/js/bacteriaRankingEvidence.test.mjs', 'scripts/bacteria-lab/validate-ranking-evidence.mjs', 'PASS bacteria ranking, modal isolation, four-view geometry and final source binding'],
     ['verify-game-loading', 'scripts/tests/game-loading-recovery.test.mjs scripts/tests/emergency-fetch.test.mjs', 'scripts/ui/validate-game-loading-evidence.mjs', 'PASS bounded loading recovery evidence, actual runtime and final source binding'],
     ['verify-hospital-hud', 'src/test/js/hospitalHudGeometry.test.mjs', 'scripts/ui/validate-hospital-hud.mjs', 'PASS hospital HUD geometry, runtime evidence and final source binding'],
     ['verify-game-fault-reports', 'src/test/js/bacteriaDiagnostics.test.mjs src/test/js/bacteriaFaultReportEvidence.test.mjs', 'scripts/bacteria-lab/validate-fault-report-evidence.mjs', 'PASS bounded fault reports, privacy, real persistence, authorization, four-view geometry and final source bindings']
