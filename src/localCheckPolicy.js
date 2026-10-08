@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 // Reviewed entrypoints, not arbitrary npm aggregates. Shared library calls stay
 // inside the owning validator; another feature's acceptance is selected separately.
 const policies = {
+  "verify-bacteria-gates": {inputs:["src/test/js/bacteriaGateAnimation.test.mjs","src/test/js/bacteriaVisibilityMechanics.test.mjs","src/test/js/bacteriaGateEvidence.test.mjs","scripts/bacteria-lab/validate-gate-evidence.mjs"],marker:"PASS bacteria gates all-depth toggle, privacy, promotion and final source binding"},
   "verify-game-loading": {"inputs":["scripts/tests/game-loading-recovery.test.mjs","scripts/tests/emergency-fetch.test.mjs","scripts/ui/validate-game-loading-evidence.mjs"],"marker":"PASS bounded loading recovery evidence, actual runtime and final source binding"},
   "verify-hospital-hud": {"inputs":["src/test/js/hospitalHudGeometry.test.mjs","scripts/ui/validate-hospital-hud.mjs"],"marker":"PASS hospital HUD geometry, runtime evidence and final source binding"},
   "verify-game-fault-reports": {"inputs":["src/test/js/bacteriaDiagnostics.test.mjs","src/test/js/bacteriaFaultReportEvidence.test.mjs","scripts/bacteria-lab/validate-fault-report-evidence.mjs"],"marker":"PASS bounded fault reports, privacy, real persistence, authorization, four-view geometry and final source bindings"},

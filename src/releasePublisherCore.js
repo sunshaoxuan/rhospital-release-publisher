@@ -78,6 +78,7 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-hospital-hud',
     'verify-game-fault-reports',
     'verify-bacteria-ranking',
+    'verify-bacteria-gates',
     'verify-bacteria-region-covers',
     'verify-bacteria-result-ui',
     'verify-bacteria-entry-style',
@@ -331,6 +332,13 @@ function createPlan(projectRoot, request, env = process.env) {
     'node scripts/validation/world-chat/verify-empty-doorplate.mjs'
   ]);
   const independentChecks = [
+  {
+    "key": "verify-bacteria-gates",
+    "title": "核验与非门全队列切换",
+    "tests": "src/test/js/bacteriaGateAnimation.test.mjs src/test/js/bacteriaVisibilityMechanics.test.mjs src/test/js/bacteriaGateEvidence.test.mjs",
+    "validator": "scripts/bacteria-lab/validate-gate-evidence.mjs",
+    "vm": false
+  },
   {
     "key": "verify-game-loading",
     "title": "核验加载容错",

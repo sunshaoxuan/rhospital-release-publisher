@@ -46,6 +46,7 @@ test('JSON success is accepted only under its registered protocol and complete c
 
 test('independent loading HUD and fault protocols reject cross-feature additions and missing evidence', () => {
   const specs = [
+    ["verify-bacteria-gates", "src/test/js/bacteriaGateAnimation.test.mjs src/test/js/bacteriaVisibilityMechanics.test.mjs src/test/js/bacteriaGateEvidence.test.mjs", "scripts/bacteria-lab/validate-gate-evidence.mjs", "PASS bacteria gates all-depth toggle, privacy, promotion and final source binding"],
     ['verify-bacteria-ranking', 'src/test/js/bacteriaRankingEvidence.test.mjs', 'scripts/bacteria-lab/validate-ranking-evidence.mjs', 'PASS bacteria ranking, modal isolation, four-view geometry and final source binding'],
     ['verify-game-loading', 'scripts/tests/game-loading-recovery.test.mjs scripts/tests/emergency-fetch.test.mjs', 'scripts/ui/validate-game-loading-evidence.mjs', 'PASS bounded loading recovery evidence, actual runtime and final source binding'],
     ['verify-hospital-hud', 'src/test/js/hospitalHudGeometry.test.mjs', 'scripts/ui/validate-hospital-hud.mjs', 'PASS hospital HUD geometry, runtime evidence and final source binding'],
@@ -59,4 +60,12 @@ test('independent loading HUD and fault protocols reject cross-feature additions
     assert.throws(() => assertLocalCheckResult(check, {...good,status:1,output:good.output+marker}));
     assert.throws(() => doubleCheckLocalChecks([{...check,command:check.command+'; '+steam.command}]));
   }
+});
+
+
+test('gate check rejects missing, extra and duplicate entrypoints', () => {
+  const check={key:'verify-bacteria-gates',command:'node --test src/test/js/bacteriaGateAnimation.test.mjs src/test/js/bacteriaVisibilityMechanics.test.mjs src/test/js/bacteriaGateEvidence.test.mjs; node scripts/bacteria-lab/validate-gate-evidence.mjs',timeoutSeconds:180};
+  assert(doubleCheckLocalChecks([check]));
+  for(const command of [check.command.replace(' src/test/js/bacteriaGateEvidence.test.mjs',''),check.command+'; node scripts/bacteria-lab/validate-ranking-evidence.mjs',check.command+'; node scripts/bacteria-lab/validate-gate-evidence.mjs'])
+    assert.throws(()=>doubleCheckLocalChecks([{...check,command}]));
 });
