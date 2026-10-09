@@ -8,12 +8,15 @@ Follow-up objective: determine why Swarm paused the `20261009` rollout. Correlat
 
 Current follow-up: explain why host memory was exhausted during cutover. Reconstruct concurrent JVM and other workload memory demand, deployment overlap, host capacity and swap, and resource policy from read-only evidence. Distinguish measured usage from estimates and identify the remaining evidence needed for exact attribution.
 
+Remediation objective: assess whether temporary Meelok downtime creates enough capacity for a game `start-first` rollout. If supported, add publisher-owned orchestration that pauses the exact Meelok workloads only during an authorized formal game release, verifies headroom before game cutover, and restores the original Meelok state after success or rollback. Do not initiate a release in this task.
+
 ## User constraints and scope
 
 - The user reports that a release is currently running and may have failed.
 - Read publisher status, persisted jobs, history, and relevant code or logs only.
 - Do not cancel, restart, retry, deploy, alter production, or edit the game product during diagnosis.
 - Preserve unrelated work and active jobs. If a product change is required, provide a product-team prompt under the existing publisher-only boundary.
+- The user authorizes temporary Meelok downtime during a game release if it materially saves memory. This does not authorize stopping Meelok now, changing game product code, or initiating a release.
 
 ## Method and acceptance
 
@@ -23,6 +26,8 @@ Current follow-up: explain why host memory was exhausted during cutover. Reconst
 4. Report confirmed facts, uncertainty, and the smallest safe next action. Do not label a running step failed without evidence.
 5. For the follow-up, reconstruct the failed rollout timeline and distinguish an application failure from a health, host, or Swarm update failure using read-only production evidence.
 6. For the memory follow-up, compare time-correlated kernel and container records with JVM settings, Swarm update policy, and host memory capacity. State the trigger and preventable configuration conditions without asserting unavailable per-process history.
+7. For remediation, inspect the exact Meelok service ownership and memory footprint, publisher execution and rollback boundaries, and current release status. Implement the smallest publisher change that preserves Meelok's original desired replicas and restores them on all controlled outcomes. Fail closed before production game mutation when capacity or restore readiness is unproven.
+8. Verify affected success, failure, rollback, and restoration behavior with unit tests and `npm test`; review the release plan and production impact without executing it. Commit verified publisher changes. Record any crash or host-OOM recovery limitation explicitly.
 
 ## Findings and final review
 
@@ -33,3 +38,10 @@ Current follow-up: explain why host memory was exhausted during cutover. Reconst
 - Objective: PASS for explaining host OOM and rollout failure; exact application heap-growth attribution remains UNVERIFIED. Production `docker stats`, `free`, `sar`, kernel logs, container inspect/logs, and service inspect were read only. No release, cancellation, restart, configuration change, or manual recovery was initiated by this investigation.
 - Recovery evidence: automatic rollback history records `ROLLED_BACK` at `2026-10-09T08:13:44Z`; its command logged `automatic_rollback_validation=PASS`. Production Swarm reports `rollback_completed`, image `hospital-backend:20261007`, replicas `1/1`; origin HTTP on port 8190 returned 200 and Compose again names `hospital-backend:20261007`.
 - Residual risk: two database migrations completed before deployment. Automatic rollback suspended ACTIVE ADMIN listings before returning to old code. The number of affected listings and authenticated client workflows were not independently checked. Do not retry this candidate until capacity is proven for old and new game JVMs plus other workloads, and the business-data effects are reviewed. Preserve `start-first` availability semantics unless a separately approved deployment design changes them.
+
+## Temporary Meelok downtime assessment
+
+- At `2026-10-09 09:48 UTC`, read-only `docker service ls` showed all five `meelok_*` services at `1/1`. `docker stats --no-stream` reported approximately 5 MiB Redis, 110 MiB object storage, 105 MiB web, 442 MiB API, and 369 MiB worker, about 1.0 GiB total. `free -m` reported 1,676 MiB available host memory and zero Swap. The game service remained `hospital-backend:20261007`, `1/1`, and used about 2.45 GiB.
+- Pausing all five Meelok services would release approximately 1.0 GiB if their memory became available. Estimated headroom would rise to about 2.6 GiB. The previous old game JVM alone reached about 3.21 GiB anonymous RSS; a new JVM configured with `-Xmx3g` can demand more than the estimated headroom during `start-first`. This estimate has no safety reserve and cannot certify another rollout. The actual release-window baseline was lower, about 1.19 GiB available at `07:50 UTC` before the new task started.
+- Decision: temporary Meelok downtime is useful as supplementary capacity, but is insufficient as the sole release repair. Do not stop Meelok now or add a publisher pause step that would allow this host to cut over without independent memory headroom. A safe release requires additional host capacity or workload relocation, then a publisher capacity gate and durable Meelok pause/restore lifecycle if temporary downtime is still desired. A game release itself remains unauthorized in this task.
+- Acceptance: PASS for read-only sizing and rejecting an unsafe pause-only release. FAIL for release readiness. No Meelok service was scaled, and no game release was started. `http://127.0.0.1:8787/api/status` was connection refused during this check, so publisher runtime availability also remains unverified. The exact VPS resize or workload relocation target requires a separate approved production change.
