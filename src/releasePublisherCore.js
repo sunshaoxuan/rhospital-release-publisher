@@ -79,6 +79,7 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-fault-reports',
     'verify-bacteria-ranking',
     'verify-bacteria-gates',
+    'verify-bacteria-authoritative-challenges',
     'verify-bacteria-region-covers',
     'verify-bacteria-result-ui',
     'verify-bacteria-entry-style',
@@ -332,6 +333,13 @@ function createPlan(projectRoot, request, env = process.env) {
     'node scripts/validation/world-chat/verify-empty-doorplate.mjs'
   ]);
   const independentChecks = [
+  {
+    key: 'verify-bacteria-authoritative-challenges',
+    title: '核验菌落实验室权威挑战',
+    tests: 'src/test/js/bacteriaAuthoritativeChallenge.test.mjs src/test/js/bacteriaCoverReveal.test.mjs src/test/js/bacteriaConcurrentSelection.test.mjs src/test/js/bacteriaSpeed.test.mjs src/test/js/bacteriaSettlementTiming.test.mjs src/test/js/bacteriaChallengeEvidence.test.mjs',
+    validator: 'scripts/bacteria-lab/validate-authoritative-challenge-evidence.mjs',
+    vm: false
+  },
   {
     "key": "verify-bacteria-gates",
     "title": "核验与非门全队列切换",

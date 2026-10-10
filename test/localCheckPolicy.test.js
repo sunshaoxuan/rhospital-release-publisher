@@ -46,6 +46,7 @@ test('JSON success is accepted only under its registered protocol and complete c
 
 test('independent loading HUD and fault protocols reject cross-feature additions and missing evidence', () => {
   const specs = [
+    ['verify-bacteria-authoritative-challenges', 'src/test/js/bacteriaAuthoritativeChallenge.test.mjs src/test/js/bacteriaCoverReveal.test.mjs src/test/js/bacteriaConcurrentSelection.test.mjs src/test/js/bacteriaSpeed.test.mjs src/test/js/bacteriaSettlementTiming.test.mjs src/test/js/bacteriaChallengeEvidence.test.mjs', 'scripts/bacteria-lab/validate-authoritative-challenge-evidence.mjs', 'PASS bacteria authoritative challenge paths, privacy, lifecycle and final source binding'],
     ["verify-bacteria-gates", "src/test/js/bacteriaGateAnimation.test.mjs src/test/js/bacteriaVisibilityMechanics.test.mjs src/test/js/bacteriaGateEvidence.test.mjs", "scripts/bacteria-lab/validate-gate-evidence.mjs", "PASS bacteria gates all-depth toggle, privacy, promotion and final source binding"],
     ['verify-bacteria-ranking', 'src/test/js/bacteriaRankingEvidence.test.mjs', 'scripts/bacteria-lab/validate-ranking-evidence.mjs', 'PASS bacteria ranking, modal isolation, four-view geometry and final source binding'],
     ['verify-game-loading', 'scripts/tests/game-loading-recovery.test.mjs scripts/tests/emergency-fetch.test.mjs', 'scripts/ui/validate-game-loading-evidence.mjs', 'PASS bounded loading recovery evidence, actual runtime and final source binding'],
@@ -59,6 +60,8 @@ test('independent loading HUD and fault protocols reject cross-feature additions
     assert.throws(() => assertLocalCheckResult(check, good));
     assert.throws(() => assertLocalCheckResult(check, {...good,status:1,output:good.output+marker}));
     assert.throws(() => doubleCheckLocalChecks([{...check,command:check.command+'; '+steam.command}]));
+    assert.throws(() => doubleCheckLocalChecks([{...check,command:check.command.replace('node '+validator,'')} ]));
+    assert.throws(() => doubleCheckLocalChecks([{...check,command:check.command+'; node '+validator}]));
   }
 });
 
