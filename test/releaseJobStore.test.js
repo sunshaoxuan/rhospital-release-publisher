@@ -6,6 +6,7 @@ const test = require('node:test');
 const {
   compactPersistedJob,
   isActiveJobStatus,
+  needsMeelokRecovery,
   publisherActivity,
   selectPersistedJobs
 } = require('../src/releaseJobStore');
@@ -88,4 +89,21 @@ test('server recovers only active stored jobs and records an interruption once',
   assert.match(server, /if \(!isActiveJobStatus\(item\.status\)\) \{\s*continue;\s*\}/);
   assert.match(server, /const job = markInterruptedJob\(item, '服务重启时发现任务未结束'\);/);
   assert.match(server, /appendInterruptedJobHistory\(job\);/);
+});
+
+test('interrupted game jobs restore Meelok only after the pause boundary was entered', () => {
+  const job = {plan: {releaseTarget: 'game', steps: [
+    {key: 'pause-meelok-services', status: 'pending'},
+    {key: 'restore-meelok-services', status: 'pending'}
+  ]}};
+  assert.equal(needsMeelokRecovery(job), false);
+  job.plan.steps[0].status = 'running';
+  assert.equal(needsMeelokRecovery(job), true);
+  job.plan.steps[0].status = 'done';
+  assert.equal(needsMeelokRecovery(job), true);
+  job.plan.steps[1].status = 'done';
+  assert.equal(needsMeelokRecovery(job), false);
+  job.plan.releaseTarget = 'forum';
+  job.plan.steps[1].status = 'pending';
+  assert.equal(needsMeelokRecovery(job), false);
 });

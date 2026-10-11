@@ -9,6 +9,7 @@ const {
   readReleaseConfig,
   createPlan,
   executePlan,
+  restoreMeelokAfterControlledExit,
   diagnoseHistoryEntry,
   updateHistoryDiagnostics,
   appendReleaseHistory,
@@ -34,6 +35,7 @@ const {
 } = require('./src/releasePublisherCore');
 const {
   isActiveJobStatus,
+  needsMeelokRecovery,
   publisherActivity,
   selectPersistedJobs
 } = require('./src/releaseJobStore');
@@ -435,7 +437,8 @@ async function runExecutionJobInIsolatedWorktree(job, body, controller, createdA
           logs: [sourceSetupLog].concat(progress.logs || []),
           updatedAt: new Date().toISOString()
         });
-        schedulePersistJobs();
+        if (progress.currentStepKey === 'pause-meelok-services') persistJobs();
+        else schedulePersistJobs();
       }
     });
     Object.assign(job, {
@@ -539,13 +542,39 @@ function loadStoredJobs() {
         continue;
       }
       const job = markInterruptedJob(item, '服务重启时发现任务未结束');
-      jobs.set(job.id, job);
-      appendInterruptedJobHistory(job);
+      if (needsMeelokRecovery(job)) {
+        const terminalStatus = job.status;
+        job.status = 'RECOVERING';
+        job.logs.push('RECOVERING: 服务重启后尝试恢复临时暂停的 Meelok 服务');
+        jobs.set(job.id, job);
+        void recoverInterruptedMeelok(job, terminalStatus);
+      } else {
+        jobs.set(job.id, job);
+        appendInterruptedJobHistory(job);
+      }
     }
     persistJobs();
   } catch (error) {
     console.error(`Job store load failed: ${error.message}`);
   }
+}
+
+async function recoverInterruptedMeelok(job, terminalStatus) {
+  try {
+    await restoreMeelokAfterControlledExit(projectRoot, job, process.env, {
+      onProgress(progress) {
+        Object.assign(job, progress, {updatedAt: new Date().toISOString()});
+        persistJobs();
+      }
+    });
+    if (job.status === 'RECOVERING') job.status = terminalStatus;
+  } catch (error) {
+    job.status = 'RECOVERY_REQUIRED';
+    job.logs.push(`RECOVERY_REQUIRED: Meelok 重启后恢复异常: ${error.message}`);
+  }
+  job.updatedAt = new Date().toISOString();
+  appendInterruptedJobHistory(job);
+  persistJobs();
 }
 
 function interruptRunningJobs(reason) {

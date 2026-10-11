@@ -398,7 +398,7 @@
         'verify-game-standby-candidate', 'backup-forum-release'
       ] },
       { key: 'switch', title: '切换生产版本', members: [
-        'update-remote-compose', 'deploy-stack', 'deploy-forum-compose'
+        'update-remote-compose', 'pause-meelok-services', 'deploy-stack', 'deploy-forum-compose'
       ] },
       { key: 'observe', title: '全链路观察', members: [
         'commit-game-cutover', 'final-runtime-check', 'game-prd2-runtime-contract', 'verify-game-static-delivery',
@@ -406,6 +406,9 @@
       ] },
       { key: 'cleanup', title: '清理游戏发布历史容器', members: [
         'cleanup-game-release-containers'
+      ] },
+      { key: 'restore', title: '恢复同机服务', members: [
+        'restore-meelok-services'
       ] },
       { key: 'standby', title: '备用接管版本验收', members: [
         'accept-game-standby-candidate'

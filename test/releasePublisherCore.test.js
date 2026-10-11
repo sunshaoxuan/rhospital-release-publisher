@@ -2375,6 +2375,130 @@ test('game guards are repeated at deployment and Stripe authentication is a fina
   }
 });
 
+test('formal game plan pauses Meelok only for the rolling cutover and restores after old game exit', () => {
+  const root = tempProject(sampleXml);
+  const plan = createPlan(root, {appTag: '2026101101', dryRun: true, includeStackDeploy: true}, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+  });
+  const index = key => plan.steps.findIndex(step => step.key === key);
+  assert.ok(index('update-remote-compose') < index('pause-meelok-services'));
+  assert.ok(index('pause-meelok-services') < index('deploy-stack'));
+  assert.ok(index('commit-game-cutover') < index('restore-meelok-services'));
+  assert.ok(index('final-runtime-check') < index('restore-meelok-services'));
+  assert.ok(index('cleanup-game-release-containers') < index('restore-meelok-services'));
+  const pause = decodedRemoteScript(plan.steps[index('pause-meelok-services')].command);
+  const deploy = decodedRemoteScript(plan.steps[index('deploy-stack')].command);
+  const restore = decodedRemoteScript(plan.steps[index('restore-meelok-services')].command);
+  for (const service of ['meelok_web', 'meelok_worker', 'meelok_api', 'meelok_redis', 'meelok_object_storage']) {
+    assert.match(pause, new RegExp(service));
+    assert.match(restore, new RegExp(service));
+  }
+  assert.match(pause, /meelok-replicas\.json/);
+  assert.match(pause, /MemAvailable/);
+  assert.match(deploy, /Meelok pause snapshot is missing/);
+  assert.ok(deploy.indexOf('memory headroom changed before game cutover') < deploy.indexOf('docker stack deploy'));
+  assert.match(restore, /game_running.*-eq 1/);
+  assert.match(restore, /rollback_completed/);
+  assert.match(restore, /original_image/);
+  for (const script of [pause, deploy, restore]) {
+    const syntax = spawnSync(testBashExecutable(), ['-n'], {input: script, encoding: 'utf8'});
+    assert.equal(syntax.status, 0, syntax.stderr);
+  }
+});
+
+test('Meelok pause failure restores the snapshot and blocks game deploy', async () => {
+  const root = tempProject(sampleXml);
+  const runner = testCommandRunner({failOnIncludes: 'meelok_pause=PASS'});
+  const progress = [];
+  const result = await executePlan(root, {appTag: '2026101101', dryRun: false, includeStackDeploy: true}, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-pause-fail.json')
+  }, {runCommand: runner, onProgress: update => progress.push(update)});
+  assert.equal(result.status, 'ERROR');
+  assert.equal(result.plan.steps.find(step => step.key === 'pause-meelok-services').status, 'failed');
+  assert.equal(result.plan.steps.find(step => step.key === 'restore-meelok-services').status, 'done');
+  assert.equal(runner.commands.some(command => decodedScriptTree(command).includes('docker stack deploy')), false);
+  assert.equal(runner.commands.filter(command => decodedScriptTree(command).includes('meelok_restore=PASS services=5')).length, 1);
+  assert.ok(progress.some(update => update.status === 'RECOVERING' && update.currentStepKey === 'restore-meelok-services'));
+});
+
+test('successful game release restores Meelok once after final acceptance', async () => {
+  const root = tempProject(sampleXml);
+  const runner = testCommandRunner();
+  const result = await executePlan(root, {appTag: '2026101101', dryRun: false, includeStackDeploy: true}, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-success.json')
+  }, {runCommand: runner});
+  assert.equal(result.status, 'EXECUTED');
+  const scripts = runner.commands.map(decodedScriptTree);
+  const pauseIndex = scripts.findIndex(script => script.includes('meelok_pause=PASS'));
+  const deployIndex = scripts.findIndex(script => script.includes('docker stack deploy'));
+  const finalIndex = scripts.findIndex(script => script.includes('rollout_validation=PASS'));
+  const restoreIndex = scripts.findIndex(script => script.includes('meelok_restore=PASS services=5'));
+  assert.ok(pauseIndex < deployIndex);
+  assert.ok(deployIndex < finalIndex);
+  assert.ok(finalIndex < restoreIndex);
+  assert.equal(scripts.filter(script => script.includes('meelok_restore=PASS services=5')).length, 1);
+});
+
+test('cancellation after Meelok pause restores it without deploying the game', async () => {
+  const root = tempProject(sampleXml);
+  const commands = [];
+  const controller = new AbortController();
+  const runner = async (cwd, command, env, onChunk) => {
+    commands.push(command);
+    const script = decodedScriptTree(command);
+    if (script.includes('meelok_pause=PASS')) controller.abort();
+    if (onChunk) onChunk('test_command=PASS\n');
+    return 'test_command=PASS\n';
+  };
+  const result = await executePlan(root, {appTag: '2026101101', dryRun: false, includeStackDeploy: true}, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-cancel.json')
+  }, {runCommand: runner, signal: controller.signal});
+  assert.equal(result.status, 'CANCELLED');
+  assert.equal(commands.some(command => decodedScriptTree(command).includes('docker stack deploy')), false);
+  assert.equal(commands.filter(command => decodedScriptTree(command).includes('meelok_restore=PASS services=5')).length, 1);
+});
+
+test('failed game cutover rolls back before restoring Meelok', async () => {
+  const root = tempProject(sampleXml);
+  const runner = recoveryDecisionTestRunner('ROLLBACK_CONFIRMED', {failAt: 'cutover'});
+  const result = await executePlan(root, {appTag: '2026101101', dryRun: false, includeStackDeploy: true}, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-rollback.json')
+  }, {runCommand: runner});
+  assert.equal(result.status, 'ROLLED_BACK');
+  assert.equal(runner.rollbackRuns, 1);
+  const rollbackIndex = runner.commands.findIndex(command => decodedScriptTree(command).includes('automatic_rollback_validation=PASS'));
+  const restoreIndex = runner.commands.findIndex(command => decodedScriptTree(command).includes('meelok_restore=PASS services=5'));
+  assert.ok(restoreIndex > rollbackIndex);
+  assert.equal(result.plan.steps.find(step => step.key === 'restore-meelok-services').status, 'done');
+});
+
+test('Meelok restoration failure holds the game and requires recovery', async () => {
+  const root = tempProject(sampleXml);
+  const commands = [];
+  const runner = async (cwd, command, env, onChunk) => {
+    commands.push(command);
+    if (decodedScriptTree(command).includes('meelok_restore=PASS services=5')) {
+      throw new Error('simulated Meelok restore failure');
+    }
+    if (onChunk) onChunk('test_command=PASS\n');
+    return 'test_command=PASS\n';
+  };
+  const result = await executePlan(root, {appTag: '2026101101', dryRun: false, includeStackDeploy: true}, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-restore-fail.json')
+  }, {runCommand: runner});
+  assert.equal(result.status, 'RECOVERY_REQUIRED');
+  assert.equal(commands.filter(command => decodedScriptTree(command).includes('meelok_restore=PASS services=5')).length, 2);
+  assert.equal(commands.some(command => decodedScriptTree(command).includes('automatic_rollback_validation=PASS')), false);
+  assert.match(result.logs.join('\n'), /Meelok 自动恢复失败/);
+});
+
 test('forum preflight failure stops before image upload', async () => {
   const root = tempProject(sampleXml);
   const historyPath = path.join(root, 'forum-preflight-history.json');

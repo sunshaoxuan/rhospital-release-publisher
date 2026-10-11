@@ -7,6 +7,7 @@ const {spawn, spawnSync} = require('child_process');
 const {buildReleaseDiagnostics, addSemanticDiagnosis} = require('./releaseDiagnostics');
 const {GAME_DATABASE, gameDatabasePsqlCommand, gameDatabaseContainerResolutionCommands} = require('./gameProductionDatabase');
 const {gameFormalComposeCommands, gameServiceSnapshotCommands} = require('./gameFormalProductionTransition');
+const {MEELOK_PAUSE_ORDER, gameMeelokPauseCommands, gameMeelokRestoreCommands} = require('./gameMeelokMaintenance');
 const {expectedTomcatVersion, tomcatJarCheckScript} = require('./tomcatSecurityCheck');
 const {gameProductionConfigGuardCommands, gameStripeAuthenticationCommands, gameProductionImageConfigCommands} = require('./gameProductionConfigGuard');
 const {PRIMARY, STANDBY, publicReceipt} = require('./gameStandbyCandidate');
@@ -950,6 +951,16 @@ function createPlan(projectRoot, request, env = process.env) {
       executable: true
     }));
     steps.push(releaseStep({
+      key: 'pause-meelok-services',
+      title: '临时暂停同机 Meelok 服务',
+      summary: '保存五个服务的原始副本和镜像，逐项停机并核验游戏滚动所需内存余量',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        gameMeelokPauseCommands(remoteComposeDir)
+      )),
+      validation: '五个服务均为预期单副本，原始状态已持久保存且停机后 MemAvailable 连续三次不低于 2 GiB',
+      actionType: 'production', productionAction: true, executable: true, timeoutSeconds: 1200
+    }));
+    steps.push(releaseStep({
       key: 'deploy-stack',
       title: '执行 Docker Stack 热发布',
       summary: '在同一远程脚本内复核完整生产合同和旧健康副本，再执行 stack deploy 并确认服务没有缩容',
@@ -961,6 +972,11 @@ function createPlan(projectRoot, request, env = process.env) {
         `[ "$healthy_before_deploy" -ge 1 ] || { echo 'ERROR: deploy blocked because no healthy old container is serving'; exit 1; }`,
         'backup_dir=$(cat .last-game-release-backup)',
         ...gameServiceSnapshotCommands(),
+        'test -s .meelok-release-pause || { echo "ERROR: Meelok pause snapshot is missing"; exit 1; }',
+        ...MEELOK_PAUSE_ORDER.map(service =>
+          `test "$(docker service inspect ${shellToken(service)} --format '{{.Spec.Mode.Replicated.Replicas}}')" -eq 0 || { echo 'ERROR: ${service} resumed before game cutover'; exit 1; }`),
+        'available_kb=$(awk "/^MemAvailable:/ {print \\$2}" /proc/meminfo)',
+        '[ "$available_kb" -ge 2097152 ] || { echo "ERROR: memory headroom changed before game cutover: ${available_kb}kB"; exit 1; }',
         `docker stack deploy -c docker-compose.yml ${shellToken(config.stackName)}`,
         `replicas_after_submit=$(docker service inspect "$service_name" --format '{{.Spec.Mode.Replicated.Replicas}}')`,
         `[ "$replicas_after_submit" -eq 1 ] || { echo "ERROR: deploy submitted an invalid replica count: $replicas_after_submit"; exit 1; }`,
@@ -1218,6 +1234,18 @@ function createPlan(projectRoot, request, env = process.env) {
     steps.push(publishImageStep);
   }
 
+  if (steps.some(step => step.key === 'pause-meelok-services')) {
+    steps.splice(steps.findIndex(step => step.recoveryOnly), 0, releaseStep({
+      key: 'restore-meelok-services',
+      title: '恢复同机 Meelok 服务',
+      summary: '游戏滚动与最终验收结束后，按原副本和镜像逐项恢复五个 Meelok 服务',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        gameMeelokRestoreCommands(remoteComposeDir, gameServiceName(config.stackName, config.containerName))
+      )),
+      validation: '游戏仅有一个健康任务且剩余内存不低于 1.5 GiB；五个 Meelok 服务恢复至原始副本和镜像并通过健康检查',
+      actionType: 'production', productionAction: true, executable: true, timeoutSeconds: 2400
+    }));
+  }
   if (standbyCandidate) {
     const updateIndex = steps.findIndex(step => step.key === 'update-remote-compose');
     steps.splice(updateIndex, 0, releaseStep({
@@ -1733,6 +1761,7 @@ function releaseStep({
 
 async function executePlan(projectRoot, request, env = process.env, options = {}) {
   const result = await executePlanSteps(projectRoot, request, env, options);
+  await restoreMeelokAfterControlledExit(projectRoot, result, env, options);
   result.diagnostics = buildReleaseDiagnostics(result);
   if (result.status === 'DRY_RUN') return result;
   const entry = buildHistoryEntry(result.status, result.plan, result.logs, result.completedStepKeys);
@@ -1747,6 +1776,47 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
     result.diagnostics.persistenceWarning = '辅助诊断保存失败，原始发布结果已保存。';
   }
   return result;
+}
+
+async function restoreMeelokAfterControlledExit(projectRoot, result, env, options) {
+  if (result.status === 'DRY_RUN' || result.plan.releaseTarget !== 'game') return;
+  const pause = result.plan.steps.find(step => step.key === 'pause-meelok-services');
+  const restore = result.plan.steps.find(step => step.key === 'restore-meelok-services');
+  if (!pause || !restore || pause.status === 'pending' || restore.status === 'done') return;
+  const runCommand = typeof options.runCommand === 'function' ? options.runCommand : runPowerShell;
+  const stepLogs = [`[RECOVER] ${restore.title}`];
+  result.logs.push(...stepLogs);
+  const reportProgress = () => {
+    if (typeof options.onProgress !== 'function') return;
+    options.onProgress({plan: result.plan, logs: result.logs.slice(), completedStepKeys: result.completedStepKeys.slice(),
+      currentStepKey: restore.key, currentStepTitle: restore.title, status: 'RECOVERING'});
+  };
+  reportProgress();
+  try {
+    await runCommand(projectRoot, restore.command, env, chunk => {
+      const line = chunk.trim();
+      if (line) { stepLogs.push(line); result.logs.push(line); reportProgress(); }
+    }, elapsedSeconds => {
+      if (elapsedSeconds % 30 === 0) {
+        const line = `[RECOVERING] Meelok 恢复已运行 ${elapsedSeconds} 秒`;
+        stepLogs.push(line);
+        result.logs.push(line);
+        reportProgress();
+      }
+    }, null, restore.timeoutSeconds);
+    stepLogs.push('[DONE] Meelok 原始服务状态已恢复或无需恢复');
+    result.logs.push(stepLogs.at(-1));
+    result.completedStepKeys.push(restore.key);
+    result.plan = {...result.plan, steps: result.plan.steps.map(step => step.key === restore.key
+      ? {...step, status: 'done', logs: stepLogs} : step)};
+  } catch (error) {
+    const line = `RECOVERY_REQUIRED: Meelok 自动恢复失败，保留远端状态快照: ${error.message}`;
+    stepLogs.push(line);
+    result.logs.push(line);
+    result.status = 'RECOVERY_REQUIRED';
+    result.plan = {...result.plan, steps: result.plan.steps.map(step => step.key === restore.key
+      ? {...step, status: 'failed', logs: stepLogs} : step)};
+  }
 }
 
 function updateHistoryDiagnostics(projectRoot, id, diagnostics, env = process.env) {
@@ -1967,6 +2037,11 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
     }
     if (failedStepKey === 'accept-game-standby-candidate') {
       pushStepLog(failedStepKey, 'RECOVERY_REQUIRED: B原子标记提交结果需要核对，保持A及上一接管版本，禁止自动回滚');
+      return {status: 'RECOVERY_REQUIRED', plan: runtimePlan, logs: logs.slice(),
+        completedStepKeys, cutoverCommitted, cutoverCommittedAt};
+    }
+    if (failedStepKey === 'restore-meelok-services') {
+      pushStepLog(failedStepKey, 'RECOVERY_REQUIRED: 游戏切换已完成，Meelok 恢复失败，保留目标游戏并再次尝试恢复');
       return {status: 'RECOVERY_REQUIRED', plan: runtimePlan, logs: logs.slice(),
         completedStepKeys, cutoverCommitted, cutoverCommittedAt};
     }
@@ -5186,6 +5261,7 @@ module.exports = {
   readReleaseConfig,
   createPlan,
   executePlan,
+  restoreMeelokAfterControlledExit,
   diagnoseHistoryEntry,
   updateHistoryDiagnostics,
   readReleaseHistory,
