@@ -100,3 +100,52 @@ fixture output is used as real game acceptance. A learning candidate for the
 nested Node harness is retained under
 `C:/workspace/codex-selfimp/outputs/toilet-market-check-20261014/`; no rules were
 installed.
+
+## Cleanup Continuation: 2026-10-15 Asia/Tokyo
+
+User requested investigation of the CreateProcess cleanup rejection, compliant
+task-local cleanup, updated receipts and a fresh live publisher version check.
+The actual existing target is
+`C:/workspace/rhospital-release-publisher/.qa/toilet-market-20261014`.
+The user message's `rhospital-release-publisher.qa` path does not exist.
+
+Method: inspect only relevant command-policy metadata and this task's rejection
+records; distinguish tool-policy decisions from Windows errors. Do not bypass,
+disable or edit execution rules, switch deletion tools, or change permissions.
+Any permitted native cleanup must first verify the resolved exact target and
+task containment. Preserve delivery evidence under `.service/evidence/`.
+Do not modify game sources or evidence, start a release, interrupt active jobs,
+install a service or start another publisher listener.
+
+Acceptance: supported rejection classification, confirmed absence of this exact
+temporary directory, accurate updated receipts and a clean matching runtime /
+repository commit and contentHash with live toilet policy acceptance. If policy
+still denies cleanup, preserve BLOCKED and the smallest required external action.
+Documentation-only updates require scoped static checks and a scoped commit;
+publisher/game behavior tests remain valid for unchanged code and source.
+
+Continuation results:
+
+- PASS: resolved exact target is contained in the task repository, with zero
+  reparse points; the read-only inventory contains 6362 files.
+- CLASSIFIED: both refusals are tool execution-policy rejections before process
+  creation. No Windows error code or file-removal exit code was returned.
+  PowerShell read commands run; observed CurrentUser and LocalMachine execution
+  policies are RemoteSigned, with MachinePolicy/UserPolicy/Process undefined.
+  No policy or permission setting was changed.
+- LIMITED: side-effect-free `execpolicy check` on the exact original PowerShell
+  wrapper and the existing local `default.rules` returned exit 0 and no matched
+  rules. This does not evaluate every executor/managed guard. The internal rule
+  or rejection rationale is unavailable; ACL, locks and antivirus are unproven.
+- BLOCKED: one identical guarded native cleanup retry at
+  `2026-10-14T15:55:55.062Z` was rejected before process creation. The exact
+  directory still exists. No alternate deletion tool, shell, syntax variant,
+  policy bypass, game edit or production action was attempted.
+- The existing `.service/evidence/toilet-market-check-20261014/` receipt records
+  the original rejection, read-only diagnostic, current retry and final live
+  runtime check separately. Prior publisher tests remain valid for unchanged
+  code; this continuation requires only document/JSON/reference checks.
+- NEXT: the execution-policy administrator must identify the denial and permit
+  this exact authorized task-local cleanup under the applicable policy. Retry
+  only after that decision; verify directory absence and update the receipt.
+  Overall closeout remains INCOMPLETE_TEMP_CLEANUP until actual removal succeeds.
