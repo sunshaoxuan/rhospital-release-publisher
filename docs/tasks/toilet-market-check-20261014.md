@@ -2,9 +2,11 @@
 
 ## Objective And Boundary
 
-Register `verify-toilet-market` in the publisher, prove exact independent selection
-and complete result validation, commit the scoped change, and verify that the
-existing idle-reload mechanism loads it in the running publisher.
+Current user objective (2026-10-15 Asia/Tokyo): make the publisher usable for normal
+game releases of candidates that satisfy the applicable release requirements.
+The original scoped work registers `verify-toilet-market`, proves exact independent
+selection and complete result validation, commits the change, and verifies that
+the existing idle-reload mechanism loads it in the running publisher.
 
 Read application handoff material only at
 `C:/workspace/codex-work/toilet-market-blackbox-20261013/master-integration`.
@@ -149,3 +151,58 @@ Continuation results:
   this exact authorized task-local cleanup under the applicable policy. Retry
   only after that decision; verify directory absence and update the receipt.
   Overall closeout remains INCOMPLETE_TEMP_CLEANUP until actual removal succeeds.
+
+## Publisher Usability Continuation: 2026-10-15 Asia/Tokyo
+
+The user clarified that the primary objective is normal game publication. Keep
+the completed registration and all compatible safety boundaries above. Separate
+publisher usability, candidate acceptance and development-directory maintenance.
+The outstanding `.qa/toilet-market-20261014` cleanup remains BLOCKED; its presence
+must not be promoted into a production release prerequisite. A support feedback
+draft is diagnostic material, not a prerequisite or the main deliverable.
+
+Method and observable acceptance:
+
+1. Read the live publisher version, activity, configured game repository and
+   read-only plan path. Report only whitelisted non-secret configuration fields.
+2. Trace the normal single-node game plan and cleanup dependencies. Retain exact
+   candidate impact, mandatory safety checks and genuinely applicable feature
+   acceptance. Do not enable standby mode or edit game declarations/evidence.
+3. Check candidate availability and, where available, request only the read-only
+   plan. Do not create an execution job, refresh/import game Git objects, build,
+   migrate, deploy, switch images or remove evidence.
+4. Fix a demonstrated publisher defect only within this repository, with focused
+   regression tests and `npm test` before commit. If the blocker belongs to the
+   game candidate or environment, record its owner and smallest remaining action.
+5. Validate document accuracy and references, commit only this task's changes, and
+   confirm the existing idle reload returns clean matching runtime/repository
+   identities. Preserve the real game FAIL and the separate cleanup BLOCKED.
+
+Completion requires a working live plan entry and a precise readiness account;
+it does not claim a production release has occurred. Candidate acceptance still
+requires game-owned final evidence before a production execution can be approved.
+
+Pre-commit review and scoped results:
+
+- PASS: source review finds no `.qa` or task-cleanup dependency in `server.js`,
+  `src`, `scripts` or `public`. Production container cleanup follows final runtime
+  acceptance; deletion failures warn while target service health remains checked.
+- PASS: `node --test --test-name-pattern='^post-release cleanup '
+  test/releasePublisherCore.test.js`, exit 0, 2/2, zero other summary categories.
+- PASS: `node --test test/releaseDiagnostics.test.js`, exit 0, 13/13, zero other
+  summary categories. These tests use simulated services and no production action.
+- PASS: initial live runtime is `0.2.0+dcd54b27`, commit
+  `dcd54b27de9ec5d04947de843b20ceefa4015654`, matching clean repository identity
+  and contentHash `843e62dc43fb91d8a739b19b867f53716fc25217a758a46543a807fb5c5d2ff5`;
+  live toilet policy is accepted and `/api/jobs/active` is idle.
+- BLOCKED_CANDIDATE: the game's handoff commit
+  `1f6138a7ffb09f884a2c573b9f99df47e0fbb05c` is still absent from the configured
+  game repository. Its game-owned final report remains FAIL/BLOCKED.
+- OBSERVED: latest stored game history is RECOVERY_REQUIRED, with
+  `restore-meelok-services` failed. This is historical evidence, not a fresh
+  production observation. No recovery operation is authorized or performed here.
+- Review: only task guidance and its CHANGELOG entry change. Existing publisher
+  runtime code and the completed 336/336 `npm test` evidence remain unchanged.
+  The live read-only plan and post-commit identity receipt are recorded under
+  `C:/workspace/rhospital-release-publisher/.service/evidence/toilet-market-check-20261014/PUBLISHER_USABILITY.md`.
+  Do not reinterpret a plan PASS as game acceptance or completed publication.
