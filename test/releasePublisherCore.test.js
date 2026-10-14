@@ -1128,8 +1128,8 @@ test('aggregated game preflight includes every selected local evidence gate and 
   for (const key of selected) assert.ok(plan.steps.some(step => step.key === key && step.executable));
 });
 
-test('loading HUD and fault checks are independently selected with matching plan timeouts', () => {
-  const keys = ['verify-bacteria-authoritative-challenges','verify-bacteria-gates','verify-game-loading','verify-hospital-hud','verify-bacteria-ranking','verify-game-fault-reports'];
+test('toilet loading HUD and fault checks are independently selected with matching plan timeouts', () => {
+  const keys = ['verify-toilet-market','verify-bacteria-authoritative-challenges','verify-bacteria-gates','verify-game-loading','verify-hospital-hud','verify-bacteria-ranking','verify-game-fault-reports'];
   for (const selected of [[], ...keys.map(key => [key]), keys]) {
     const root = releaseImpactGitProject();
     const baseline = runGit(root, ['rev-parse','HEAD']).trim();
@@ -1153,6 +1153,37 @@ test('loading HUD and fault checks are independently selected with matching plan
   }
 });
 
+test('toilet plan preserves exact contract preflight audit and mandatory safety checks', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, runtimePath), 'toilet scoped change');
+  const mandatory = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist', 'final-runtime-check', 'verify-game-static-delivery'];
+  writeReleaseImpact(root, {assessmentId: '20261014-toilet', coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated', requiredChecks: [...mandatory, 'verify-toilet-market']});
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'toilet check']);
+  const plan = createPlan(root, releaseImpactPlanRequest(runGit(root, ['rev-parse', 'HEAD']).trim(), baseline, [runtimePath], ['release/release-impact.json']));
+  const step = plan.steps.find(step => step.key === 'verify-toilet-market');
+  assert.equal(step.command, 'node --test src/test/js/toiletMarket.test.mjs src/test/js/toiletMarketEvidence.test.mjs && node scripts/validation/toilet-market/validate-evidence.mjs');
+  assert.equal(step.timeoutSeconds, 180);
+  assert.equal(step.executable, true);
+  assert.equal(step.coveredByPreflight, 'validate-game-release-preflight');
+  const preflight = plan.steps.find(item => item.key === step.coveredByPreflight);
+  const payload = JSON.parse(Buffer.from(preflight.command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/)[1], 'base64').toString());
+  assert.deepEqual(payload.checks, [{key: step.key, command: step.command, timeoutSeconds: step.timeoutSeconds}]);
+  for (const key of mandatory) assert(plan.steps.some(step => step.key === key && step.executable), key);
+  assert(plan.steps.findIndex(step => step.key === preflight.key) < plan.steps.findIndex(step => step.key === 'test-game-backend'));
+  assert(plan.steps.findIndex(step => step.key === 'verify-toilet-market') < plan.steps.findIndex(step => step.key === 'build-image'));
+  const documentPath = path.join(root, 'release/release-impact.json');
+  const document = JSON.parse(fs.readFileSync(documentPath, 'utf8'));
+  document.targets.forum.requiredChecks.push({stepKey: 'verify-toilet-market', reason: 'Invalid cross-target toilet check selection'});
+  document.targets.forum.coveredRuntimePaths = ['integrations/flarum/entrypoint.sh'];
+  fs.writeFileSync(documentPath, JSON.stringify(document));
+  assert.throws(() => createPlan(root, {appTag: '20261014', dryRun: true, includeStackDeploy: true, releaseTarget: 'forum',
+    changeAnalysis: {targets: {forum: {changed: true, changedPaths: ['integrations/flarum/entrypoint.sh'], ignoredPaths: ['release/release-impact.json']}}}}), /未注册.*verify-toilet-market/);
+});
+
 test('successful preflight covers audit steps once and failed preflight stops publication', async () => {
   const root = releaseImpactGitProject();
   const baseline = runGit(root,['rev-parse','HEAD']).trim();
@@ -1160,7 +1191,7 @@ test('successful preflight covers audit steps once and failed preflight stops pu
   fs.writeFileSync(path.join(root,...runtimePath.split('/')),'loading scope');
   writeReleaseImpact(root,{assessmentId:'20261007-once',coveredRuntimePaths:[runtimePath],checklistDecision:'checklist-updated',
     requiredChecks:['test-game-backend','verify-game-static-assets-predeploy','pre-deploy-checklist','final-runtime-check',
-      'verify-game-static-delivery','verify-game-loading']});
+      'verify-game-static-delivery','verify-game-loading','verify-toilet-market']});
   runGit(root,['add','.']);runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','loading']);
   const request={...releaseImpactPlanRequest(runGit(root,['rev-parse','HEAD']).trim(),baseline,[runtimePath],['release/release-impact.json']),dryRun:false,includeStackDeploy:false};
   const env={RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE:'true',RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE:'true',
@@ -1171,6 +1202,8 @@ test('successful preflight covers audit steps once and failed preflight stops pu
   assert.equal(runner.commands.filter(command=>command.includes('run-game-release-preflight')).length,1);
   assert(!runner.commands.some(command=>command.includes('node scripts/ui/validate-game-loading-evidence.mjs')));
   assert(result.completedStepKeys.includes('verify-game-loading'));
+  assert(result.completedStepKeys.includes('verify-toilet-market'));
+  assert(!runner.commands.some(command => command.includes('node --test src/test/js/toiletMarket.test.mjs')));
   assert(result.logs.some(line=>line.includes('[PREFLIGHT_COVERED]')));
   const failingRunner=testCommandRunner();
   const failed=await executePlan(root,request,env,{runCommand:async(...args)=>{
@@ -1179,6 +1212,7 @@ test('successful preflight covers audit steps once and failed preflight stops pu
   }});
   assert.equal(failed.status,'ERROR');
   assert(!failed.completedStepKeys.includes('verify-game-loading'));
+  assert(!failed.completedStepKeys.includes('verify-toilet-market'));
   assert(!failingRunner.commands.some(command=>command.includes('docker save')));
 });
 

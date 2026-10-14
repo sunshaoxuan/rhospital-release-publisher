@@ -146,6 +146,8 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 只读接口 `GET /api/version` 返回产品版本、运行提交、仓库提交、文件指纹、进程号和启动时间。产品版本用于标记发布器功能代次，Git 提交和文件指纹用于判断执行环境差异。
 
+响应中的 `localCheckContracts` 列出采用固定命令和超时的精确注册契约，包含入口、成功标记和服务内 `policyAccepted` 核验结果。当前包含 `verify-toilet-market`：两项洗手间 Node 测试及本功能证据校验器，180秒共享预算；测试进程失败时停止后续校验。`policyAccepted=true` 仅确认运行内注册策略接受该契约，游戏最终证据、候选计划和生产运行仍须各自通过，不能据此标记游戏 PASS。
+
 后台每 10 秒检查一次发布器运行版本。仓库出现新的干净提交且当前没有活动发布任务时，Node 进程会以受控退出码结束，由 Windows 服务看门程序在 10 秒后重新加载当前代码。存在活动任务时会等待任务结束，再执行受控重启。版本状态处于 `RESTART_REQUIRED`、`UNCOMMITTED_CHANGES` 或无法确认时，变更分析、计划生成、TAG 写入和正式执行接口全部闭锁，并返回明确的版本状态提示，避免旧进程继续解析新的发布协议。首次升级到包含此监视机制的版本时，需要手动重载一次发布器服务，后续干净提交才会触发自动重载。
 
 ## Dry Run

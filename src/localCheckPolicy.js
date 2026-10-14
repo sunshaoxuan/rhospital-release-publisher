@@ -1,8 +1,20 @@
 const assert = require('node:assert/strict');
 
+const TOILET_MARKET_CHECK = Object.freeze({
+  key: 'verify-toilet-market',
+  command: 'node --test src/test/js/toiletMarket.test.mjs src/test/js/toiletMarketEvidence.test.mjs && node scripts/validation/toilet-market/validate-evidence.mjs',
+  timeoutSeconds: 180
+});
+
 // Reviewed entrypoints, not arbitrary npm aggregates. Shared library calls stay
 // inside the owning validator; another feature's acceptance is selected separately.
 const policies = {
+  [TOILET_MARKET_CHECK.key]: {
+    ...TOILET_MARKET_CHECK,
+    inputs: ['src/test/js/toiletMarket.test.mjs', 'src/test/js/toiletMarketEvidence.test.mjs', 'scripts/validation/toilet-market/validate-evidence.mjs'],
+    marker: 'PASS toilet market barter, hourly positions, legacy-safe migration, runtime visuals and final source binding',
+    exactMarker: true
+  },
   'verify-bacteria-authoritative-challenges': {inputs:['src/test/js/bacteriaAuthoritativeChallenge.test.mjs','src/test/js/bacteriaCoverReveal.test.mjs','src/test/js/bacteriaConcurrentSelection.test.mjs','src/test/js/bacteriaSpeed.test.mjs','src/test/js/bacteriaSettlementTiming.test.mjs','src/test/js/bacteriaChallengeEvidence.test.mjs','scripts/bacteria-lab/validate-authoritative-challenge-evidence.mjs'],marker:'PASS bacteria authoritative challenge paths, privacy, lifecycle and final source binding'},
   "verify-bacteria-gates": {inputs:["src/test/js/bacteriaGateAnimation.test.mjs","src/test/js/bacteriaVisibilityMechanics.test.mjs","src/test/js/bacteriaGateEvidence.test.mjs","scripts/bacteria-lab/validate-gate-evidence.mjs"],marker:"PASS bacteria gates all-depth toggle, privacy, promotion and final source binding"},
   "verify-game-loading": {"inputs":["scripts/tests/game-loading-recovery.test.mjs","scripts/tests/emergency-fetch.test.mjs","scripts/ui/validate-game-loading-evidence.mjs"],"marker":"PASS bounded loading recovery evidence, actual runtime and final source binding"},
@@ -51,6 +63,10 @@ function doubleCheckLocalChecks(checks, selected = checks) {
   for (const check of checks) {
     const policy = policies[check.key];
     assert(policy, 'Unregistered local check: ' + check.key);
+    if (policy.command !== undefined) {
+      assert.equal(check.command, policy.command, 'Registered local check command mismatch: ' + check.key);
+      assert.equal(check.timeoutSeconds, policy.timeoutSeconds, 'Registered local check timeout mismatch: ' + check.key);
+    }
     const expected = selected.find(step => step.key === check.key);
     assert.equal(check.command, expected.command, 'Local check command mismatch: ' + check.key);
     if (expected.timeoutSeconds !== undefined) assert.equal(check.timeoutSeconds, expected.timeoutSeconds, 'Local check timeout mismatch');
@@ -65,17 +81,19 @@ function assertLocalCheckResult(check, result) {
   const policy = policies[check.key];
   const fail = () => { throw new Error('Incomplete or failed preflight: ' + check.key); };
   if (!policy || result?.status !== 0 || result.error || result.signal) fail();
+  if (policy.command !== undefined) doubleCheckLocalChecks([check]);
   const output = (result.output || '').replace(/\x1b\[[0-9;]*m/g, '');
   if (!output.trim() || /^\s*not ok\b/m.test(output) || /(?:preflight_check|game_release_preflight)=FAIL/.test(output)) fail();
   const totals = name => [...output.matchAll(new RegExp('^\\s*[#\\u2139]\\s*' + name + '\\s+(\\d+)\\s*$', 'gm'))].map(match => Number(match[1]));
   const tests = totals('tests'), passed = totals('pass');
+  if (policy.exactMarker && (tests.length !== 1 || !Number.isSafeInteger(tests[0]))) fail();
   if (tests.length || !['json', 'marker'].includes(policy.protocol)) {
     if (!tests.length || tests.some((n, i) => n < 1 || passed[i] !== n)
       || ['pass','fail','skipped','cancelled','todo'].some(name => totals(name).length !== tests.length)
       || ['fail','skipped','cancelled','todo'].some(name => totals(name).some(n => n !== 0))) fail();
   }
   if (/^\s*(?:ok|not ok)\b[^\r\n]*#\s*(?:SKIP|TODO)\b/mi.test(output)) fail();
-  if (policy.marker && !output.includes(policy.marker)) fail();
+  if (policy.marker && !(policy.exactMarker ? output.split(/\r?\n/).includes(policy.marker) : output.includes(policy.marker))) fail();
   if (policy.json) {
     let report;
     try { report = JSON.parse(output.trim().split(/\r?\n/).at(-1)); } catch { fail(); }
@@ -86,4 +104,13 @@ function assertLocalCheckResult(check, result) {
   return true;
 }
 
-module.exports = {doubleCheckLocalChecks, assertLocalCheckResult};
+function registeredLocalCheckContracts() {
+  return Object.entries(policies).filter(([, policy]) => policy.command !== undefined)
+    .map(([key, policy]) => {
+      const check = {key, command: policy.command, timeoutSeconds: policy.timeoutSeconds};
+      return {...check, inputs: [...policy.inputs], successMarker: policy.marker,
+        policyAccepted: doubleCheckLocalChecks([check])};
+    });
+}
+
+module.exports = {TOILET_MARKET_CHECK, doubleCheckLocalChecks, assertLocalCheckResult, registeredLocalCheckContracts};

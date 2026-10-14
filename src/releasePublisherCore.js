@@ -1,4 +1,4 @@
-const {doubleCheckLocalChecks} = require('./localCheckPolicy');
+const {TOILET_MARKET_CHECK, doubleCheckLocalChecks} = require('./localCheckPolicy');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -81,6 +81,7 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-bacteria-ranking',
     'verify-bacteria-gates',
     'verify-bacteria-authoritative-challenges',
+    'verify-toilet-market',
     'verify-bacteria-region-covers',
     'verify-bacteria-result-ui',
     'verify-bacteria-entry-style',
@@ -335,6 +336,10 @@ function createPlan(projectRoot, request, env = process.env) {
   ]);
   const independentChecks = [
   {
+    ...TOILET_MARKET_CHECK,
+    title: '核验洗手间独立证据'
+  },
+  {
     key: 'verify-bacteria-authoritative-challenges',
     title: '核验菌落实验室权威挑战',
     tests: 'src/test/js/bacteriaAuthoritativeChallenge.test.mjs src/test/js/bacteriaCoverReveal.test.mjs src/test/js/bacteriaConcurrentSelection.test.mjs src/test/js/bacteriaSpeed.test.mjs src/test/js/bacteriaSettlementTiming.test.mjs src/test/js/bacteriaChallengeEvidence.test.mjs',
@@ -377,7 +382,7 @@ function createPlan(projectRoot, request, env = process.env) {
     "vm": false
   }
 ].filter(check => releaseImpactAssessment?.requiredChecks.some(item => item.stepKey === check.key))
-    .map(check => ({...check, command: chainPowerShellCommands([
+    .map(check => ({...check, command: check.command || chainPowerShellCommands([
       'node '+(check.vm ? '--experimental-vm-modules ' : '')+'--test '+check.tests,
       'node '+check.validator
     ]), timeoutSeconds: 180}));

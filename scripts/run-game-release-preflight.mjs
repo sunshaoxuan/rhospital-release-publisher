@@ -3,6 +3,7 @@ import {pathToFileURL} from 'node:url';
 import {resolve} from 'node:path';
 
 import checkPolicy from '../src/localCheckPolicy.js';
+const {TOILET_MARKET_CHECK} = checkPolicy;
 export const {doubleCheckLocalChecks, assertLocalCheckResult} = checkPolicy;
 
 const CHECK_KEY_PATTERN = /^[a-z0-9][a-z0-9-]{0,79}$/;
@@ -26,7 +27,8 @@ export function decodeChecks(encoded) {
   return payload.checks;
 }
 
-export function runPowerShellCheck(check) {
+export function runPowerShellCheck(check, options = {}) {
+  if (check.key === TOILET_MARKET_CHECK.key) return runToiletMarketCheck(check, options);
   const commandBase64 = Buffer.from(check.command, 'utf8').toString('base64');
   const wrapper = [
     "$ErrorActionPreference = 'Stop'",
@@ -58,6 +60,27 @@ export function runPowerShellCheck(check) {
     error: result.error?.message || '',
     output: `${result.stdout || ''}${result.stderr || ''}`
   };
+}
+
+export function runToiletMarketCheck(check, {spawn = spawnSync, now = Date.now, cwd} = {}) {
+  doubleCheckLocalChecks([check]);
+  if (check.key !== TOILET_MARKET_CHECK.key) throw new Error('Expected toilet market check');
+  const deadline = now() + check.timeoutSeconds * 1000;
+  let output = '';
+  // Exact policy validation makes these two fixed Node invocations shell-free.
+  for (const command of check.command.split(' && ')) {
+    const remaining = deadline - now();
+    if (remaining <= 0) return {status: null, signal: null, error: 'ETIMEDOUT', output};
+    const result = spawn(process.execPath, command.split(' ').slice(1), {
+      cwd, encoding: 'utf8', windowsHide: true, timeout: remaining,
+      maxBuffer: 64 * 1024 * 1024
+    });
+    output += `${result.stdout || ''}${result.stderr || ''}`;
+    if (result.status !== 0 || result.error || result.signal) {
+      return {status: result.status, signal: result.signal, error: result.error?.message || '', output};
+    }
+  }
+  return {status: 0, signal: null, error: '', output};
 }
 
 export function runChecks(checks, {run = runPowerShellCheck, write = text => process.stdout.write(text)} = {}) {

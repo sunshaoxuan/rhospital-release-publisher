@@ -1,6 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const {registeredLocalCheckContracts} = require('./src/localCheckPolicy');
 const {
   DEFAULT_REMOTE_COMPOSE_DIR,
   DEFAULT_FORUM_REMOTE_COMPOSE_DIR,
@@ -94,10 +95,10 @@ const server = http.createServer(async (req, res) => {
       return sendFile(res, filePath);
     }
     if (pathname === '/api/version' && req.method === 'GET') {
-      return sendJson(res, 200, getPublisherVersionStatus(
+      return sendJson(res, 200, {...getPublisherVersionStatus(
         publisherRepositoryRoot,
         publisherRuntimeVersion
-      ));
+      ), localCheckContracts: registeredLocalCheckContracts()});
     }
     if (pathname === '/api/config' && req.method === 'GET') {
       const releaseTarget = validateReleaseTarget(requestUrl.searchParams.get('releaseTarget') || 'game');
