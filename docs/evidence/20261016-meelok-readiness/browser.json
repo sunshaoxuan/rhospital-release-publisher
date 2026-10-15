@@ -1,0 +1,125 @@
+{
+  "environment": "Loopback fixture serving the actual public assets, mocked release plan only",
+  "base": "http://127.0.0.1:18791",
+  "publisherParent": "e1c5357",
+  "change": "Readiness step membership and metadata, no control or layout modification",
+  "productionOperations": 0,
+  "checks": [
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 1100,
+      "state": "pending",
+      "viewport": 1440,
+      "documentWidth": 1425,
+      "phaseClass": "flow-node    ",
+      "phaseText": "01\n准备发布源\n\n2 项检查，详情与原始日志保留在下方\n\n待执行 · 计时待开始",
+      "detailClass": "step    ",
+      "titleFits": true,
+      "buildPending": true
+    },
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 1100,
+      "state": "running",
+      "viewport": 1440,
+      "documentWidth": 1425,
+      "phaseClass": "flow-node  running  ",
+      "phaseText": "01\n准备发布源\n\n2 项检查，详情与原始日志保留在下方\n\n执行中 · 计时待开始",
+      "detailClass": "step  running  ",
+      "titleFits": true,
+      "buildPending": true
+    },
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 1100,
+      "state": "done",
+      "viewport": 1440,
+      "documentWidth": 1425,
+      "phaseClass": "flow-node checked   ",
+      "phaseText": "✓\n准备发布源\n\n2 项检查，详情与原始日志保留在下方\n\n已完成 · 计时待开始",
+      "detailClass": "step checked   ",
+      "titleFits": true,
+      "buildPending": true
+    },
+    {
+      "name": "desktop",
+      "width": 1440,
+      "height": 1100,
+      "state": "failed",
+      "viewport": 1440,
+      "documentWidth": 1425,
+      "phaseClass": "flow-node   failed ",
+      "phaseText": "01\n准备发布源\n\n2 项检查，详情与原始日志保留在下方\n\n失败 · 计时待开始",
+      "detailClass": "step   failed ",
+      "titleFits": true,
+      "buildPending": true
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844,
+      "state": "pending",
+      "viewport": 390,
+      "documentWidth": 375,
+      "phaseClass": "flow-node    ",
+      "phaseText": "01\n准备发布源\n\n2 项检查，详情与原始日志保留在下方\n\n待执行 · 计时待开始",
+      "detailClass": "step    ",
+      "titleFits": true,
+      "buildPending": true
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844,
+      "state": "running",
+      "viewport": 390,
+      "documentWidth": 375,
+      "phaseClass": "flow-node  running  ",
+      "phaseText": "01\n准备发布源\n\n2 项检查，详情与原始日志保留在下方\n\n执行中 · 计时待开始",
+      "detailClass": "step  running  ",
+      "titleFits": true,
+      "buildPending": true
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844,
+      "state": "done",
+      "viewport": 390,
+      "documentWidth": 375,
+      "phaseClass": "flow-node checked   ",
+      "phaseText": "✓\n准备发布源\n\n2 项检查，详情与原始日志保留在下方\n\n已完成 · 计时待开始",
+      "detailClass": "step checked   ",
+      "titleFits": true,
+      "buildPending": true
+    },
+    {
+      "name": "mobile",
+      "width": 390,
+      "height": 844,
+      "state": "failed",
+      "viewport": 390,
+      "documentWidth": 375,
+      "phaseClass": "flow-node   failed ",
+      "phaseText": "01\n准备发布源\n\n2 项检查，详情与原始日志保留在下方\n\n失败 · 计时待开始",
+      "detailClass": "step   failed ",
+      "titleFits": true,
+      "buildPending": true
+    }
+  ],
+  "problems": {
+    "console": [],
+    "network": []
+  },
+  "functional": "PASS",
+  "geometry": {
+    "horizontalOverflow": false,
+    "titleClipping": false,
+    "changedControls": 0,
+    "controlGlyphBudget": "Not applicable: no changed controls"
+  },
+  "visual": "PASS: primary review of full pages, native-size failure details and pending/running/done phase crops; Gemini image probes unavailable; no external visual PASS"
+}

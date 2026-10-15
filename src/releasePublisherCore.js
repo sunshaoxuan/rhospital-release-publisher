@@ -7,7 +7,7 @@ const {spawn, spawnSync} = require('child_process');
 const {buildReleaseDiagnostics, addSemanticDiagnosis} = require('./releaseDiagnostics');
 const {GAME_DATABASE, gameDatabasePsqlCommand, gameDatabaseContainerResolutionCommands} = require('./gameProductionDatabase');
 const {gameFormalComposeCommands, gameServiceSnapshotCommands} = require('./gameFormalProductionTransition');
-const {MEELOK_PAUSE_ORDER, gameMeelokPauseCommands, gameMeelokRestoreCommands} = require('./gameMeelokMaintenance');
+const {MEELOK_PAUSE_ORDER, gameMeelokReadinessCommands, gameMeelokPauseCommands, gameMeelokRestoreCommands} = require('./gameMeelokMaintenance');
 const {expectedTomcatVersion, tomcatJarCheckScript} = require('./tomcatSecurityCheck');
 const {gameProductionConfigGuardCommands, gameStripeAuthenticationCommands, gameProductionImageConfigCommands} = require('./gameProductionConfigGuard');
 const {PRIMARY, STANDBY, publicReceipt} = require('./gameStandbyCandidate');
@@ -218,6 +218,7 @@ function createPlan(projectRoot, request, env = process.env) {
   const dockerTarget = resolveDockerCommandTarget(dockerContext, dockerContextResolution);
   const remoteImageTarget = resolveRemoteImageTarget(remoteSshTarget, ideaDockerServerResolution);
   const includeStackDeploy = Boolean(request.includeStackDeploy);
+  const meelokMaintenanceId = includeStackDeploy ? crypto.randomUUID() : '';
   if (request.requireStandbyCandidate !== undefined && typeof request.requireStandbyCandidate !== 'boolean') {
     throw new Error('requireStandbyCandidate必须是布尔值');
   }
@@ -445,6 +446,16 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'local-check',
       executable: true
     }),
+    ...(includeStackDeploy ? [releaseStep({
+      key: 'game-meelok-readiness',
+      title: '只读核验 Meelok 发布就绪状态',
+      summary: '在耗时构建、镜像上传、数据库迁移和编排修改前核验遗留恢复标记及五项服务健康状态',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        gameMeelokReadinessCommands(remoteComposeDir)
+      )),
+      validation: '必须无遗留恢复标记，且五项服务均为健康单副本；失败时保持生产状态并停止本次发布',
+      actionType: 'remote-check', executable: true, timeoutSeconds: 60
+    })] : []),
     releaseStep({
       key: 'git-fetch',
       title: '获取远端代码',
@@ -961,7 +972,7 @@ function createPlan(projectRoot, request, env = process.env) {
       title: '临时暂停同机 Meelok 服务',
       summary: '保存五个服务的原始副本和镜像，逐项停机并核验游戏滚动所需内存余量',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-        gameMeelokPauseCommands(remoteComposeDir)
+        gameMeelokPauseCommands(remoteComposeDir, meelokMaintenanceId)
       )),
       validation: '五个服务均为预期单副本，原始状态已持久保存且停机后 MemAvailable 连续三次不低于 2 GiB',
       actionType: 'production', productionAction: true, executable: true, timeoutSeconds: 1200
@@ -1246,7 +1257,7 @@ function createPlan(projectRoot, request, env = process.env) {
       title: '恢复同机 Meelok 服务',
       summary: '游戏滚动与最终验收结束后，按原副本和镜像逐项恢复五个 Meelok 服务',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-        gameMeelokRestoreCommands(remoteComposeDir, gameServiceName(config.stackName, config.containerName))
+        gameMeelokRestoreCommands(remoteComposeDir, gameServiceName(config.stackName, config.containerName), meelokMaintenanceId)
       )),
       validation: '游戏仅有一个健康任务且剩余内存不低于 1.5 GiB；五个 Meelok 服务恢复至原始副本和镜像并通过健康检查',
       actionType: 'production', productionAction: true, executable: true, timeoutSeconds: 2400
@@ -1295,6 +1306,7 @@ function createPlan(projectRoot, request, env = process.env) {
       dockerContext,
       remoteSshTarget,
       remoteComposeDir,
+      meelokMaintenanceId,
       sshResolution,
       dockerContextResolution,
       ideaDockerServerResolution,
@@ -1981,19 +1993,31 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
         }
         pushStepLog(step.key, `[RUN] ${step.command}`);
         updateStep(step.key, 'running');
-        await runCommand(projectRoot, step.command, env, chunk => {
-          const line = chunk.trim();
-          if (line) {
-            pushStepLog(step.key, line);
+        let capturedCommitOutput = '';
+        try {
+          await runCommand(projectRoot, step.command, env, chunk => {
+            if (step.key === 'capture-release-commit') {
+              capturedCommitOutput += chunk;
+              return;
+            }
+            const line = chunk.trim();
+            if (line) {
+              pushStepLog(step.key, line);
+              updateStep(step.key, 'running');
+            }
+          }, elapsedSeconds => {
+            refreshStepElapsed(step.key, stepTiming);
+            if (elapsedSeconds % 10 === 0) {
+              pushStepLog(step.key, `[RUNNING] ${step.title} 已运行 ${elapsedSeconds} 秒，等待命令输出`);
+            }
+            updateStep(step.key, 'running');
+          }, signal, step.timeoutSeconds);
+        } finally {
+          if (capturedCommitOutput.trim()) {
+            pushStepLog(step.key, capturedCommitOutput.trim());
             updateStep(step.key, 'running');
           }
-        }, elapsedSeconds => {
-          refreshStepElapsed(step.key, stepTiming);
-          if (elapsedSeconds % 10 === 0) {
-            pushStepLog(step.key, `[RUNNING] ${step.title} 已运行 ${elapsedSeconds} 秒，等待命令输出`);
-          }
-          updateStep(step.key, 'running');
-        }, signal, step.timeoutSeconds);
+        }
         if (step.validationCommand) {
           pushStepLog(step.key, `[VALIDATE] ${step.validationCommand}`);
           updateStep(step.key, 'running');
@@ -2366,6 +2390,8 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
 function extractCommitEvidence(plan) {
   const step = plan.steps.find(item => item.key === 'capture-release-commit');
   const lines = (step && Array.isArray(step.logs) ? step.logs : [])
+    .filter(line => !/^\[(?:START|RUN|DONE|RUNNING)\]/.test(String(line).trim()))
+    .flatMap(line => String(line || '').split(/\r?\n/))
     .map(line => String(line || '').trim())
     .filter(line => line
       && !line.startsWith('[START]')

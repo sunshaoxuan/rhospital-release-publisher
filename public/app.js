@@ -378,6 +378,7 @@
     const phaseDefinitions = [
       { key: 'source', title: '准备发布源', members: [
         'git-status-before-update', 'validate-release-input', 'validate-game-static-delivery-prerequisites',
+        'game-meelok-readiness',
         'git-fetch', 'git-update', 'capture-release-commit', 'validate-release-impact-checklist',
         'validate-game-sso-source', 'validate-forum-source'
       ] },

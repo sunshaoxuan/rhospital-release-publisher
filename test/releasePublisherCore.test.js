@@ -2239,6 +2239,69 @@ test('history entry records release commit evidence and step summary', () => {
     && step.logs.includes('0123456789abcdef0123456789abcdef01234567')));
 });
 
+test('release history extracts multiline stdout chunks and excludes command or unrelated evidence', () => {
+  const root = tempProject(sampleXml);
+  const plan = createPlan(root, {appTag: '2026101601', dryRun: true}, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+  });
+  const capture = plan.steps.find(step => step.key === 'capture-release-commit');
+  const sha = '0123456789abcdef0123456789abcdef01234567';
+  capture.status = 'done';
+  capture.logs = [`[START] capture`, `${sha}\r\n0123456\t2026-10-16 01:02:47 +0900\tRelease candidate\r\n`, '[DONE] capture'];
+  for (const status of ['EXECUTED', 'RECOVERY_REQUIRED', 'ERROR']) {
+    const entry = buildHistoryEntry(status, plan, [], [capture.key]);
+    assert.equal(entry.releaseCommit, sha);
+    assert.equal(entry.releaseCommitShort, '0123456');
+    assert.equal(entry.releaseCommitDate, '2026-10-16 01:02:47 +0900');
+    assert.equal(entry.releaseCommitSubject, 'Release candidate');
+  }
+  capture.logs = [`[RUN] command\n${sha}\n0123456\tdate\tfake`, sha.slice(0, -1)];
+  plan.steps[0].logs = [sha];
+  const missing = buildHistoryEntry('ERROR', plan, [sha], []);
+  assert.equal(missing.releaseCommit, '');
+  assert.equal(missing.releaseCommitSubject, '');
+});
+
+test('execution buffers Git evidence split inside SHA, CRLF and commit details', async () => {
+  const root = tempProject(sampleXml);
+  const sha = '0123456789abcdef0123456789abcdef01234567';
+  const output = `${sha}\r\n0123456\t2026-10-16 01:02:47 +0900\tRelease candidate\r\n`;
+  const fallback = testCommandRunner();
+  const runCommand = async (cwd, command, env, onChunk, ...rest) => {
+    if (!command.includes('git rev-parse HEAD')) return fallback(cwd, command, env, onChunk, ...rest);
+    for (const character of output) onChunk(character);
+    return output;
+  };
+  const historyFile = path.join(root, 'chunked-commit-history.json');
+  const result = await executePlan(root, {appTag: '2026101601', dryRun: false, includeStackDeploy: false}, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: historyFile
+  }, {runCommand});
+  assert.equal(result.status, 'EXECUTED');
+  const entry = JSON.parse(fs.readFileSync(historyFile, 'utf8'))[0];
+  assert.equal(entry.releaseCommit, sha);
+  assert.equal(entry.releaseCommitSubject, 'Release candidate');
+});
+
+test('failed Git capture preserves received chunked output for investigation', async () => {
+  const root = tempProject(sampleXml);
+  const fallback = testCommandRunner();
+  const runCommand = async (cwd, command, env, onChunk, ...rest) => {
+    if (!command.includes('git rev-parse HEAD')) return fallback(cwd, command, env, onChunk, ...rest);
+    for (const character of 'fatal: capture interrupted\r\n') onChunk(character);
+    throw new Error('capture failed');
+  };
+  const result = await executePlan(root, {appTag: '2026101601', dryRun: false, includeStackDeploy: false}, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'failed-capture.json')
+  }, {runCommand});
+  assert.equal(result.status, 'ERROR');
+  const capture = result.plan.steps.find(step => step.key === 'capture-release-commit');
+  assert.equal(capture.status, 'failed');
+  assert.ok(capture.logs.includes('fatal: capture interrupted'));
+});
+
 test('execute without dry run runs without a separate environment authorization flag', async () => {
   const root = tempProject(sampleXml);
   const historyPath = path.join(root, 'history.json');
@@ -2418,6 +2481,14 @@ test('formal game plan pauses Meelok only for the rolling cutover and restores a
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
   });
   const index = key => plan.steps.findIndex(step => step.key === key);
+  assert.ok(index('game-meelok-readiness') < index('git-fetch'));
+  assert.ok(index('game-meelok-readiness') < index('build-image'));
+  assert.ok(plan.steps.filter(step => step.productionAction).every(step => index('game-meelok-readiness') < index(step.key)));
+  const readiness = plan.steps[index('game-meelok-readiness')];
+  assert.equal(readiness.actionType, 'remote-check');
+  assert.equal(readiness.productionAction, false);
+  assert.equal(readiness.timeoutSeconds, 60);
+  assert.doesNotMatch(decodedRemoteScript(readiness.command), /docker service (?:scale|update)|docker stack deploy|\brm\b/);
   assert.ok(index('update-remote-compose') < index('pause-meelok-services'));
   assert.ok(index('pause-meelok-services') < index('deploy-stack'));
   assert.ok(index('commit-game-cutover') < index('restore-meelok-services'));
@@ -2430,7 +2501,9 @@ test('formal game plan pauses Meelok only for the rolling cutover and restores a
     assert.match(pause, new RegExp(service));
     assert.match(restore, new RegExp(service));
   }
-  assert.match(pause, /meelok-replicas\.json/);
+  assert.ok(pause.includes(`meelok-replicas-${plan.config.meelokMaintenanceId}.json`));
+  assert.ok(restore.includes(`meelok-replicas-${plan.config.meelokMaintenanceId}.json`));
+  assert.match(restore, /belongs to another release/);
   assert.match(pause, /MemAvailable/);
   assert.match(deploy, /Meelok pause snapshot is missing/);
   assert.ok(deploy.indexOf('memory headroom changed before game cutover') < deploy.indexOf('docker stack deploy'));
@@ -2441,6 +2514,38 @@ test('formal game plan pauses Meelok only for the rolling cutover and restores a
     const syntax = spawnSync(testBashExecutable(), ['-n'], {input: script, encoding: 'utf8'});
     assert.equal(syntax.status, 0, syntax.stderr);
   }
+});
+
+test('Meelok readiness failure prevents builds, production writes and foreign recovery', async () => {
+  const root = tempProject(sampleXml);
+  const runner = testCommandRunner({failOnIncludes: 'meelok_readiness=PASS'});
+  const result = await executePlan(root, {appTag: '2026101601', dryRun: false, includeStackDeploy: true}, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-preflight-fail.json')
+  }, {runCommand: runner});
+  assert.equal(result.status, 'ERROR');
+  assert.equal(result.plan.steps.find(step => step.key === 'game-meelok-readiness').status, 'failed');
+  for (const key of ['build-image', 'publish-image', 'backup-game-release', 'update-remote-compose', 'pause-meelok-services', 'deploy-stack', 'restore-meelok-services']) {
+    assert.equal(result.plan.steps.find(step => step.key === key).status, 'pending', key);
+  }
+  assert.equal(result.plan.steps.some(step => step.productionAction && step.status !== 'pending'), false);
+  assert.equal(runner.commands.some(command => /docker (?:build|save|stack deploy)|meelok_restore=PASS/.test(decodedScriptTree(command))), false);
+});
+
+test('Meelok lifecycle guards apply only to game cutover plans and use a unique persisted identity', () => {
+  const root = tempProject(sampleXml);
+  const env = {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'};
+  const first = createPlan(root, {appTag: '2026101601', dryRun: true, includeStackDeploy: true}, env);
+  const next = createPlan(root, {appTag: '2026101601', dryRun: true, includeStackDeploy: true}, env);
+  assert.notEqual(first.config.meelokMaintenanceId, next.config.meelokMaintenanceId);
+  const persisted = JSON.parse(JSON.stringify(first));
+  assert.equal(persisted.config.meelokMaintenanceId, first.config.meelokMaintenanceId);
+  assert.ok(decodedRemoteScript(persisted.steps.find(step => step.key === 'restore-meelok-services').command).includes(first.config.meelokMaintenanceId));
+  const imageOnly = createPlan(root, {appTag: '2026101601', dryRun: true, includeStackDeploy: false}, env);
+  assert.equal(imageOnly.steps.some(step => /meelok/.test(step.key)), false);
+  const forum = createPlan(root, {releaseTarget: 'forum', appTag: '2026101601', dryRun: true, includeStackDeploy: true}, env);
+  assert.equal(forum.steps.some(step => /meelok/.test(step.key)), false);
 });
 
 test('Meelok pause failure restores the snapshot and blocks game deploy', async () => {
@@ -2971,6 +3076,7 @@ test('pipeline phases follow execution order when game build starts', () => {
   assert.ok(deliveryMembers);
   assert.ok(dataMembers);
   assert.ok(observeMembers);
+  assert.match(sourceMembers[1], /game-meelok-readiness/);
   assert.match(buildMembers[1], /test-game-backend[\s\S]*build-image/);
   assert.match(deliveryMembers[1], /resolve-ssh-target[\s\S]*game-prd2-migration-readiness[\s\S]*read-remote-compose[\s\S]*game-database-preflight[\s\S]*validate-game-database-migration-compatibility[\s\S]*publish-image/);
   assert.doesNotMatch(dataMembers[1], /game-database-preflight|forum-preflight/);
@@ -3018,6 +3124,16 @@ test('pipeline phases follow execution order when game build starts', () => {
   ]);
   assert.equal(phases[1].validation, '7 项检查，详情与原始日志保留在下方');
   assert.equal(phases[1].status, 'running');
+  for (const status of ['pending', 'running', 'done', 'failed']) {
+    const readinessPhases = phaseContext.buildPipelinePhases([
+      {key: 'game-meelok-readiness', status}, {key: 'git-fetch', status: 'pending'},
+      {key: 'build-image', status: 'pending'}
+    ]);
+    assert.equal(readinessPhases[0].key, 'phase-source');
+    assert.equal(readinessPhases[0].validation, '2 项检查，详情与原始日志保留在下方');
+    assert.equal(readinessPhases[0].status, status === 'done' ? 'pending' : status);
+    assert.equal(readinessPhases[1].status, 'pending');
+  }
   assert.equal(gamePlan.steps.some(step => step.key.includes('standby-candidate')), false);
   const candidatePhases = phaseContext.buildPipelinePhases(dualNodePlan.steps.filter(step =>
     ['verify-game-standby-candidate', 'accept-game-standby-candidate'].includes(step.key)));
