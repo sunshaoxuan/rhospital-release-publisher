@@ -291,3 +291,38 @@ observations, precise blockers and exact contract are delivered in
 C:/workspace/rhospital-release-publisher/.service/evidence/toilet-market-check-20261014/LATEST_CANDIDATE_REVIEW.md
 and its JSON sibling. Existing usability receipts are marked historical and link
 to that current review. No /api/execute, game publication or cleanup retry occurs.
+
+## Publisher Ownership Clarification: 2026-10-15
+
+The user confirms that this task owns publisher usability and correct release
+gate enforcement. The game owner supplies implementation, integration, a
+committed impact assessment and candidate evidence meeting the publisher's
+registered contracts. Candidate implementation and evidence repair stay with
+that owner.
+
+Publisher work covers candidate admission, exact check selection and execution,
+result validation, runtime/repository identity, release safety and audit receipts.
+Reject unmet implemented requirements through their applicable gates and report
+the failing stage, candidate identity, reason and smallest owner action. Keep
+evidence limitations distinct from conditions actually enforced by the publisher;
+new gate behavior requires a scoped contract and behavioral tests.
+
+This clarification authorizes no game edits, evidence rewriting or production
+execution. Task-directory cleanup remains independent maintenance with its
+existing BLOCKED result and is never a release prerequisite. Do not expand this
+task into game implementation acceptance or unrelated environment governance.
+
+For this documentation-only update, completion requires scoped diff/reference
+checks, a commit containing only this task's changes, and a live idle-reload
+observation showing clean matching publisher identities and the exact accepted
+toilet contract. Retain the existing code-test evidence without rerunning an
+unchanged candidate or policy. Record the observation in the current review
+receipt and distinguish it from the earlier candidate-review timestamps.
+
+Pre-commit scope review: PASS, only this task document and CHANGELOG are changed;
+diff whitespace and five relevant reference checks pass, exit 0. At
+2026-10-15T02:49:17.166Z the live policy accepts the exact toilet contract and
+the publisher is idle. UNCOMMITTED_CHANGES correctly reflects these two pending
+documents; runtime contentHash is unchanged. Game and production actions remain
+NOT_RUN, cleanup remains BLOCKED_INDEPENDENT. Post-commit runtime verification
+is recorded separately in the current review receipt.
