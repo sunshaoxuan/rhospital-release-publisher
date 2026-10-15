@@ -7,6 +7,26 @@ function shellQuote(value) {
   return `'${String(value).replace(/'/g, `'\\''`)}'`;
 }
 
+function gameMeelokStatusCommands(composeDir) {
+  return [
+    `cd ${shellQuote(composeDir)}`,
+    'if [ -e .meelok-release-pause ] || [ -L .meelok-release-pause ]; then echo "WARNING: Meelok has a retained maintenance marker; notification only"; fi',
+    `for service in ${MEELOK_PAUSE_ORDER.map(shellQuote).join(' ')}; do`,
+    '  if ! desired=$(docker service inspect "$service" --format "{{.Spec.Mode.Replicated.Replicas}}"); then echo "WARNING: meelok_status service=$service state=unknown reason=service_inspect_failed"; continue; fi',
+    '  if ! containers=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service"); then echo "WARNING: meelok_status service=$service desired=$desired state=unknown reason=container_list_failed"; continue; fi',
+    '  count=$(printf "%s\\n" "$containers" | sed "/^$/d" | wc -l)',
+    '  echo "meelok_status service=$service desired=$desired running=$count"',
+    '  if [ "$desired" != 1 ] || [ "$count" -ne 1 ]; then echo "WARNING: Meelok $service is not a running singleton; notification only"; fi',
+    '  for container in $containers; do',
+    '    if ! state=$(docker inspect "$container" --format "health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} started_at={{.State.StartedAt}} restart_count={{.RestartCount}}"); then echo "WARNING: meelok_status service=$service container=$container state=unknown reason=container_inspect_failed"; continue; fi',
+    '    echo "meelok_status service=$service container=$container $state"',
+    '    case "${state%% *}" in health=healthy|health=none) ;; *) echo "WARNING: Meelok $service health is not ready; notification only" ;; esac',
+    '  done',
+    'done',
+    'echo "meelok_status=OBSERVED services=5"'
+  ];
+}
+
 function gameMeelokReadinessCommands(composeDir) {
   return [
     `cd ${shellQuote(composeDir)}`,
@@ -98,7 +118,8 @@ function gameMeelokRestoreCommands(composeDir, gameServiceName, maintenanceId) {
     '  current_image=$(docker service inspect "$service" --format "{{.Spec.TaskTemplate.ContainerSpec.Image}}")',
     '  [ "$current_image" = "$original_image" ] || { echo "ERROR: $service image changed during game release"; exit 1; }',
     '  desired=$(docker service inspect "$service" --format "{{.Spec.Mode.Replicated.Replicas}}")',
-    '  case "$desired" in 0) docker service scale "$service=$original" >/dev/null ;; 1) ;; *) echo "ERROR: unexpected $service replica count $desired"; exit 1 ;; esac',
+    '  restart_requested=false',
+    '  case "$desired" in 0) docker service scale "$service=$original" >/dev/null; restart_requested=true ;; 1) ;; *) echo "ERROR: unexpected $service replica count $desired"; exit 1 ;; esac',
     '  healthy=false',
     '  for attempt in $(seq 1 90); do',
     '    health=absent',
@@ -111,6 +132,7 @@ function gameMeelokRestoreCommands(composeDir, gameServiceName, maintenanceId) {
     '    sleep 2',
     '  done',
     '  [ "$healthy" = true ] || { desired=$(docker service inspect "$service" --format "{{.Spec.Mode.Replicated.Replicas}}"); echo "ERROR: $service did not become healthy desired=$desired running=$count health=$health; preserve recovery marker"; exit 1; }',
+    '  echo "meelok_restore_status service=$service restart_requested=$restart_requested running=$count health=$health container=$container"',
     'done',
     '[ "$(cat "$marker_file")" = "$snapshot" ] || { echo "ERROR: Meelok pause ownership changed before completion"; exit 1; }',
     'rm "$marker_file"',
@@ -118,4 +140,4 @@ function gameMeelokRestoreCommands(composeDir, gameServiceName, maintenanceId) {
   ];
 }
 
-module.exports = {MEELOK_PAUSE_ORDER, MEELOK_RESTORE_ORDER, gameMeelokReadinessCommands, gameMeelokPauseCommands, gameMeelokRestoreCommands};
+module.exports = {MEELOK_PAUSE_ORDER, MEELOK_RESTORE_ORDER, gameMeelokStatusCommands, gameMeelokReadinessCommands, gameMeelokPauseCommands, gameMeelokRestoreCommands};

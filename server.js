@@ -568,11 +568,10 @@ async function recoverInterruptedMeelok(job, terminalStatus) {
         persistJobs();
       }
     });
-    if (job.status === 'RECOVERING') job.status = terminalStatus;
   } catch (error) {
-    job.status = 'RECOVERY_REQUIRED';
-    job.logs.push(`RECOVERY_REQUIRED: Meelok 重启后恢复异常: ${error.message}`);
+    job.logs.push(`WARNING: Meelok 重启后恢复未确认，游戏结果保持不变: ${error.message}`);
   }
+  job.status = terminalStatus;
   job.updatedAt = new Date().toISOString();
   appendInterruptedJobHistory(job);
   persistJobs();

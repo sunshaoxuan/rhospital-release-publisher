@@ -1,0 +1,511 @@
+{
+  "cases": [
+    {
+      "name": "pending",
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      },
+      "measurements": {
+        "width": 1440,
+        "scrollWidth": 1425,
+        "stepTitles": [
+          {
+            "text": "通知 Meelok 启动与重启状态",
+            "textBounds": {
+              "x": 202.5,
+              "y": -1482.515625,
+              "width": 228,
+              "height": 19
+            },
+            "parent": {
+              "x": 130.5,
+              "y": -1498.515625,
+              "width": 1164,
+              "height": 324.625
+            },
+            "within": true
+          },
+          {
+            "text": "尝试暂停同机 Meelok 服务并通知",
+            "textBounds": {
+              "x": 202.5,
+              "y": -472.640625,
+              "width": 262,
+              "height": 19
+            },
+            "parent": {
+              "x": 130.5,
+              "y": -488.640625,
+              "width": 1164,
+              "height": 324.625
+            },
+            "within": true
+          },
+          {
+            "text": "尝试恢复同机 Meelok 服务并通知",
+            "textBounds": {
+              "x": 202.5,
+              "y": 537.234375,
+              "width": 262,
+              "height": 19
+            },
+            "parent": {
+              "x": 130.5,
+              "y": 521.234375,
+              "width": 1164,
+              "height": 324.625
+            },
+            "within": true
+          }
+        ]
+      },
+      "warningVisible": false
+    },
+    {
+      "name": "running",
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      },
+      "measurements": {
+        "width": 1440,
+        "scrollWidth": 1425,
+        "stepTitles": [
+          {
+            "text": "通知 Meelok 启动与重启状态",
+            "textBounds": {
+              "x": 202.5,
+              "y": -1482.515625,
+              "width": 228,
+              "height": 19
+            },
+            "parent": {
+              "x": 130.5,
+              "y": -1498.515625,
+              "width": 1164,
+              "height": 324.625
+            },
+            "within": true
+          },
+          {
+            "text": "尝试暂停同机 Meelok 服务并通知",
+            "textBounds": {
+              "x": 202.5,
+              "y": -472.640625,
+              "width": 262,
+              "height": 19
+            },
+            "parent": {
+              "x": 130.5,
+              "y": -488.640625,
+              "width": 1164,
+              "height": 324.625
+            },
+            "within": true
+          },
+          {
+            "text": "尝试恢复同机 Meelok 服务并通知",
+            "textBounds": {
+              "x": 202.5,
+              "y": 537.234375,
+              "width": 262,
+              "height": 19
+            },
+            "parent": {
+              "x": 130.5,
+              "y": 521.234375,
+              "width": 1164,
+              "height": 324.625
+            },
+            "within": true
+          }
+        ]
+      },
+      "warningVisible": false
+    },
+    {
+      "name": "healthy",
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      },
+      "measurements": {
+        "width": 1440,
+        "scrollWidth": 1425,
+        "stepTitles": [
+          {
+            "text": "通知 Meelok 启动与重启状态",
+            "textBounds": {
+              "x": 202.5,
+              "y": -2024.515625,
+              "width": 228,
+              "height": 19
+            },
+            "parent": {
+              "x": 130.5,
+              "y": -2040.515625,
+              "width": 1164,
+              "height": 487.8125
+            },
+            "within": true
+          },
+          {
+            "text": "尝试暂停同机 Meelok 服务并通知",
+            "textBounds": {
+              "x": 202.5,
+              "y": -851.453125,
+              "width": 262,
+              "height": 19
+            },
+            "parent": {
+              "x": 130.5,
+              "y": -867.453125,
+              "width": 1164,
+              "height": 487.8125
+            },
+            "within": true
+          },
+          {
+            "text": "尝试恢复同机 Meelok 服务并通知",
+            "textBounds": {
+              "x": 202.5,
+              "y": 321.609375,
+              "width": 262,
+              "height": 19
+            },
+            "parent": {
+              "x": 130.5,
+              "y": 305.609375,
+              "width": 1164,
+              "height": 487.8125
+            },
+            "within": true
+          }
+        ]
+      },
+      "warningVisible": false
+    },
+    {
+      "name": "warning",
+      "viewport": {
+        "width": 1440,
+        "height": 1100
+      },
+      "measurements": {
+        "width": 1440,
+        "scrollWidth": 1425,
+        "stepTitles": [
+          {
+            "text": "通知 Meelok 启动与重启状态",
+            "textBounds": {
+              "x": 202.5,
+              "y": -2126.515625,
+              "width": 228,
+              "height": 19
+            },
+            "parent": {
+              "x": 130.5,
+              "y": -2142.515625,
+              "width": 1164,
+              "height": 528.609375
+            },
+            "within": true
+          },
+          {
+            "text": "尝试暂停同机 Meelok 服务并通知",
+            "textBounds": {
+              "x": 202.5,
+              "y": -912.65625,
+              "width": 262,
+              "height": 19
+            },
+            "parent": {
+              "x": 130.5,
+              "y": -928.65625,
+              "width": 1164,
+              "height": 528.609375
+            },
+            "within": true
+          },
+          {
+            "text": "尝试恢复同机 Meelok 服务并通知",
+            "textBounds": {
+              "x": 202.5,
+              "y": 301.203125,
+              "width": 262,
+              "height": 19
+            },
+            "parent": {
+              "x": 130.5,
+              "y": 285.203125,
+              "width": 1164,
+              "height": 528.609375
+            },
+            "within": true
+          }
+        ]
+      },
+      "warningVisible": true
+    },
+    {
+      "name": "pending",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "measurements": {
+        "width": 390,
+        "scrollWidth": 375,
+        "stepTitles": [
+          {
+            "text": "通知 Meelok 启动与重启状态",
+            "textBounds": {
+              "x": 108,
+              "y": -2421.59375,
+              "width": 211,
+              "height": 39
+            },
+            "parent": {
+              "x": 36,
+              "y": -2437.59375,
+              "width": 303,
+              "height": 422
+            },
+            "within": true
+          },
+          {
+            "text": "尝试暂停同机 Meelok 服务并通知",
+            "textBounds": {
+              "x": 108,
+              "y": -1140.75,
+              "width": 211,
+              "height": 39
+            },
+            "parent": {
+              "x": 36,
+              "y": -1156.75,
+              "width": 303,
+              "height": 422
+            },
+            "within": true
+          },
+          {
+            "text": "尝试恢复同机 Meelok 服务并通知",
+            "textBounds": {
+              "x": 108,
+              "y": 217.921875,
+              "width": 211,
+              "height": 39
+            },
+            "parent": {
+              "x": 36,
+              "y": 201.921875,
+              "width": 303,
+              "height": 440.84375
+            },
+            "within": true
+          }
+        ]
+      },
+      "warningVisible": false
+    },
+    {
+      "name": "running",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "measurements": {
+        "width": 390,
+        "scrollWidth": 375,
+        "stepTitles": [
+          {
+            "text": "通知 Meelok 启动与重启状态",
+            "textBounds": {
+              "x": 108,
+              "y": -2421.59375,
+              "width": 211,
+              "height": 39
+            },
+            "parent": {
+              "x": 36,
+              "y": -2437.59375,
+              "width": 303,
+              "height": 422
+            },
+            "within": true
+          },
+          {
+            "text": "尝试暂停同机 Meelok 服务并通知",
+            "textBounds": {
+              "x": 108,
+              "y": -1140.75,
+              "width": 211,
+              "height": 39
+            },
+            "parent": {
+              "x": 36,
+              "y": -1156.75,
+              "width": 303,
+              "height": 422
+            },
+            "within": true
+          },
+          {
+            "text": "尝试恢复同机 Meelok 服务并通知",
+            "textBounds": {
+              "x": 108,
+              "y": 217.921875,
+              "width": 211,
+              "height": 39
+            },
+            "parent": {
+              "x": 36,
+              "y": 201.921875,
+              "width": 303,
+              "height": 440.84375
+            },
+            "within": true
+          }
+        ]
+      },
+      "warningVisible": false
+    },
+    {
+      "name": "healthy",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "measurements": {
+        "width": 390,
+        "scrollWidth": 375,
+        "stepTitles": [
+          {
+            "text": "通知 Meelok 启动与重启状态",
+            "textBounds": {
+              "x": 108,
+              "y": -3034.59375,
+              "width": 211,
+              "height": 39
+            },
+            "parent": {
+              "x": 36,
+              "y": -3050.59375,
+              "width": 303,
+              "height": 667.203125
+            },
+            "within": true
+          },
+          {
+            "text": "尝试暂停同机 Meelok 服务并通知",
+            "textBounds": {
+              "x": 108,
+              "y": -1508.546875,
+              "width": 211,
+              "height": 39
+            },
+            "parent": {
+              "x": 36,
+              "y": -1524.546875,
+              "width": 303,
+              "height": 667.203125
+            },
+            "within": true
+          },
+          {
+            "text": "尝试恢复同机 Meelok 服务并通知",
+            "textBounds": {
+              "x": 108,
+              "y": 95.328125,
+              "width": 211,
+              "height": 39
+            },
+            "parent": {
+              "x": 36,
+              "y": 79.328125,
+              "width": 303,
+              "height": 686.046875
+            },
+            "within": true
+          }
+        ]
+      },
+      "warningVisible": false
+    },
+    {
+      "name": "warning",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "measurements": {
+        "width": 390,
+        "scrollWidth": 375,
+        "stepTitles": [
+          {
+            "text": "通知 Meelok 启动与重启状态",
+            "textBounds": {
+              "x": 108,
+              "y": -3034.59375,
+              "width": 211,
+              "height": 39
+            },
+            "parent": {
+              "x": 36,
+              "y": -3050.59375,
+              "width": 303,
+              "height": 667.203125
+            },
+            "within": true
+          },
+          {
+            "text": "尝试暂停同机 Meelok 服务并通知",
+            "textBounds": {
+              "x": 108,
+              "y": -1508.546875,
+              "width": 211,
+              "height": 39
+            },
+            "parent": {
+              "x": 36,
+              "y": -1524.546875,
+              "width": 303,
+              "height": 667.203125
+            },
+            "within": true
+          },
+          {
+            "text": "尝试恢复同机 Meelok 服务并通知",
+            "textBounds": {
+              "x": 108,
+              "y": 95.328125,
+              "width": 211,
+              "height": 39
+            },
+            "parent": {
+              "x": 36,
+              "y": 79.328125,
+              "width": 303,
+              "height": 686.046875
+            },
+            "within": true
+          }
+        ]
+      },
+      "warningVisible": true
+    }
+  ],
+  "consoleErrors": [],
+  "failedRequests": [],
+  "httpErrors": [],
+  "finalLogVisibility": {
+    "scrollTop": 76,
+    "scrollHeight": 356,
+    "clientHeight": 280,
+    "text": "meelok_status service=meelok_object_storage state=unknown reason=fixture_timeout",
+    "lineBoxesWithin": true
+  },
+  "geometryScope": "DOM line-box containment only; no changed control, font, CSS or layout. Native screenshots reviewed separately."
+}

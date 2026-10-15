@@ -15,6 +15,7 @@ const {
   DEFAULT_FORUM_REMOTE_COMPOSE_DIR,
   defaultProjectRoot,
   executePlan,
+  restoreMeelokAfterControlledExit,
   diagnoseHistoryEntry,
   resolveDockerContextDetails,
   resolvePublisherDockerServerDetails,
@@ -2473,7 +2474,7 @@ test('game guards are repeated at deployment and Stripe authentication is a fina
   }
 });
 
-test('formal game plan pauses Meelok only for the rolling cutover and restores after old game exit', () => {
+test('formal game plan keeps Meelok advisory and game cutover safety independent', () => {
   const root = tempProject(sampleXml);
   const plan = createPlan(root, {appTag: '2026101101', dryRun: true, includeStackDeploy: true}, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
@@ -2505,7 +2506,13 @@ test('formal game plan pauses Meelok only for the rolling cutover and restores a
   assert.ok(restore.includes(`meelok-replicas-${plan.config.meelokMaintenanceId}.json`));
   assert.match(restore, /belongs to another release/);
   assert.match(pause, /MemAvailable/);
-  assert.match(deploy, /Meelok pause snapshot is missing/);
+  assert.doesNotMatch(deploy, /meelok|Meelok/);
+  assert.match(deploy, /available_kb.*-ge 2097152/);
+  assert.deepEqual(plan.steps.filter(step => step.notificationOnly).map(step => step.key),
+    ['game-meelok-readiness', 'pause-meelok-services', 'restore-meelok-services']);
+  for (const key of ['test-game-backend', 'pre-deploy-checklist', 'game-database-preflight', 'final-runtime-check']) {
+    assert.equal(plan.steps.find(step => step.key === key).notificationOnly, false, key);
+  }
   assert.ok(deploy.indexOf('memory headroom changed before game cutover') < deploy.indexOf('docker stack deploy'));
   assert.match(restore, /game_running.*-eq 1/);
   assert.match(restore, /rollback_completed/);
@@ -2516,20 +2523,23 @@ test('formal game plan pauses Meelok only for the rolling cutover and restores a
   }
 });
 
-test('Meelok readiness failure prevents builds, production writes and foreign recovery', async () => {
+test('Meelok status transport failure is a retained warning and game release continues', async () => {
   const root = tempProject(sampleXml);
-  const runner = testCommandRunner({failOnIncludes: 'meelok_readiness=PASS'});
+  const runner = testCommandRunner({failOnIncludes: 'meelok_status=OBSERVED'});
   const result = await executePlan(root, {appTag: '2026101601', dryRun: false, includeStackDeploy: true}, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-preflight-fail.json')
   }, {runCommand: runner});
-  assert.equal(result.status, 'ERROR');
-  assert.equal(result.plan.steps.find(step => step.key === 'game-meelok-readiness').status, 'failed');
+  assert.equal(result.status, 'EXECUTED');
+  assert.equal(result.plan.steps.find(step => step.key === 'game-meelok-readiness').status, 'done');
   for (const key of ['build-image', 'publish-image', 'backup-game-release', 'update-remote-compose', 'pause-meelok-services', 'deploy-stack', 'restore-meelok-services']) {
-    assert.equal(result.plan.steps.find(step => step.key === key).status, 'pending', key);
+    assert.equal(result.plan.steps.find(step => step.key === key).status, 'done', key);
   }
-  assert.equal(result.plan.steps.some(step => step.productionAction && step.status !== 'pending'), false);
-  assert.equal(runner.commands.some(command => /docker (?:build|save|stack deploy)|meelok_restore=PASS/.test(decodedScriptTree(command))), false);
+  assert.equal(result.diagnostics.outcome, 'SUCCESS_WITH_WARNINGS');
+  assert.match(result.logs.join('\n'), /WARNING: Meelok 通知步骤未完成/);
+  const entry = readReleaseHistory(root, 1, {RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-preflight-fail.json')})[0];
+  assert.equal(entry.status, 'EXECUTED');
+  assert.match(entry.stepSummary.find(step => step.key === 'game-meelok-readiness').logs.join('\n'), /WARNING/);
 });
 
 test('Meelok lifecycle guards apply only to game cutover plans and use a unique persisted identity', () => {
@@ -2548,7 +2558,7 @@ test('Meelok lifecycle guards apply only to game cutover plans and use a unique 
   assert.equal(forum.steps.some(step => /meelok/.test(step.key)), false);
 });
 
-test('Meelok pause failure restores the snapshot and blocks game deploy', async () => {
+test('Meelok pause failure is a warning and does not block game deploy', async () => {
   const root = tempProject(sampleXml);
   const runner = testCommandRunner({failOnIncludes: 'meelok_pause=PASS'});
   const progress = [];
@@ -2556,12 +2566,13 @@ test('Meelok pause failure restores the snapshot and blocks game deploy', async 
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-pause-fail.json')
   }, {runCommand: runner, onProgress: update => progress.push(update)});
-  assert.equal(result.status, 'ERROR');
-  assert.equal(result.plan.steps.find(step => step.key === 'pause-meelok-services').status, 'failed');
+  assert.equal(result.status, 'EXECUTED');
+  assert.equal(result.plan.steps.find(step => step.key === 'pause-meelok-services').status, 'done');
   assert.equal(result.plan.steps.find(step => step.key === 'restore-meelok-services').status, 'done');
-  assert.equal(runner.commands.some(command => decodedScriptTree(command).includes('docker stack deploy')), false);
+  assert.equal(runner.commands.some(command => decodedScriptTree(command).includes('docker stack deploy')), true);
   assert.equal(runner.commands.filter(command => decodedScriptTree(command).includes('meelok_restore=PASS services=5')).length, 1);
-  assert.ok(progress.some(update => update.status === 'RECOVERING' && update.currentStepKey === 'restore-meelok-services'));
+  assert.equal(result.diagnostics.outcome, 'SUCCESS_WITH_WARNINGS');
+  assert.ok(progress.some(update => update.status === 'RUNNING' && update.currentStepKey === 'restore-meelok-services'));
 });
 
 test('successful game release restores Meelok once after final acceptance', async () => {
@@ -2618,7 +2629,7 @@ test('failed game cutover rolls back before restoring Meelok', async () => {
   assert.equal(result.plan.steps.find(step => step.key === 'restore-meelok-services').status, 'done');
 });
 
-test('Meelok restoration failure holds the game and requires recovery', async () => {
+test('Meelok restoration failure preserves successful game outcome and warns once', async () => {
   const root = tempProject(sampleXml);
   const commands = [];
   const runner = async (cwd, command, env, onChunk) => {
@@ -2633,10 +2644,55 @@ test('Meelok restoration failure holds the game and requires recovery', async ()
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-restore-fail.json')
   }, {runCommand: runner});
-  assert.equal(result.status, 'RECOVERY_REQUIRED');
-  assert.equal(commands.filter(command => decodedScriptTree(command).includes('meelok_restore=PASS services=5')).length, 2);
+  assert.equal(result.status, 'EXECUTED');
+  assert.equal(commands.filter(command => decodedScriptTree(command).includes('meelok_restore=PASS services=5')).length, 1);
   assert.equal(commands.some(command => decodedScriptTree(command).includes('automatic_rollback_validation=PASS')), false);
-  assert.match(result.logs.join('\n'), /Meelok 自动恢复失败/);
+  assert.match(result.logs.join('\n'), /WARNING: Meelok 通知步骤未完成/);
+  assert.equal(result.diagnostics.outcome, 'SUCCESS_WITH_WARNINGS');
+});
+
+test('Meelok controlled-exit warning preserves every authoritative game outcome', async () => {
+  for (const status of ['ERROR', 'CANCELLED', 'INTERRUPTED', 'ROLLED_BACK', 'RECOVERY_REQUIRED', 'EXECUTED']) {
+    const result = {status, logs: [], completedStepKeys: [], plan: {releaseTarget: 'game', steps: [
+      {key: 'pause-meelok-services', status: 'done'},
+      {key: 'restore-meelok-services', status: 'pending', command: 'restore fixture', timeoutSeconds: 60}
+    ]}};
+    let runs = 0;
+    await restoreMeelokAfterControlledExit('fixture', result, {}, {runCommand: async () => {
+      runs++; throw new Error('restore timeout fixture');
+    }});
+    assert.equal(result.status, status);
+    assert.equal(runs, 1);
+    assert.match(result.logs.join('\n'), /WARNING: Meelok 自动恢复未确认/);
+    assert.doesNotMatch(result.logs.join('\n'), /\[DONE\]/);
+  }
+});
+
+test('game safety checks remain blocking when unrelated Meelok observations fail', async () => {
+  for (const failure of ['memory headroom changed before game cutover', 'pre_deploy_checklist=PASS', 'rollout_validation=PASS']) {
+    const root = tempProject(sampleXml);
+    const base = testCommandRunner();
+    const result = await executePlan(root, {appTag: '2026101601', dryRun: false, includeStackDeploy: true}, {
+      RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+      RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'safety.json')
+    }, {runCommand: async (...args) => {
+      const script = decodedScriptTree(args[1]);
+      if (script.includes('meelok_status=OBSERVED')) throw new Error('unrelated Meelok unreachable');
+      if (script.includes(failure)) throw new Error(`game safety fixture: ${failure}`);
+      return base(...args);
+    }});
+    assert.notEqual(result.status, 'EXECUTED', failure);
+    assert.ok(result.plan.steps.some(step => step.status === 'failed' && !step.notificationOnly), failure);
+  }
+});
+
+test('notification history retains all service observations and early warnings', () => {
+  const logs = ['WARNING: Meelok marker retained', ...Array.from({length: 20}, (_, i) => `meelok_status observation=${i}`)];
+  const entry = buildHistoryEntry('EXECUTED', {releaseTarget: 'game', config: {}, steps: [
+    {key: 'game-meelok-readiness', notificationOnly: true, status: 'done', logs}
+  ]}, [], ['game-meelok-readiness']);
+  assert.deepEqual(entry.stepSummary[0].logs, logs);
+  assert.equal(entry.stepSummary[0].notificationOnly, true);
 });
 
 test('forum preflight failure stops before image upload', async () => {

@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
+const vm = require('node:vm');
 
 const {
   compactPersistedJob,
@@ -106,4 +107,26 @@ test('interrupted game jobs restore Meelok only after the pause boundary was ent
   job.plan.releaseTarget = 'forum';
   job.plan.steps[1].status = 'pending';
   assert.equal(needsMeelokRecovery(job), false);
+});
+
+test('publisher restart Meelok restoration never overwrites the game interruption outcome', async () => {
+  const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const source = server.slice(server.indexOf('async function recoverInterruptedMeelok('),
+    server.indexOf('function interruptRunningJobs('));
+  for (const failure of [false, true]) {
+    for (const status of ['INTERRUPTED', 'RECOVERY_REQUIRED']) {
+      const history = [];
+      const context = vm.createContext({projectRoot: 'fixture', process: {env: {}},
+        restoreMeelokAfterControlledExit: async (root, job, env, options) => {
+          options.onProgress({status: 'RECOVERING'});
+          if (failure) throw new Error('Meelok unavailable fixture');
+        }, persistJobs() {}, appendInterruptedJobHistory(job) { history.push(job.status); }});
+      vm.runInContext(source, context);
+      const job = {status: 'RECOVERING', logs: []};
+      await context.recoverInterruptedMeelok(job, status);
+      assert.equal(job.status, status);
+      assert.deepEqual(history, [status]);
+      if (failure) assert.match(job.logs.join('\n'), /WARNING: Meelok/);
+    }
+  }
 });

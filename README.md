@@ -28,7 +28,7 @@ RHospital 发布控制台使用仓库内受控配置生成游戏与论坛发布�
 
 ## 执行任务互斥与进度刷新
 
-正式游戏切换在耗时构建及所有生产写入前，只读检查 Meelok 遗留暂停标记、五项服务的期望副本、实际运行副本和健康状态。遗留恢复标记或服务异常会立即闭锁本次流程。暂停前再次检查现场；暂停快照和恢复命令绑定本次发布的唯一身份，恢复拒绝其他发布的标记，并保留现场供独立恢复。恢复超时日志包含期望副本、实际副本和健康状态。此检查不改变论坛或仅上传游戏镜像的流程。生产恢复和重新发布仍须单独授权。
+正式游戏切换前只读通知 Meelok 五项服务的运行副本、健康状态、容器身份、启动时间和容器内重启次数。遗留维护标记、服务未启动、健康异常、采集失败或超时均记录通知与 WARNING，游戏继续自身发布检查。Meelok 暂停与恢复也采用通知结果，失败不会触发游戏回滚或把游戏结果改为 `RECOVERY_REQUIRED`；用户取消及游戏自身的安全门禁继续生效。通知原始证据和警告保存在发布历史中。此行为只适用于正式游戏切换，论坛与仅上传游戏镜像的流程保持原状。生产恢复和重新发布仍须单独授权。
 
 - 发布器全局串行执行任务。已有任务处于 `RUNNING`、`CANCELLING`、`RECOVERING` 或尚在清理时，新执行请求返回 HTTP 409，错误码为 `PUBLISHER_JOB_ACTIVE`。游戏、论坛、dry run、多标签页和 API 调用共用这一门禁。
 - `GET /api/jobs/active` 同时返回 `job` 和 `busy`，终态任务仍在清理时 `busy=true`。应用提交和推送先检查空闲状态，再用发布器已提交 HEAD 的隔离工作树生成只读计划；无关未提交内容不会进入策略。验证结束重新检查活动、策略提交和基线配置。正式发布接口仍要求运行版本和仓库一致。
@@ -525,7 +525,7 @@ docker stack deploy -c docker-compose.yml hospital_stack
 
 热发布使用 `start-first` 时，新旧任务会在健康观察期内短暂并存。发布器持续核对目标镜像、服务与容器 `IMAGE_TAG`、SSO 开关、Secret、健康副本数和旧镜像运行任务；目标副本全部健康且旧版本运行任务为零时输出 `game_cutover_observation=PASS`，页面立即显示“新版本已生效，安全观察中”并刷新生产镜像。此时仍允许基于致命故障证据回退。普通失败会连续三轮检查Riven、VMISS、发布器直连生产入口、生产主机本地认证业务心跳以及数据库读写探针；只有全部业务心跳失败且数据库读写正常时输出`fatal_rollback_decision=ROLLBACK_CONFIRMED`。任一链路可用、数据库异常、探针信息不足、发布器自身网络异常、用户取消或发布服务重启都保留目标版本并进入`RECOVERY_REQUIRED`。Swarm `update_config.failure_action` 必须为 `pause`，让回退只受发布器证据门禁控制。最终运行校验继续等待 `UpdateStatus=completed`。默认等待上限为1800秒，可通过 `RELEASE_PUBLISHER_ROLLOUT_TIMEOUT_SECONDS` 调整；恢复也使用1800秒默认上限，可通过 `RELEASE_PUBLISHER_ROLLBACK_TIMEOUT_SECONDS` 调整。
 
-同机部署 Meelok 时，正式游戏发布会在 `deploy-stack` 前将 `meelok_web`、`meelok_worker`、`meelok_api`、`meelok_redis` 和 `meelok_object_storage` 的原单副本及镜像写入生产备份目录，然后逐项缩至零副本。停机后 `MemAvailable` 连续三次低于 2 GiB 会阻止游戏切换。Meelok 保持暂停，直到 Swarm 更新、游戏最终验收和清理完成；自动回滚也在暂停期间完成。发布器随后确认游戏恰有一个健康任务、每次恢复前至少有 1.5 GiB 可用内存，按存储、Redis、API、Worker、Web 的顺序恢复 Meelok。受控失败与取消会额外执行恢复；发布器重启会根据持久任务记录重试。恢复无法确认时任务标记 `RECOVERY_REQUIRED`，生产备份目录和编排目录的 `.meelok-release-pause` 标记保留，下一次游戏切换被阻止。这项安排会让 Meelok 在整个游戏发布观察期暂时不可用；2 GiB 门槛依据上次新游戏约 0.9 GiB 的事故采样并留出约 1.1 GiB 余量，无法保证 JVM 后续增长不超过该余量。正式发布仍需现场确认内存与两项业务影响。
+同机部署 Meelok 时，发布器保留原有资源腾挪流程：在 `deploy-stack` 前，仅在五项服务状态符合预期且不存在其他维护标记时保存本次唯一身份的原副本及镜像快照，再尝试逐项暂停。暂停无法完成会记录 WARNING；游戏 `deploy-stack` 独立检查实际 `MemAvailable` 至少 2 GiB、旧游戏健康和完整 Compose 合同，Meelok 标记及副本数均不参与游戏切换门禁。游戏验收、清理或自动回滚结束后，按原顺序尝试恢复本次快照；恢复前保留游戏健康、内存至少 1.5 GiB、原镜像与快照所有权保护。日志逐项记录是否请求重新启动及实际运行健康状态。恢复异常保留快照和标记并提示独立维护，游戏结果保持不变；受控退出和发布器重启后的恢复也遵循相同结果规则。`restart_count` 仅表示同一容器内的重启次数，服务任务替换需结合容器身份、启动时间和恢复请求记录判断。2 GiB 门槛依据既有事故采样制定，仍需现场确认 JVM 后续内存增长及两项业务影响。
 
 最终运行、双前置静态资源和管理员交易池验收全部通过后，发布器定向删除标签 `com.docker.swarm.service.name=hospital_stack_hospital-backend` 且状态为 `Exited` 的历史容器。该步骤不会执行全局 container prune，也不会删除旧镜像。单个容器删除失败输出 `WARNING` 并保留在发布历史中，随后仍复核目标服务镜像、`UpdateStatus=completed`、运行副本数和健康副本数。目标服务复核失败会停止流程。失败、取消、回退和 `RECOVERY_REQUIRED` 路径保留现场，不执行该清理步骤。
 
