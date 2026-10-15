@@ -150,7 +150,9 @@ Continuation results:
 - NEXT: the execution-policy administrator must identify the denial and permit
   this exact authorized task-local cleanup under the applicable policy. Retry
   only after that decision; verify directory absence and update the receipt.
-  Overall closeout remains INCOMPLETE_TEMP_CLEANUP until actual removal succeeds.
+  Maintenance closeout remains INCOMPLETE_TEMP_CLEANUP until actual removal
+  succeeds. The user's subsequent usability scope below makes this independent
+  of candidate acceptance and production release prerequisites.
 
 ## Publisher Usability Continuation: 2026-10-15 Asia/Tokyo
 
@@ -206,3 +208,86 @@ Pre-commit review and scoped results:
   The live read-only plan and post-commit identity receipt are recorded under
   `C:/workspace/rhospital-release-publisher/.service/evidence/toilet-market-check-20261014/PUBLISHER_USABILITY.md`.
   Do not reinterpret a plan PASS as game acceptance or completed publication.
+
+## Latest Candidate Review After Docker Recovery: 2026-10-15
+
+The user requests a fresh check of toilet candidate integration and final
+acceptance, identification of actual release blockers, and resolution of
+demonstrated publisher-side issues. Docker server readiness has recovered.
+Task-directory cleanup is maintenance only and is never a release prerequisite.
+
+Method and completion criteria for this continuation:
+
+1. Read current candidate/report identities and local Git integration state in
+   the handoff checkout and configured game repository. Do not fetch, merge,
+   check out, alter game Git data, or modify game sources or evidence.
+2. Inspect current final acceptance data and validator dependencies. Reuse valid
+   unchanged results; execute a scoped validator only when freshness or missing
+   evidence requires it and its execution is read-only for the game checkout.
+3. Compare exact registered policy and candidate impact with a read-only live
+   release plan when the target is available. Keep mandatory safety checks and
+   unrelated-feature isolation. Do not execute a release job, build containers,
+   migrate, switch images, or change production configuration.
+4. Fix only evidenced publisher defects, with focused regression tests and
+   npm test for any code change. Record source review when no publisher defect
+   is established. Pure documentation changes receive relevant static checks.
+5. Commit this task's scoped changes, let the existing idle reload settle, and
+   confirm clean matching runtime/repository commit and contentHash plus actual
+   in-process policy acceptance. Preserve all genuine FAIL/BLOCKED evidence.
+6. Deliver a current blocker list with owners, evidence identities and the
+   smallest remaining actions. Distinguish candidate readiness, publisher
+   usability, unexecuted production gates and independent maintenance cleanup.
+
+Initial live observation at 2026-10-15T02:27:18.759Z: runtime
+0.2.0+04238953, UP_TO_DATE, runtime/repository commit
+0423895380c25cfae5e9f157cf35f073845d29ca, equal contentHash
+843e62dc43fb91d8a739b19b867f53716fc25217a758a46543a807fb5c5d2ff5,
+both clean, toilet policy accepted, no active publisher job. Latest candidate
+and acceptance conclusions remain pending this continuation's observations.
+
+Read-only candidate review before the publisher documentation commit:
+
+- PASS: Docker Linux server 29.8.2 responds at 2026-10-15T02:28:12.424Z.
+  No service, container, context or endpoint was changed.
+- PASS: handoff and configured game repository local master contain
+  20b8f724b9019edc07a724a6f78ed6cf1a6945b3, tree
+  f2f4f02df1b21ffec4a1da864cb39d0bcdbccc2f, parents f907b303 and 1f6138a7.
+  The frozen handoff is clean. Other tasks' current game edits remain untouched;
+  their worktree/index content is outside this immutable candidate's acceptance.
+- PASS: the current game report/matrix records 42 candidate acceptance rows PASS.
+  The standalone read-only evidence CLI exits 0 with the exact registered marker.
+  Both checkouts' 45 scoped source identities equal
+  c6a28f4828944b6fe172d90e22459a9cd56dfd8171eea902a512a401cb8cef18.
+  This supersedes the earlier missing-candidate and 40/4 matrix observations;
+  their timestamps and original failure receipts remain historical evidence.
+- PASS_RETAINED: original commit hook exit 0 and all nine selected local checks
+  passed for tree f2f4f02d under publisher 04238953. Toilet Node summary is
+  24 tests / 24 pass with fail, skipped, cancelled and TODO zero. Counts are
+  observed from complete existing output, never a fixed expected test count.
+  The recorded backend suite has 1644 tests, zero failures/errors and 53
+  conditional skips; this is separate from the strict Node success protocol.
+- DEFAULT_REMOTE_HANDOFF_PENDING: a fresh read-only remote query at
+  2026-10-15T02:29:02.111Z returns master f907b303e8645e6aca320b07867369b55556e52f.
+  The accepted local merge has not been pushed. The UI's origin/master path and
+  a deliberately selected local master are distinct paths; report each live plan
+  result without turning remote synchronization into an invented universal gate.
+- QUALITY_LIMITATION: the cumulative game's committed assessment retains Safari
+  hardware UNVERIFIED and fullProductAccepted=false for compressed transport.
+  The game acceptance owner must resolve its declared missing-gate disposition.
+  Do not add Safari to the independent toilet policy or fabricate product PASS.
+- NOT_RUN: production database readiness/migration, pre-deploy execution, cutover,
+  final runtime/front-host verification and historical recovery remediation.
+  The stored RECOVERY_REQUIRED item alone does not prove current production health.
+- SOURCE_REVIEW: no demonstrated publisher runtime defect. Exact policy, pinned
+  committed assessment reads and branch membership checks retain their existing
+  boundaries. No game-source or acceptance-evidence edits are authorized here.
+
+Only this guidance and CHANGELOG change in version control. Existing publisher
+code test results remain applicable: npm test 336/336, focused policy/executor
+20/20 and toilet plan 1/1, all exit 0. This documentation-only continuation uses
+diff/reference checks, actual read-only evidence validation, retained-output
+protocol assertions and live HTTP plan/version verification. Final post-commit
+observations, precise blockers and exact contract are delivered in
+C:/workspace/rhospital-release-publisher/.service/evidence/toilet-market-check-20261014/LATEST_CANDIDATE_REVIEW.md
+and its JSON sibling. Existing usability receipts are marked historical and link
+to that current review. No /api/execute, game publication or cleanup retry occurs.
