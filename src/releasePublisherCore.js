@@ -506,7 +506,8 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '在完整构建和生产动作前执行全部适用的本地证据门禁，并一次汇总所有失败项',
       command: gameReleasePreflightCommand(localEvidenceChecks),
       validation: '全部适用门禁必须输出 PASS；失败时必须完成其余门禁并汇总失败项目',
-      actionType: 'local-check', executable: true, timeoutSeconds: 3600
+      actionType: 'local-check', executable: true,
+      timeoutSeconds: Math.max(3600, localEvidenceChecks.reduce((total, check) => total + check.timeoutSeconds, 60))
     })] : []),
     releaseStep({
       key: 'test-game-backend',
@@ -2602,13 +2603,7 @@ function analyzeReleaseChanges(projectRoot, request = {}, env = process.env, git
   const targetCommit = gitCommit === 'latest'
     ? branchCommit
     : runGit(projectRoot, ['rev-parse', '--verify', `${gitCommit}^{commit}`], gitRunner).trim();
-  const analysisHistoryFile = historyFile(env);
-  const historyStat = fs.existsSync(analysisHistoryFile) ? fs.statSync(analysisHistoryFile) : null;
-  const cacheKey = `${path.resolve(projectRoot)}|${gitBranch}|${branchCommit}|${targetCommit}|${analysisHistoryFile}|${historyStat ? `${historyStat.mtimeMs}:${historyStat.size}` : 'missing'}`;
-  const cached = releaseChangeAnalysisCache.get(cacheKey);
-  if (cached && Date.now() - cached.createdAt < 10000) {
-    return cached.analysis;
-  }
+  // Admission depends on this request's mode, even when its diff is cached.
   if (gitCommit !== 'latest') {
     const targetAlreadyOnBranch = gitCommandSucceeds(
       projectRoot,
@@ -2625,6 +2620,14 @@ function analyzeReleaseChanges(projectRoot, request = {}, env = process.env, git
     if (!targetAlreadyOnBranch && !proposedFastForward) {
       throw new Error(`目标提交 ${targetCommit.slice(0, 8)} 不属于发布分支 ${gitBranch}，也不能从该分支快进`);
     }
+  }
+
+  const analysisHistoryFile = historyFile(env);
+  const historyStat = fs.existsSync(analysisHistoryFile) ? fs.statSync(analysisHistoryFile) : null;
+  const cacheKey = `${path.resolve(projectRoot)}|${gitBranch}|${branchCommit}|${targetCommit}|${analysisHistoryFile}|${historyStat ? `${historyStat.mtimeMs}:${historyStat.size}` : 'missing'}`;
+  const cached = releaseChangeAnalysisCache.get(cacheKey);
+  if (cached && Date.now() - cached.createdAt < 10000) {
+    return cached.analysis;
   }
 
   const history = readReleaseHistoryAll(projectRoot, env);

@@ -326,3 +326,116 @@ the publisher is idle. UNCOMMITTED_CHANGES correctly reflects these two pending
 documents; runtime contentHash is unchanged. Game and production actions remain
 NOT_RUN, cleanup remains BLOCKED_INDEPENDENT. Post-commit runtime verification
 is recorded separately in the current review receipt.
+
+## Publisher Usability Audit And Repair: 2026-10-15
+
+The user requests actual publisher inspection and fixes where defects are
+demonstrated, beyond documentation. Primary goal: compliant immutable game
+candidates can reach the normal release workflow, and failed or incomplete
+candidate checks cannot pass its safety boundaries. The publisher owns repairs;
+the game process owns implementation, integration and evidence submission.
+
+Method and observable completion criteria:
+
+1. Trace admission, committed assessment reads, plan construction, exact local
+   check execution/result validation and job/result persistence. Inspect current
+   publisher availability through bounded read-only APIs. Keep the audit tied to
+   normal release usability and gate correctness.
+2. Reproduce concrete defects with isolated fixtures and focused regression
+   tests before applying minimal publisher changes. Distinguish a product defect
+   from an expected candidate rejection or an unexecuted production check.
+3. Verify successful paths and relevant negative cases, then run npm test for
+   code changes. Use simulated executor/remote dependencies only; never invoke
+   /api/execute, production publication, migrations or image switching.
+4. List the game's actual submission/evidence contract with gate names and
+   failure reasons. Do not modify game sources, Git state or acceptance data.
+   Temporary cleanup stays independent and its BLOCKED state is unchanged.
+5. Review scoped changes, update CHANGELOG, commit verified publisher repairs,
+   and use the existing idle reload without interrupting jobs or starting a
+   listener/service. Confirm clean matching runtime/repository identity and live
+   registered policy. Record actual results and unresolved limitations in a
+   publisher audit receipt under the existing evidence directory.
+
+Initial classification: publisher root-cause investigation and gate-boundary
+review by the main agent. Choose implementation scope after evidence identifies
+a defect; obtain external advisory only if the resulting implementation meets the
+advanced multi-module task criteria. No UI or game implementation work is planned.
+
+Reproduction established three publisher defects, using synthetic repositories
+and plan decoding only. A permitted proposed-fast-forward dry run warms a cache
+that is returned before the next request's branch admission check. A generated
+combined plan selects 21 registered local checks, while decodeChecks rejects
+more than 20. Its fixed 3600-second outer timeout also truncates the selected
+checks' own budgets (10020 seconds in this fixture). The regression run exits 1,
+with all three assertions failing; no candidate or production command runs.
+
+Implementation scope is two small publisher runtime edits plus regression tests:
+perform per-request branch admission before cached diff reuse; retain payload
+byte bounds, unique keys and registry validation without the obsolete count cap;
+set the outer preflight budget to at least the selected timeouts plus 60 seconds
+for startup/reporting while retaining the existing 3600-second minimum. Individual
+timeouts, including toilet 180 seconds, and all core/feature gates stay unchanged.
+These local condition/order fixes are handled directly by the main agent.
+
+Focused repair verification: exit 0, 5/5 tests for cached branch admission,
+combined plan decoding/budget and the exact toilet plan. Policy/runner regression:
+exit 0, 21/21 tests. Both runs have zero failure/skipped/cancelled/TODO counts.
+The new negative payload test retains encoded size, shape, unique/known key,
+command length/aggregate refusal and safe integer timeout bounds. npm test is
+required before commit; its final result and post-commit live observations go in
+the audit receipt, without replacing earlier candidate observations.
+
+Independent scope review: server analysis, plan and execution preparation all
+call analyzeReleaseChanges, whose per-request admission now precedes cached diff
+reuse. createPlan encodes only selected registered checks, decodeChecks validates
+them, runChecks validates each result and completed preflight coverage is checked
+against the plan before audit-step reuse. executePlan passes the computed outer
+timeout to runPowerShell without a separate 3600-second clamp. No foreign evidence
+dependency or check entrypoint is added. Existing source drift/isolation evidence
+remains scoped to the previously reviewed unchanged game validator; this audit
+does not claim a new game implementation or production acceptance.
+
+### Game Process Submission Requirements
+
+1. Supply an immutable complete commit that exists in the configured game Git
+   repository and belongs to the selected release branch. If using the remote
+   branch, complete its authorized push/refresh handoff and verify that exact
+   commit. Proposed fast-forward permission is restricted to an explicit dry-run
+   request and cannot authorize formal publication. Uncommitted overlays are
+   excluded from the detached release worktree.
+2. Commit a fresh release/release-impact.json covering exactly the actual runtime
+   diff from the publisher's production baseline. Include a new assessment ID,
+   summary, risk, code/database impact, CheckList decision and reasons for unique
+   registered required checks. A changed CheckList decision must match actual
+   assessment changes. Missing, stale, extra or unavailable declarations reject.
+3. Select only applicable feature checks and commit their entrypoints, final
+   source bindings and owning evidence bundles. Toilet uses the exact command,
+   three inputs, 180 seconds and marker recorded above. Exit 0 plus one complete
+   positive Node summary with tests equal pass and zero fail/skipped/cancelled/
+   TODO is required. Relevant source or screenshot drift invalidates evidence;
+   another feature's PASS or unavailable unrelated historical screenshots cannot
+   substitute for the owning bundle. No fixed test count or TTY is required.
+4. Keep mandatory backend, pre-deploy, final runtime and static delivery checks.
+   Database changes must declare impact; changed migrations must select
+   apply-database-migrations and satisfy the existing versioned, idempotent,
+   ownership, backup, safety and rollback contracts. Required local/runtime pairs
+   remain paired. The game owner repairs implementation and candidate evidence.
+5. Preserve real FAIL/BLOCKED/UNVERIFIED evidence. Supply candidate identity,
+   selected checks, raw exit/output, evidence locations and remaining gaps.
+   Previous receipts retain their timestamps and policy identities; they do not
+   certify a changed candidate or current production. Production environment,
+   migration readiness, image and final health checks run only in an explicitly
+   authorized release. No such execution is authorized in this task.
+6. Development QA cleanup is independent maintenance, currently BLOCKED. It is
+   absent from the release prerequisites and must not prevent a compliant
+   committed candidate from entering the normal release gates.
+
+Final pre-commit review: PASS. npm test exits 0 with 340/340 tests, zero failures,
+skips, cancellations or TODO. Focused runs remain 5/5 and 21/21, exit 0. The red
+reproduction exits 1 (three defects, four reported failed test nodes including
+the combined parent). git diff --check passes. Review covers the two runtime
+edits, two test files, this guidance and CHANGELOG only. No new dependency, UI,
+game change, cleanup retry or production action is included. Post-commit runtime
+reload, exact identity/contract and read-only plan outcomes are recorded in
+C:/workspace/rhospital-release-publisher/.service/evidence/toilet-market-check-20261014/PUBLISHER_AUDIT.json
+and PUBLISHER_AUDIT.md; existing historical receipts retain their original scope.

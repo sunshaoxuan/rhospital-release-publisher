@@ -22,6 +22,29 @@ test('decodes validated checks and preserves PowerShell command quoting', async 
   assert.throws(() => decodeChecks(encoded([{key: '../bad', command: 'ok', timeoutSeconds: 30}])), /名称无效/);
 });
 
+test('payload capacity retains encoding structure registration and per-check bounds', async () => {
+  const {decodeChecks} = await moduleUnderTest();
+  const check = {key: 'verify-game-steam-auth', command: 'node --test src/test/js/steamLogin.test.cjs', timeoutSeconds: 30};
+  const payload = value => Buffer.from(JSON.stringify(value), 'utf8').toString('base64');
+  assert.deepEqual(decodeChecks(encoded([])), []);
+  assert.deepEqual(decodeChecks(encoded([check])), [check]);
+  for (const value of [undefined, '', '!', 'A'.repeat(100001)]) {
+    assert.throws(() => decodeChecks(value), /编码无效/);
+  }
+  for (const value of [null, {version: 2, checks: []}, {version: 1, checks: {}}]) {
+    assert.throws(() => decodeChecks(payload(value)), /结构无效/);
+  }
+  assert.throws(() => decodeChecks(encoded([check, {...check}])), /无效或重复/);
+  assert.throws(() => decodeChecks(encoded([{...check, key: 'verify-unregistered'}])), /Unregistered local check/);
+  for (const command of ['', ' '.repeat(3), 'x'.repeat(20001)]) {
+    assert.throws(() => decodeChecks(encoded([{...check, command}])), /命令无效/);
+  }
+  for (const timeoutSeconds of [0, 3601, 1.5, '30', null]) {
+    assert.throws(() => decodeChecks(encoded([{...check, timeoutSeconds}])), /超时无效/);
+  }
+  assert.throws(() => decodeChecks(encoded([{...check, command: 'npm test'}])), /aggregate|entrypoint|input/i);
+});
+
 test('runs every check and aggregates multiple failures', async () => {
   const {runChecks} = await moduleUnderTest();
   const seen = [], output = [];

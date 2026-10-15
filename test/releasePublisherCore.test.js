@@ -1170,6 +1170,7 @@ test('toilet plan preserves exact contract preflight audit and mandatory safety 
   assert.equal(step.executable, true);
   assert.equal(step.coveredByPreflight, 'validate-game-release-preflight');
   const preflight = plan.steps.find(item => item.key === step.coveredByPreflight);
+  assert.equal(preflight.timeoutSeconds, 3600);
   const payload = JSON.parse(Buffer.from(preflight.command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/)[1], 'base64').toString());
   assert.deepEqual(payload.checks, [{key: step.key, command: step.command, timeoutSeconds: step.timeoutSeconds}]);
   for (const key of mandatory) assert(plan.steps.some(step => step.key === key && step.executable), key);
@@ -3244,6 +3245,31 @@ test('allows a dry-run pre-push plan for a proposed fast-forward commit', () => 
   assert.equal(analysis.targetCommit, target);
   assert.equal(analysis.targets.game.direction, 'forward');
 
+  for (const releaseTarget of ['game', 'forum']) {
+    for (const options of [
+      {dryRun: false, allowProposedFastForward: true},
+      {dryRun: true, allowProposedFastForward: false},
+      {dryRun: true},
+      {dryRun: 'true', allowProposedFastForward: true},
+      {dryRun: true, allowProposedFastForward: 'true'},
+      {}
+    ]) {
+      assert.throws(() => analyzeReleaseChanges(root, {
+        gitBranch: branch, gitCommit: target, releaseTarget, ...options
+      }, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath}), /不能从该分支快进/,
+      `${releaseTarget} must revalidate branch membership after a proposed dry-run warms the cache`);
+    }
+  }
+  assert.equal(analyzeReleaseChanges(root, {
+    gitBranch: branch, gitCommit: target, dryRun: true, allowProposedFastForward: true
+  }, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath}).targetCommit, target);
+  assert.equal(analyzeReleaseChanges(root, {
+    gitBranch: branch, gitCommit: 'latest'
+  }, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath}).targetCommit, baseline);
+  assert.equal(analyzeReleaseChanges(root, {
+    gitBranch: branch, gitCommit: baseline, dryRun: false
+  }, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath}).targetCommit, baseline);
+
   runGit(root, ['checkout', branch]);
   fs.writeFileSync(path.join(root, 'branch-only.txt'), 'diverged\n', 'utf8');
   runGit(root, ['add', '.']);
@@ -3254,6 +3280,61 @@ test('allows a dry-run pre-push plan for a proposed fast-forward commit', () => 
     dryRun: true,
     allowProposedFastForward: true
   }, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath}), /不能从该分支快进/);
+});
+
+test('all selected local checks fit the preflight payload and retain their individual timeout budgets', async t => {
+  const root = releaseImpactGitProject();
+  t.after(() => {
+    assert.equal(path.dirname(root), path.resolve(os.tmpdir()));
+    assert(path.basename(root).startsWith('release-publisher-'));
+    fs.rmSync(root, {recursive: true, force: true});
+  });
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const runtimePath = 'src/main/resources/release-impact-demo.txt';
+  fs.writeFileSync(path.join(root, runtimePath), 'combined candidate\n');
+  const localKeys = [
+    'verify-toilet-market', 'verify-bacteria-authoritative-challenges',
+    'verify-bacteria-gates', 'verify-game-loading', 'verify-hospital-hud',
+    'verify-bacteria-ranking', 'verify-game-fault-reports', 'verify-game-epidemic-flow',
+    'verify-game-medical-contest-entry', 'verify-game-client-fingerprint',
+    'verify-game-hospital-skin-fallback', 'verify-game-void-rewards',
+    'verify-bacteria-region-covers', 'verify-game-doorplate-ui', 'verify-bacteria-result-ui',
+    'verify-bacteria-entry-style', 'verify-game-steam-auth', 'verify-game-special-clinic-atlas',
+    'verify-design-level-packages', 'verify-game-potion-lab', 'verify-game-emergency-guard'
+  ];
+  writeReleaseImpact(root, {
+    assessmentId: '20261015-combined-publisher-checks', coveredRuntimePaths: [runtimePath],
+    checklistDecision: 'checklist-updated',
+    requiredChecks: [
+      'test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
+      'final-runtime-check', 'verify-game-static-delivery',
+      'verify-game-steam-runtime', 'verify-game-emergency-guard-runtime', ...localKeys
+    ]
+  });
+  runGit(root, ['add', '.']);
+  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'combined candidate']);
+  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
+  const preflight = plan.steps.find(step => step.key === 'validate-game-release-preflight');
+  const encoded = preflight.command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/)[1];
+  const {decodeChecks} = await import('../scripts/run-game-release-preflight.mjs');
+  const checks = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')).checks;
+  assert.deepEqual(checks.map(check => check.key).sort(), [...localKeys].sort());
+  assert(checks.length > 20, 'valid registrations must not be limited by the old payload cap');
+  await t.test('decoding accepts the complete selected registered check set', () => {
+    assert.deepEqual(decodeChecks(encoded), checks);
+  });
+  await t.test('outer timeout preserves all selected per-check budgets', () => {
+    assert.equal(preflight.timeoutSeconds, checks.reduce((total, check) => total + check.timeoutSeconds, 60));
+    assert(preflight.timeoutSeconds > 3600, 'the outer budget must preserve all selected checks');
+  });
+  for (const check of checks) {
+    const step = plan.steps.find(item => item.key === check.key);
+    assert.equal(step.timeoutSeconds, check.timeoutSeconds);
+    assert.equal(step.coveredByPreflight, preflight.key);
+    assert.equal(step.command, check.command);
+  }
+  assert.equal(checks.find(check => check.key === 'verify-toilet-market').timeoutSeconds, 180);
 });
 
 test('uses an observing committed game target as the next production baseline', () => {

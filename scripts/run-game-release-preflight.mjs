@@ -13,7 +13,7 @@ export function decodeChecks(encoded) {
     throw new Error('预检清单编码无效');
   }
   const payload = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8'));
-  if (payload?.version !== 1 || !Array.isArray(payload.checks) || payload.checks.length > 20) {
+  if (payload?.version !== 1 || !Array.isArray(payload.checks)) {
     throw new Error('预检清单结构无效');
   }
   const keys = new Set();
