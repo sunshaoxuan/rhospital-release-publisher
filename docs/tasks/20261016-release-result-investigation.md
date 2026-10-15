@@ -4,14 +4,14 @@
 
 Determine whether the most recent relevant release succeeded and explain why the release console contains failed items. Match the job, target, candidate, step outcomes, rollback or recovery, and observed production identity before reporting success.
 
-Follow-up authorization: investigate the cause and fix confirmed publisher-owned gaps. Do not edit game code. Provide an implementation Prompt for any necessary game-code changes. Production deployment, retry, recovery, scaling and configuration mutations remain outside this task.
+Follow-up authorization: investigate the cause and fix confirmed publisher-owned gaps. Do not edit game code. Provide an implementation Prompt for any necessary game-code changes. Production mutations require explicit authorization. The later Authorized Production Recovery section records permission to restore the original Meelok web task and clear its verified old marker; game deployment, retry, database and configuration changes remain outside this task.
 
 ## Scope And Method
 
 - Read-only diagnosis of the release publisher, persisted release records, relevant runtime logs, and designated production state.
 - Identify the current or latest formal release from the live API and persisted job/history records. Separate earlier attempts and dry runs.
 - Trace each relevant failure to its first error, then establish whether deployment, rollback, final checks, and recovery completed.
-- Inspect only the source and release runbooks needed to interpret observed records. Do not release, retry, cancel, restart, scale services, or modify production or product code.
+- Inspect only the source and release runbooks needed to interpret observed records. Investigation stages are read-only. The later authorized recovery defines the sole permitted production writes: original-image restoration, web task recreation and verified old marker clearance. Preserve product code and all other production state.
 - Main agent owns investigation, implementation, decisions and validation. For a cross-module lifecycle fix, obtain bounded Claude advice through the existing Sub2API runner while continuing independent evidence collection. Send only sanitized state logic, no production addresses, credentials or full logs.
 - Keep secrets and authentication details out of outputs and this report.
 
@@ -47,7 +47,7 @@ External advice: Claude model directory queried; exact `claude-opus-4-8` minimal
 
 First full test run: 351/352 passed. One failure identified the missing explicit UI phase assignment. Added the source-phase assignment and pending/running/done/failed regression coverage. Repeat the full suite after this correction and the final Git chunk-buffer change.
 
-## Final Review
+## Initial Review Before Production Recovery
 
 ### Independent Scope Review
 
@@ -67,7 +67,7 @@ First full test run: 351/352 passed. One failure identified the missing explicit
 - PASS: final diff whitespace checks and documentation cross-checks; all official screenshot evidence retained in `docs/evidence/20261016-meelok-readiness`.
 - UNCOMPLETED, scratch cleanup: both `.qa/20261016-test` and `.qa/20261016-ui` were verified as ordinary task-local directories without link targets. Native PowerShell recursive removal was denied by the execution policy, including explicit literal paths. They remain ignored task scratch; no alternate deletion mechanism was used. The fixture server and browser were closed.
 
-### Remaining State And Boundaries
+### State Before Production Recovery Authorization
 
 - FAIL, release outcome: `20261016` did not cut over. Current production Meelok web remains unavailable; production Compose and live game version disagree. This task does not certify production readiness.
 - UNVERIFIED: original Meelok web healthcheck failure, whose container/log evidence is no longer retained. No evidence supports a necessary game-code change, so no game-code patch or speculative game Prompt is produced.
@@ -87,3 +87,20 @@ First full test run: 351/352 passed. One failure identified the missing explicit
 - PASS, follow-up diagnosis: the new early gate refused the unresolved legacy maintenance marker before production writes. This is the intended behavior of `3de7218b`; no new publisher defect or evidence requiring a game-code change was found. No feature validators or broad tests were rerun for this unchanged behavior.
 - PASS, scope: this follow-up changes this investigation document only. No game code, runtime configuration, release history, recovery marker or production service was modified. Documentation verification uses exact latest history fields, first-error logs, live read-only observations and whitespace checks.
 - UNCOMPLETED, operational recovery: Meelok web availability and the old maintenance marker remain unresolved. A separately authorized, narrowly scoped production recovery is needed before another formal release. Preserve the marker until service health and the recovery snapshot have been verified; do not delete it merely to pass the gate. Existing Compose/live game version disagreement also remains recorded for the eventual release or recovery operation.
+
+## Authorized Production Recovery
+
+- User authorization: "是的，立刻恢复", approving restoration of `meelok_web` and clearing the corresponding old recovery marker after all related services pass health verification. This supersedes the previous no-recovery boundary only for this bounded operation.
+- Method: read fresh publisher-idle state, original snapshot, service identities, replicas, health and available memory. If identities match, recreate only the missing web task with its current immutable image and configuration. Preserve the other four services, game task, Compose, database and release records. Observe startup with a bounded health wait and collect new diagnostic evidence if it fails.
+- Completion: all five services return their snapshot replica/image identities with healthy or unconfigured healthchecks; game remains the same healthy singleton; verify no concurrent marker change before clearing exactly the authorized old marker; run the publisher's read-only readiness gate once after clearing. Keep original backup/snapshot and all release history.
+- Safety: retain the marker on any health, identity, memory or ownership failure. Do not deploy a game image, reconcile Compose, run migrations, change credentials or alter game code. Original web failure remains unproven until new evidence supports a cause.
+- Validation: real production service/container observations before and after; read-only publisher gate; documentation accuracy and diff checks. No application UI changes or publisher code changes are planned.
+- Status: authorized recovery in progress.
+- At `2026-10-16 07:50:37 JST`, the original-spec web recreation was accepted, then paused with fresh task errors `No such image` for the exact snapshot digest. Game stayed healthy and the marker was preserved. The missing local image is a confirmed current recovery blocker; it does not prove the cause of older healthcheck failures.
+- Exact-digest registry pull was denied. The original `/opt/meelok/releases/0.1.0-beta.9-7a5401d/images.tar` remains on the host. Its OCI index contains the exact original web manifest digest. Next minimum recovery step: verify its recorded checksum and content identity, load that unchanged release archive, then recreate only the web task. No image build, tag substitution or service version change is authorized.
+- Production operation evidence is maintained in `C:/workspace/rhospital/docs/investigations/20261016-meelok-web-recovery/RECOVERY.md`; this document retains publisher task scope and the final readiness result.
+- PASS, authorized recovery: restored the verified original release archive, recreated the same immutable web image, and observed the same healthy web task through the completed Swarm update plus 90 seconds of additional sampling. At `2026-10-16 07:56:10 JST`, its five retained healthcheck exit codes were all zero, restarts 0, OOM false.
+- PASS, identity/scope: independent live checks confirmed all five Meelok images match the old snapshot, each has one running instance with healthy or unconfigured healthchecks, and every canonical service Spec is unchanged apart from the web force-update counter. Game and the other four service container IDs, game image, Compose hash and backup pointer were unchanged. No game code, database, migration, release retry or configuration changes occurred.
+- PASS, clearance and acceptance: removed only the exact old marker at `2026-10-16 07:56:32 JST` after health/ownership verification. Original snapshot and archive remain intact. Executed the unchanged publisher-generated read-only gate once: `meelok_readiness=PASS services=5`. Both public domains returned HTTP 200 HTML with branding and verified TLS at `07:56:42-43 JST`; the origin's four locale pages also returned 200.
+- COMPLETE, requested recovery: Meelok availability and this release blocker are resolved. The historical failed release results remain unchanged. Game production is still `20261011`; the pre-existing Compose `20261016` discrepancy awaits a separately authorized release/reconciliation. Full signed-in business workflows were not exercised; older healthcheck failure and the origin of the missing image remain unproven.
+- Verification scope: real production recovery and read-only checks, document accuracy and whitespace checks. Publisher/game source code and UI were unchanged; no broad application tests were rerun.
