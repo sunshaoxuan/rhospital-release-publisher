@@ -713,6 +713,66 @@ test('validates and applies changed database migrations before switching the pro
   assertStepType(plan, 'apply-database-migrations', 'production', true);
 });
 
+function technologyPlanFixture(extraSql = '') {
+  const root = tempProject(sampleXml);
+  const paths = ['scripts/migration/20261016_bound_supervision_income.sql', 'scripts/migration/20261016_technology_catalog.sql'];
+  for (const [index, filePath] of paths.entries()) {
+    const target = path.join(root, filePath);
+    fs.mkdirSync(path.dirname(target), {recursive: true});
+    fs.writeFileSync(target, ['\\set ON_ERROR_STOP on', 'BEGIN;', "SET LOCAL lock_timeout = '10s';",
+      "SET LOCAL statement_timeout = '120s';", `ALTER TABLE t_hospitals ADD COLUMN IF NOT EXISTS tech_fixture_${index} bigint;`,
+      index === 1 ? extraSql : '', 'COMMIT;', 'SELECT 1;'].join('\n'));
+  }
+  const request = {appTag: '2026101901', dryRun: true, includeStackDeploy: true, gitCommit: 'latest',
+    changeAnalysis: {targets: {game: {changedPaths: paths}}}};
+  const env = {RELEASE_PUBLISHER_TEST_MODE: 'true', RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'history.json')};
+  return {root, paths, request, env};
+}
+
+test('technology format plan places verified offline backup before DDL and guards every downstream phase', () => {
+  const {root, request, env} = technologyPlanFixture();
+  const plan = createPlan(root, request, env);
+  const step = key => plan.steps.find(row => row.key === key);
+  assert.ok(plan.steps.indexOf(step('backup-game-release')) < plan.steps.indexOf(step('technology-offline-cutover')));
+  assert.ok(plan.steps.indexOf(step('technology-offline-cutover')) < plan.steps.indexOf(step('apply-database-migrations')));
+  assert.equal(step('technology-offline-cutover').recoveryBoundary, true);
+  for (const key of ['apply-database-migrations', 'pre-deploy-checklist', 'deploy-stack']) {
+    const script = decodedScriptTree(step(key).command);
+    assert.match(script, /technology-offline-backup\.verified/);
+    assert.match(script, /technology target image changed/);
+    assert.match(script, /assert_game_stopped/);
+  }
+  assert.doesNotMatch(decodedScriptTree(step('apply-database-migrations').command), /availability_monitor_pid|no healthy application container/);
+  assert.match(decodedScriptTree(step('apply-database-migrations').command), /assert_no_database_writers/);
+  assert.match(decodedScriptTree(step('update-remote-compose').command), /technology-quiesced\.inspect\.json/);
+  assert.doesNotMatch(decodedScriptTree(step('deploy-stack').command), /no healthy old container|old healthy container disappeared/);
+  const rollback = decodedScriptTree(step('game-rollback-command').command);
+  assert.ok(rollback.indexOf('technology_rollback_compatibility=PASS') < rollback.indexOf('suspending all ACTIVE ADMIN'));
+  assert.throws(() => createPlan(root, {...request, requireStandbyCandidate: true}, env), /single active writer/);
+});
+
+test('technology stop, migration and post-cutover failures require recovery without old-image rollback', async () => {
+  for (const failure of ['technology_offline_cutover=PASS', 'database_migrations_applied=2', 'game_cutover_observation=PASS']) {
+    const {root, request, env} = technologyPlanFixture();
+    const runner = testCommandRunner({failOnIncludes: failure});
+    const result = await executePlan(root, {...request, dryRun: false}, env, {runCommand: runner});
+    assert.equal(result.status, 'RECOVERY_REQUIRED', failure + '\n' + result.logs.join('\n'));
+    assert.equal(runner.commands.some(command => decodedScriptTree(command).includes('automatic_rollback_validation=PASS')), false);
+  }
+});
+
+test('protective truncate trigger is accepted while actual truncation stays blocked', () => {
+  const protective = 'CREATE TRIGGER no_truncate BEFORE TRUNCATE ON t_technology_catalog_publication FOR EACH STATEMENT EXECUTE FUNCTION immutable_publication();';
+  const good = technologyPlanFixture(protective);
+  assert.doesNotThrow(() => createPlan(good.root, good.request, good.env));
+  for (const destructive of ['TRUNCATE t_hospitals;', protective + '\nTRUNCATE TABLE t_hospitals;']) {
+    const bad = technologyPlanFixture(destructive);
+    assert.throws(() => createPlan(bad.root, bad.request, bad.env), /TRUNCATE/i);
+  }
+});
+
 test('orders catalog migrations by declared release hash dependencies', () => {
   const root = tempProject(sampleXml);
   const migrationDir = path.join(root, 'scripts', 'migration');

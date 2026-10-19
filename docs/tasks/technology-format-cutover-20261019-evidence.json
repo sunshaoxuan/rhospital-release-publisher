@@ -1,0 +1,21 @@
+{
+  "recordedAt": "2026-10-19T12:18:06.040Z",
+  "environment": "Local Windows Node and Git Bash mocks; no production execution",
+  "branch": "main",
+  "tests": {
+    "total": 369,
+    "passed": 369,
+    "failed": 0,
+    "skipped": 0,
+    "durationMs": 403676.4908
+  },
+  "sourceSha256": {
+    "src/gameTechnologyFormatCutover.js": "c4ff2225665933dcb0f45217b12447c44e7873e59c9aa0b326515a470fd05f87",
+    "src/releasePublisherCore.js": "d9482a1e72af6a4fb3de4e05ecc20fad10833f651823391faa1947fc314a8f83",
+    "src/gameFormalProductionTransition.js": "8ed3103b032a1d14c8c518937880d3c70655ae4d3db75070189ff02c996e8c05",
+    "test/gameTechnologyFormatCutover.test.js": "85e42ea9851128e91da2f38286781aa4b7d44a218f137a9e7fdbbfc5d52f725a",
+    "test/releasePublisherCore.test.js": "9e896e245dd1648d160c56baffc12a59d0046075139ea903f64b98f2fe6d05af"
+  },
+  "productionExecuted": false
+}
+
