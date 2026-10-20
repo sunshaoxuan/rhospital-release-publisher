@@ -713,6 +713,30 @@ test('validates and applies changed database migrations before switching the pro
   assertStepType(plan, 'apply-database-migrations', 'production', true);
 });
 
+test('opportunity conversion has a verified backpack backup before its SQL executes', () => {
+  const root = tempProject(sampleXml);
+  const migrationPath = require('../src/bacteriaInventoryBackup').MIGRATION;
+  fs.mkdirSync(path.dirname(path.join(root, migrationPath)), {recursive: true});
+  fs.writeFileSync(path.join(root, migrationPath), [
+    '\\set ON_ERROR_STOP on', 'BEGIN;', "SET LOCAL lock_timeout='5s';",
+    "SET LOCAL statement_timeout='120s';", 'SELECT 1;', 'COMMIT;', 'SELECT 1;'
+  ].join('\n'));
+  const plan = createPlan(root, {appTag: '2026102002', dryRun: true,
+    includeStackDeploy: true, gitCommit: 'latest',
+    changeAnalysis: {targets: {game: {changedPaths: [migrationPath]}}}}, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
+  });
+  const backup = decodedScriptTree(plan.steps.find(step => step.key === 'backup-game-release').command);
+  const apply = decodedScriptTree(plan.steps.find(step => step.key === 'apply-database-migrations').command);
+  assert.match(backup, /pg_dump --format=custom --table=public.t_backpack/);
+  assert.ok(backup.indexOf('game_database_identity=PASS') < backup.indexOf('pg_dump'));
+  assert.ok(backup.indexOf('pg_dump') < backup.indexOf('bacteria_inventory_backup=PASS'));
+  assert.ok(apply.indexOf('bacteria_inventory_backup=PASS') > 0);
+  assert.ok(apply.indexOf('bacteria_inventory_backup=PASS') < apply.indexOf('< "$migration_file"'));
+});
+
 function technologyPlanFixture(extraSql = '') {
   const root = tempProject(sampleXml);
   const paths = ['scripts/migration/20261016_bound_supervision_income.sql', 'scripts/migration/20261016_technology_catalog.sql'];

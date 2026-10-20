@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const {spawn, spawnSync} = require('child_process');
 const {buildReleaseDiagnostics, addSemanticDiagnosis} = require('./releaseDiagnostics');
 const {GAME_DATABASE, gameDatabasePsqlCommand, gameDatabaseContainerResolutionCommands} = require('./gameProductionDatabase');
+const {bacteriaInventoryBackupCommands, verifyBacteriaInventoryBackupCommands} = require('./bacteriaInventoryBackup');
 const {gameFormalComposeCommands, gameServiceSnapshotCommands} = require('./gameFormalProductionTransition');
 const {gameMeelokStatusCommands, gameMeelokPauseCommands, gameMeelokRestoreCommands} = require('./gameMeelokMaintenance');
 const {expectedTomcatVersion, tomcatJarCheckScript} = require('./tomcatSecurityCheck');
@@ -3993,6 +3994,7 @@ function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName, ex
     'docker cp "$container_id:$container_backup_dir/." "$backup_dir/database/"',
     'docker exec "$container_id" rm -rf "$container_backup_dir"'
   ];
+  commands.push(...bacteriaInventoryBackupCommands(releaseMigrations));
   if (releaseMigrations.some(item => item.filePath === DESIGN_IMAGE_SETTINGS_MIGRATION)) commands.push(
     'legacy_image_settings="$PWD/data/private/design-image.json"',
     'if [ -f "$legacy_image_settings" ]; then test -s "$legacy_image_settings" && cp "$legacy_image_settings" "$backup_dir/design-image.json"; fi'
@@ -4235,6 +4237,7 @@ CROSS JOIN ownership_mismatches;
     'target_image_id=$(docker image inspect "$target_image" --format \'{{.Id}}\')',
     'printf "%s|%s\n" "$target_image" "$target_image_id" > "$backup_dir/database/migrations/migration-image-source.txt"',
     ...gameDatabaseContainerResolutionCommands(!offline),
+    ...verifyBacteriaInventoryBackupCommands(releaseMigrations),
     `database_name=${shellToken(GAME_DATABASE_NAME)}`,
     ...(offline ? ['assert_no_database_writers'] : [
     'availability_failures="$backup_dir/database/migrations/availability-failures.log"',

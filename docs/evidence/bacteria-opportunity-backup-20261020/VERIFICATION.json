@@ -1,0 +1,17 @@
+{
+  "sourceSha256Lf": {
+    "src/bacteriaInventoryBackup.js": "69eb91b709ea70587e512bd62f6c387288fdb7c9967e87cfae7278987a6bd537",
+    "src/releasePublisherCore.js": "a61f0444bb56234a1c7fc350762d18e0b0c360a241657d7ffb2c9b3974f6e7b8",
+    "test/bacteriaInventoryBackup.test.js": "ee344580bbe3b7000162b1c991806313645ae2e9f18e73fa07076d325142c96b",
+    "test/releasePublisherCore.test.js": "624665eee7435aa5e4cb60d6b45790d1261cfb5b5933c11c452e2aab23d93b02"
+  },
+  "productionExecuted": false,
+  "result": "PASS",
+  "base": "8363d02c185adc42b1b88f816def986fe4c93fc2",
+  "tests": {
+    "passed": 397,
+    "skipped": 0,
+    "total": 397,
+    "failed": 0
+  }
+}
