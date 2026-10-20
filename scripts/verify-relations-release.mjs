@@ -1,6 +1,7 @@
 import {pathToFileURL} from 'node:url';
 
 import {
+  chromeCleanupEvidence,
   evaluate,
   isBrowserInfrastructureFailure,
   isIgnoredTelemetryEntry,
@@ -912,6 +913,7 @@ async function runProbeWithInfrastructureRetry(options, {
         throw error;
       }
     } catch (error) {
+      if (error.probeResult) error.relationsReleaseEvidence = relationsFailureEvidence(error.probeResult);
       const retryable = isBrowserInfrastructureFailure({error});
       if (!retryable || attempt > infrastructureRetries) throw error;
       onRetry({attempt, nextAttempt: attempt + 1});
@@ -985,6 +987,11 @@ export async function runRelationsRelease(args, {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   runRelationsRelease(parseArgs(process.argv.slice(2))).catch(error => {
+    if (error.chromeDiagnostic) console.error(`relations_release_browser_diagnostic=${JSON.stringify(safeErrorMessage(error.chromeDiagnostic))}`);
+    if (error.chromeCleanupErrors?.length) {
+      const evidence = chromeCleanupEvidence(error).map(entry => ({...entry, message: safeErrorMessage(entry.message)}));
+      console.error(`relations_release_cleanup=FAIL evidence=${JSON.stringify(evidence)}`);
+    }
     if (error?.relationsReleaseEvidence) {
       console.error(`relations_release_failure_evidence=${JSON.stringify(error.relationsReleaseEvidence)}`);
     }

@@ -290,6 +290,7 @@ SMTP 探针保留既有 `AUTH PLAIN`，认证拒绝立即报告该阶段状态�
 6. Steam 域名使用同一前置独立加载，必须枚举到至少一个 ES 模块，并要求全部 JavaScript 模块成功且包含缓存状态。
 7. 游戏页面的浏览器运行时错误、控制台错误和加载器错误均会阻止发布完成。主机名精确匹配 `bam.nr-data.net` 的 New Relic 上报失败会单独计数和保留证据，不参与游戏健康判定；其他第三方或应用错误继续阻止发布。
 8. Chrome 软件 WebGL 使用 Chromium 当前支持的 SwANGLE 启动组合 `--use-gl=angle --use-angle=swiftshader-webgl --enable-unsafe-swiftshader`。每个 CDP 请求使用独立硬超时。`Framebuffer Unsupported`、CDP 超时、目标关闭和浏览器进程异常会使用全新 Chrome profile 隔离复测一次。复测会记录失败证据和尝试次数。重复基础设施异常、应用运行错误、资源错误和网络错误继续失败关闭。
+9. 每次探针先通过浏览器 CDP 端点请求 `Browser.close` 并等待进程关闭；超时后在 Windows 上对本次探针 PID 执行有时限的 `taskkill /T /F`，核对结果并等待关闭事件。确认退出后异步删除本次 profile，针对临时文件锁最多重试 10 次，线性退避基数为 100 ms。退出未确认时保留 profile 并失败关闭。探针原始错误对象和堆栈保留，清理错误单独输出；仅清理失败时保留已采集结果并阻断验收。存在清理失败时不启动基础设施隔离复测。关系图探针共享这一生命周期，致命回滚判定条件保持不变。
 
 登录 token 只从本地受控文件读取。正式发布计划优先把 `release-publisher.config.json` 中 `gameStaticDelivery.authTokenFile` 配置的文件路径作为 `--auth-token-file` 参数显式传给前置检查和发布后验收，避免 Windows 服务用户配置单元未加载时丢失用户级环境变量；独立命令仍可使用 `RHOSPITAL_RELEASE_AUTH_TOKEN_FILE`。文件可以保存原始 token 或 `token=<value>`，脚本不会输出 token。token 必须符合游戏服务签发格式，并在检查时至少保留两小时有效期。缺少文件、格式错误、临近到期、Chrome、前置地址或任一验收证据时检查失败关闭。节点 IP、网页域名和 Steam 域名可分别通过 `RHOSPITAL_RIVEN_GATE_IP`、`RHOSPITAL_VMISS_GATE_IP`、`RHOSPITAL_GAME_HOST` 与 `RHOSPITAL_STEAM_HOST` 覆盖。
 

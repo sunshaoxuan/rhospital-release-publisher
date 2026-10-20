@@ -3,7 +3,7 @@ import http from 'node:http';
 import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 const DEFAULT_GATEWAYS = [
@@ -171,19 +171,20 @@ async function waitForFile(
   browserSpawnError = () => null
 ) {
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (fs.existsSync(filePath) && fs.statSync(filePath).size > 0) return;
+  while (true) {
     if (browserSpawnError()) {
       throw new BrowserInfrastructureError(
         `Chrome failed to start: ${browserSpawnError().message}`,
         'CHROME_SPAWN_FAILURE');
     }
-    if (child && child.exitCode !== null) {
+    if (child && (child.exitCode !== null || child.signalCode !== null)) {
       throw new BrowserInfrastructureError(
         `Chrome exited before DevTools became ready, code=${child.exitCode}${browserDiagnosticSuffix(browserStderr())}`,
         'CHROME_EARLY_EXIT');
     }
-    await delay(100);
+    if (fs.existsSync(filePath) && fs.statSync(filePath).size > 0) return;
+    if (Date.now() >= deadline) break;
+    await delay(Math.min(100, deadline - Date.now()));
   }
   throw new BrowserInfrastructureError(
     `Timed out waiting for Chrome debugging file after ${timeoutMs}ms${browserDiagnosticSuffix(browserStderr())}`,
@@ -352,54 +353,153 @@ export function chromeArguments(userDataDir, extraArguments = []) {
   ];
 }
 
-async function stopChrome(child, timeoutMs = 3000) {
-  if (!child || child.exitCode !== null) return;
-  child.kill();
-  await Promise.race([
-    new Promise(resolve => child.once('close', resolve)),
-    delay(timeoutMs)
-  ]);
-  if (child.exitCode !== null) return;
-  if (process.platform === 'win32' && child.pid) {
-    spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {stdio: 'ignore', windowsHide: true});
-  } else {
-    try { child.kill('SIGKILL'); } catch {}
+function observeChromeClose(child) {
+  let closed = false;
+  const completion = new Promise(resolve => child.once('close', () => {
+    closed = true;
+    resolve(true);
+  }));
+  return {
+    get closed() { return closed; },
+    async wait(timeoutMs) {
+      if (closed) return true;
+      let timer;
+      try {
+        return await Promise.race([
+          completion,
+          new Promise(resolve => { timer = setTimeout(() => resolve(false), timeoutMs); })
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+  };
+}
+
+async function stopChrome(child, closed, browserUrl, {createClient, runFile, platform, shutdownTimeoutMs}) {
+  if (!child || closed.closed) return;
+  let gracefulError;
+  if (browserUrl && child.exitCode === null && child.signalCode === null) {
+    let browser;
+    try {
+      browser = createClient(browserUrl, shutdownTimeoutMs);
+      await browser.open();
+      await browser.send('Browser.close', {}, shutdownTimeoutMs);
+    } catch (error) {
+      // Browser.close may disconnect CDP before acknowledging the command.
+      gracefulError = error;
+    } finally {
+      try { browser?.close(); } catch {}
+    }
+    if (await closed.wait(shutdownTimeoutMs)) return;
+  }
+  if (!closed.closed && child.exitCode === null && child.signalCode === null && child.pid) {
+    try {
+      if (platform === 'win32') {
+        await new Promise((resolve, reject) => runFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+          windowsHide: true,
+          timeout: shutdownTimeoutMs
+        }, error => error ? reject(error) : resolve()));
+      } else {
+        child.kill('SIGKILL');
+      }
+    } catch (error) {
+      // A concurrent natural exit is successful only once close is observed.
+      if (await closed.wait(shutdownTimeoutMs)) return;
+      throw new Error(`Chrome process-tree shutdown failed: ${error.message}`, {cause: error});
+    }
+  }
+  if (!await closed.wait(shutdownTimeoutMs)) {
+    throw new Error(`Chrome did not close within ${shutdownTimeoutMs}ms`, {cause: gracefulError});
   }
 }
 
-export async function useChromeTarget({chromePath, extraArguments = [], startupTimeoutMs, cdpTimeoutMs}, action) {
+export function chromeCleanupEvidence(error) {
+  return (error?.chromeCleanupErrors || []).map(entry => ({
+    phase: entry.phase,
+    code: entry.error?.code,
+    message: String(entry.error?.message || entry.error)
+  }));
+}
+
+export async function useChromeTarget(
+  {chromePath, extraArguments = [], startupTimeoutMs, cdpTimeoutMs}, action, {
+    spawnProcess = spawn,
+    runFile = execFile,
+    createClient = (url, timeoutMs) => new CdpClient(url, {requestTimeoutMs: timeoutMs}),
+    requestTarget = requestJson,
+    removeProfile = (directory, options) => fs.promises.rm(directory, options),
+    platform = process.platform,
+    shutdownTimeoutMs = 3000
+  } = {}
+) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rhospital-release-smoke-'));
   const debugFile = path.join(userDataDir, 'DevToolsActivePort');
   const stderr = [];
   let spawnError = null;
-  const child = spawn(chromePath, chromeArguments(userDataDir, extraArguments), {
-    stdio: ['ignore', 'ignore', 'pipe'],
-    windowsHide: true
-  });
-  child.once('error', error => { spawnError = error; });
-  child.stderr?.on('data', chunk => stderr.push(chunk.toString()));
   const browserStderr = () => stderr.join('').slice(-2000);
-
+  let child;
+  let closed;
+  let browserUrl;
   let client;
+  let result;
+  let primaryError;
+  let probeFailed = false;
   try {
+    child = spawnProcess(chromePath, chromeArguments(userDataDir, extraArguments), {
+      stdio: ['ignore', 'ignore', 'pipe'],
+      windowsHide: true
+    });
+    closed = observeChromeClose(child);
+    child.once('error', error => { spawnError = error; });
+    child.stderr?.on('data', chunk => stderr.push(chunk.toString()));
     if (spawnError) {
       throw new BrowserInfrastructureError(`Chrome failed to start: ${spawnError.message}`, 'CHROME_SPAWN_FAILURE');
     }
     await waitForFile(debugFile, startupTimeoutMs, child, browserStderr, () => spawnError);
-    const [port] = fs.readFileSync(debugFile, 'utf8').trim().split(/\r?\n/);
-    const target = await requestJson(`http://127.0.0.1:${port}/json/new?about%3Ablank`, 'PUT', cdpTimeoutMs);
-    client = new CdpClient(target.webSocketDebuggerUrl, {requestTimeoutMs: cdpTimeoutMs});
+    const [port, browserPath] = fs.readFileSync(debugFile, 'utf8').trim().split(/\r?\n/);
+    browserUrl = `ws://127.0.0.1:${port}${browserPath}`;
+    const target = await requestTarget(`http://127.0.0.1:${port}/json/new?about%3Ablank`, 'PUT', cdpTimeoutMs);
+    client = createClient(target.webSocketDebuggerUrl, cdpTimeoutMs);
     await client.open();
-    return await action(client);
+    result = await action(client);
+    return result;
   } catch (error) {
-    if (error instanceof BrowserInfrastructureError) {
-      error.message += browserDiagnosticSuffix(browserStderr());
+    probeFailed = true;
+    primaryError = error;
+    if (error instanceof BrowserInfrastructureError && browserStderr()) {
+      error.chromeDiagnostic = browserDiagnosticSuffix(browserStderr());
     }
     throw error;
   } finally {
     try { client?.close(); } catch {}
-    await stopChrome(child);
-    fs.rmSync(userDataDir, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
+    const cleanupErrors = [];
+    try {
+      await stopChrome(child, closed, browserUrl, {createClient, runFile, platform, shutdownTimeoutMs});
+    } catch (error) {
+      cleanupErrors.push({phase: 'shutdown', error});
+      child?.unref();
+      child?.stderr?.destroy();
+    }
+    if (cleanupErrors.length === 0) {
+      try {
+        await removeProfile(userDataDir, {recursive: true, force: true, maxRetries: 10, retryDelay: 100});
+      } catch (error) {
+        cleanupErrors.push({phase: 'profile', error});
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      if (probeFailed) {
+        primaryError.chromeCleanupErrors = cleanupErrors;
+      } else {
+        const error = new AggregateError(cleanupErrors.map(entry => entry.error),
+          `Chrome cleanup failed: ${cleanupErrors.map(entry => `${entry.phase}: ${entry.error.message}`).join('; ')}`);
+        error.code = 'CHROME_CLEANUP_FAILURE';
+        error.chromeCleanupErrors = cleanupErrors;
+        if (result !== undefined) error.probeResult = result;
+        throw error;
+      }
+    }
   }
 }
 
@@ -662,17 +762,20 @@ function hasIgnoredTelemetryHost(value) {
 }
 
 export function probeFailureEvidence(result, limit = 10) {
-  const failedResponses = result.responses.filter(entry => Number(entry.status) >= 400);
-  const networkFailures = result.failures.filter(entry => !entry.canceled);
+  const responses = Array.isArray(result?.responses) ? result.responses : [];
+  const failures = Array.isArray(result?.failures) ? result.failures : [];
+  const runtimeErrors = Array.isArray(result?.runtimeErrors) ? result.runtimeErrors : [];
+  const failedResponses = responses.filter(entry => Number(entry.status) >= 400);
+  const networkFailures = failures.filter(entry => !entry.canceled);
   return {
     gateway: result.gateway,
     host: result.host,
     route: result.route,
     state: result.state,
     failures: networkFailures.filter(entry => !isIgnoredTelemetryEntry(entry)).slice(0, limit),
-    runtimeErrors: result.runtimeErrors.filter(entry => !isIgnoredTelemetryEntry(entry)).slice(0, limit),
+    runtimeErrors: runtimeErrors.filter(entry => !isIgnoredTelemetryEntry(entry)).slice(0, limit),
     ignoredTelemetryFailures: networkFailures.filter(isIgnoredTelemetryEntry).slice(0, limit),
-    ignoredTelemetryRuntimeErrors: result.runtimeErrors.filter(isIgnoredTelemetryEntry).slice(0, limit),
+    ignoredTelemetryRuntimeErrors: runtimeErrors.filter(isIgnoredTelemetryEntry).slice(0, limit),
     failedResponses: failedResponses.slice(0, limit).map(entry => ({
       url: entry.url,
       status: entry.status,
@@ -706,6 +809,7 @@ function infrastructureErrorMessage(error) {
 }
 
 export function isBrowserInfrastructureFailure({result, error} = {}) {
+  if (error?.chromeCleanupErrors?.length) return false;
   if (error instanceof BrowserInfrastructureError || String(error?.code || '').startsWith('CDP_')) return true;
   if (error && BROWSER_INFRASTRUCTURE_ERROR_PATTERN.test(String(error.message || error))) return true;
   if (!result) return false;
@@ -865,16 +969,24 @@ export async function runStaticDelivery(args, {
   log(`game_static_delivery_validation=PASS probes=${receipts.length}`);
 }
 
+export function reportStaticDeliveryFailure(error, {prerequisites = false, errorLog = console.error} = {}) {
+  if (error.chromeDiagnostic) errorLog(`game_static_delivery_browser_diagnostic=${JSON.stringify(error.chromeDiagnostic)}`);
+  if (error.chromeCleanupErrors?.length) {
+    errorLog(`game_static_delivery_cleanup=FAIL evidence=${JSON.stringify(chromeCleanupEvidence(error))}`);
+  }
+  if (error.probeResult) {
+    errorLog(`game_static_delivery_evidence=${JSON.stringify(probeFailureEvidence(error.probeResult))}`);
+  }
+  const label = prerequisites
+    ? 'game_static_delivery_prerequisites'
+    : 'game_static_delivery_validation';
+  errorLog(`${label}=FAIL ${error.stack || error.message}`);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   const args = parseArgs(process.argv.slice(2));
   runStaticDelivery(args).catch(error => {
-    if (error.probeResult) {
-      console.error(`game_static_delivery_evidence=${JSON.stringify(probeFailureEvidence(error.probeResult))}`);
-    }
-    const label = process.argv.includes('--check-prerequisites')
-      ? 'game_static_delivery_prerequisites'
-      : 'game_static_delivery_validation';
-    console.error(`${label}=FAIL ${error.stack || error.message}`);
+    reportStaticDeliveryFailure(error, {prerequisites: process.argv.includes('--check-prerequisites')});
     process.exitCode = 1;
   });
 }

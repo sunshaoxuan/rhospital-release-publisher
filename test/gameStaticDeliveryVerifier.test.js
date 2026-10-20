@@ -409,3 +409,30 @@ test('repeated browser infrastructure failures stop after the configured retry b
   }), /CDP Runtime\.evaluate timed out/);
   assert.equal(runs, 2);
 });
+
+test('failure receipts retain the original stack, cleanup error and failed-resource evidence', async () => {
+  const {reportStaticDeliveryFailure} = await verifier();
+  const original = new Error('original page failure');
+  const stack = original.stack;
+  original.chromeCleanupErrors = [{phase: 'profile', error: Object.assign(new Error('locked profile'), {code: 'EPERM'})}];
+  original.probeResult = passingResult({responses: [{url: 'https://game.example.test/assets/main.js', status: 503}]});
+  const lines = [];
+  reportStaticDeliveryFailure(original, {errorLog: line => lines.push(line)});
+  assert.match(lines[0], /game_static_delivery_cleanup=FAIL.*EPERM.*locked profile/);
+  assert.match(lines[1], /game_static_delivery_evidence=.*main.js.*503/);
+  assert.equal(lines[2], `game_static_delivery_validation=FAIL ${stack}`);
+  assert.doesNotMatch(lines.join('\n'), /=PASS/);
+});
+
+test('capability cleanup failure emits the prerequisite failure without crashing evidence formatting', async () => {
+  const {reportStaticDeliveryFailure} = await verifier();
+  const error = Object.assign(new Error('Chrome cleanup failed'), {
+    probeResult: {context: true, complete: true},
+    chromeCleanupErrors: [{phase: 'profile', error: Object.assign(new Error('locked'), {code: 'EBUSY'})}]
+  });
+  const lines = [];
+  reportStaticDeliveryFailure(error, {prerequisites: true, errorLog: line => lines.push(line)});
+  assert.match(lines.join('\n'), /game_static_delivery_cleanup=FAIL.*EBUSY/);
+  assert.match(lines.join('\n'), /game_static_delivery_prerequisites=FAIL Error: Chrome cleanup failed/);
+  assert.doesNotMatch(lines.join('\n'), /=PASS/);
+});

@@ -4,7 +4,9 @@
 
 Explain the supplied `verify-game-static-delivery.mjs --app-tag 2026102001` failure. Identify the failing stage, browser/profile lifecycle, and what the preceding browser PASS proves. Distinguish confirmed facts from unresolved runtime causes.
 
-## Method And Boundaries
+Follow-up authorization: fix publisher-owned Chrome shutdown and temporary-profile cleanup, preserve original probe errors, add regression tests, run required checks, and commit. No release, production access or production-state mutation. The implementation section below supersedes the earlier diagnosis-only scope for these local changes only.
+
+## Original Investigation Method And Boundaries
 
 - Main agent performs this bounded root-cause investigation directly.
 - Trace the supplied stack through `useChromeTarget`, `runValidatedChromeProbe`, and `runStaticDelivery`, including process shutdown and cleanup exception handling.
@@ -41,10 +43,40 @@ Explain the supplied `verify-game-static-delivery.mjs --app-tag 2026102001` fail
 - PASS: persisted-history error and call-site correlation; source/policy identities recorded; exact failed directory existence and bounded Chrome-process query.
 - Not executed: real Chrome fault reproduction, production delivery probes, feature acceptance chains, full `npm test`, deployment or rollback. No executable code, UI, check policy, business data, or production configuration changed. No task temporary artifacts were created.
 
-## Final Review
+## Original Investigation Final Review
 
 - PASS: exact failing operation, stage, PASS-marker scope, error propagation, and repair direction identified.
 - PASS: lifecycle limitations distinguished from the unconfirmed operating-system cause; historical release state distinguished from current production health.
 - UNVERIFIED: exact permission/handle owner at failure time, the failing Steam page's original result, and current production health. These limitations do not prevent explaining the supplied failure.
 - PASS: affected scope is publisher browser-probe cleanup; feature selection and all mandatory safety checks remain unchanged; no cross-feature dependencies were added or removed.
-- Documentation validation and commit are recorded by the final command receipts. Diagnosis complete within the read-only operational scope; implementation is outside this request.
+- Diagnosis was committed as `23dd201`. The later authorization and implementation scope below govern the repair.
+
+## Authorized Local Implementation
+
+- Objective: reliable bounded shutdown of the probe-owned Chrome process, asynchronous profile removal after shutdown, and original-error/evidence preservation across cleanup failures. Cleanup-only failure must remain blocking.
+- Main agent owns design, implementation, review, commands and acceptance. Attempt one bounded Claude advisory review for asynchronous process lifecycle risks through the existing Sub2API runner; use the authorized fallback chain on failure and send only sanitized lifecycle code and requirements. External advice grants no project control.
+- First inspect shared consumers of `useChromeTarget` and `runChromeProbe`, current Node/CDP APIs and existing test patterns. Keep the helper in its current module unless a concrete boundary requires separation; introduce no new dependency or runtime compatibility layer.
+- Validate shutdown ordering and ownership, asynchronous directory retries, exhausted retries, startup/connection/action failures, already-exited processes, timeout/forced termination, preserved primary errors, preserved probe evidence, and blocking cleanup failures with focused positive/negative tests.
+- Double Check round one: review unchanged check keys, commands, timeouts and entrypoints. Round two: inspect transitive callers (relations and fatal rollback) and cleanup/error data flow; run their smallest relevant unit regressions, without feature acceptance chains or production evidence reads.
+- Run one real local Chrome verification session on `about:blank` using repository-local temporary storage and no production credentials/requests. Cover normal return, original action failure and forced shutdown with separate owned browsers. Verify exit, profile removal, returned results and primary-error preservation. No product UI is changed; UI screenshot acceptance is inapplicable.
+- Run focused tests, `npm test`, syntax checks and `git diff --check`. Fix task-related failures, remove task temporary artifacts, review the final diff, update README/CHANGELOG and this record, then commit only this task's changes.
+- Acceptance: original probe error identity/stack and useful evidence remain available; cleanup cannot produce false PASS or unsafe retry; all bounded local tests and required project checks pass; no owned Chrome/profile leftovers or production actions; final review records actual results and unresolved risks.
+
+## Implementation Results
+
+- Implemented: browser-endpoint `Browser.close`, early close observation, bounded asynchronous owned-tree termination and status checking, close confirmation, then asynchronous `fs.promises.rm` with ten retries and 100 ms linear-backoff base. Unconfirmed shutdown retains the profile and fails closed; no global/name-based process termination.
+- Original action error object, message, stack and attached evidence survive cleanup failure. Cleanup-only errors retain the completed action result. Separate cleanup diagnostics block PASS and infrastructure retry. Browser stderr remains separate from the original error. Capability-only evidence formatting cannot replace the cleanup error. Relations preserves its sanitized evidence and shared fail-closed classification; fatal rollback conditions are unchanged.
+- External advice: the highest exposed Claude model's minimal request returned HTTP 503 twice. The configured DeepSeek fallback returned bounded text-only advice. Main-agent review retained early close observation, bounded waits, tree ownership, asynchronous removal and primary-error preservation. An exit code without close remains blocking to avoid deleting a possibly live profile or targeting a reused PID. No external model edited the project, ran tests or received credentials/production configuration.
+- Initial regressions exposed startup-error classification at the deadline and a blocking test lock fixture. The deadline loop now checks spawn/signal exit before reporting timeout. The Windows lock fixture uses a fixed holding period and bounded startup; its actual `EBUSY` and modeled `EPERM` cases are covered.
+- PASS: 69 focused tests before the final evidence-formatting additions. Covered lifecycle success/failure, signal exit, startup/connection/action failures, forced termination failure/timeout, retry isolation and actual Windows exclusive-file-lock release. Final required suite results follow below.
+- PASS: real local Chrome verification session with three `about:blank` probes: normal return with WebGL 2, original Error/stack preservation, and actual Windows forced process-tree termination. All three root PIDs exited and all three profiles were removed. Production application requests: zero.
+- Double Check round one: `src/localCheckPolicy.js` SHA-256 remains `8fc5ca10bf651eb9d67dce1e8aca77884bc7b9ed798d22acf039e307e7b42e7d`; no selected keys, commands, timeouts, registered entrypoints or success protocols changed. Round two: inspected static-delivery, relations and fatal-evaluator transitive calls. Only owned browser shutdown/error reporting changed. No feature-validator/evidence dependencies added; no feature acceptance chain or production operation executed. Their scoped unit tests are included in the focused/full checks.
+- First required `npm test`: 394 tests, 393 PASS, one FAIL, zero skipped/cancelled. The unmodified `gameStandbyCandidate` lock test encountered Windows `EPERM` in `renameSync(candidate.json.tmp, candidate.json)` before its expected lock refusal. Its source does not import the changed Chrome helper. The exact failed test then passed alone (one test, zero skipped). The operating-system cause was not established. Repeat the required full suite to obtain a complete passing receipt without changing this independent module or relaxing its assertion.
+- PASS: both changed verifier modules passed `node --check`; `git diff --check` passed. No Chrome process command line matched this task's owned profile directory after real-browser validation.
+- Candidate-only learning retained at `C:\workspace\codex-selfimp\20261020-chrome-probe-lifecycle\TASK_LEARNING_RECEIPT.md`; no global rule or skill installation.
+- PASS: final `npm test` completed with 394/394 passing, zero failures, cancelled, skipped or TODO tests; duration 215646.8403 ms. This includes all final lifecycle, receipt-formatting and shared-caller regressions. The initial independent rename failure and its successful targeted rerun remain recorded above.
+- Candidate identity: changes based on publisher commit `23dd201`. Final static-delivery verifier SHA-256 `2bac500de543c0d3b40b0f0e70c5912111c5f4cae1edc0aa2a89d1aec7b62e08`; relations verifier `8cc0afe10c8c74f773f91dc3a93eadb241a5e7a08ecbd61c3187fd2772e33665`. Policy identity is unchanged as recorded above.
+- PASS: final source/data-flow review retained business assertions, registered commands, success markers, release safety checks and fatal rollback thresholds. No runtime compatibility branch or new dependency was introduced. Both verifier syntax checks and staged `git diff --check` passed. README and CHANGELOG match the implementation and its fail-closed behavior.
+- PASS: final owned Chrome process count is zero; real-probe profiles were removed by the repaired lifecycle. No production application probe, deployment, rollback, production configuration change or historical profile deletion occurred.
+- INCOMPLETE: deletion of other local test artifacts at `C:\workspace\rhospital-release-publisher\.qa\chrome-cleanup-20261020` was rejected by execution policy, including a literal-path PowerShell Remove-Item attempt after resolving and verifying the directory inside this repository. The ignored directory remains. No alternative shell or deletion API was used to bypass that restriction. Test results are retained here before eventual artifact removal.
+- Final acceptance: code repair, original-error/evidence preservation, behavior regressions, real local Chrome validation and required checks PASS. Task-artifact cleanup remains INCOMPLETE due to execution policy. The original production failure's exact lock/permission owner and the first full-suite rename failure's operating-system cause remain unverified. Commit the eight scoped files with these limitations recorded; no production action is authorized.

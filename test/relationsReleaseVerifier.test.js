@@ -733,3 +733,30 @@ test('validates both configured gateways and sanitizes token or email values', a
   assert.doesNotMatch(sanitized, new RegExp(privateEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   assert.doesNotMatch(sanitized, new RegExp(controlledToken.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 });
+
+test('Chrome cleanup failure blocks relations retries and preserves sanitized business evidence', async () => {
+  const {runRelationsRelease, relationsFailureEvidence} = await verifier();
+  const staticVerifier = await import(pathToFileURL(path.resolve(__dirname, '../scripts/verify-game-static-delivery.mjs')).href);
+  const original = new staticVerifier.BrowserInfrastructureError('CDP socket closed');
+  original.chromeCleanupErrors = [{phase: 'profile', error: Object.assign(new Error('locked'), {code: 'EPERM'})}];
+  original.probeResult = passingResult();
+  const stack = original.stack;
+  let attempts = 0;
+  const lines = [];
+  await assert.rejects(runRelationsRelease({}, {
+    prerequisiteResolver: () => ({
+      chromePath: 'owned-chrome', gameHost: 'game.example.test', cdpTimeoutMs: 20,
+      browserInfrastructureRetries: 1, gateways: [{name: 'fixture', ip: '192.0.2.1'}]
+    }),
+    capabilityProbe: async () => ({statusName: 'Complete'}),
+    probeRunner: async () => { attempts += 1; throw original; },
+    log: line => lines.push(line), errorLog: line => lines.push(line)
+  }), error => {
+    assert.equal(error, original);
+    assert.equal(error.stack, stack);
+    assert.deepEqual(error.relationsReleaseEvidence, relationsFailureEvidence(original.probeResult));
+    return true;
+  });
+  assert.equal(attempts, 1);
+  assert.doesNotMatch(lines.join('\n'), /relations_release_validation=PASS|relations_release_gateway=PASS|browser_retry=START/);
+});
