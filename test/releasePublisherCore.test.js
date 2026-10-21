@@ -737,9 +737,8 @@ test('opportunity conversion has a verified backpack backup before its SQL execu
   assert.ok(apply.indexOf('bacteria_inventory_backup=PASS') < apply.indexOf('< "$migration_file"'));
 });
 
-function technologyPlanFixture(extraSql = '') {
+function technologyPlanFixture(extraSql = '', paths = ['scripts/migration/20261016_bound_supervision_income.sql', 'scripts/migration/20261016_technology_catalog.sql']) {
   const root = tempProject(sampleXml);
-  const paths = ['scripts/migration/20261016_bound_supervision_income.sql', 'scripts/migration/20261016_technology_catalog.sql'];
   for (const [index, filePath] of paths.entries()) {
     const target = path.join(root, filePath);
     fs.mkdirSync(path.dirname(target), {recursive: true});
@@ -774,6 +773,23 @@ test('technology format plan places verified offline backup before DDL and guard
   assert.doesNotMatch(decodedScriptTree(step('deploy-stack').command), /no healthy old container|old healthy container disappeared/);
   const rollback = decodedScriptTree(step('game-rollback-command').command);
   assert.ok(rollback.indexOf('technology_rollback_compatibility=PASS') < rollback.indexOf('suspending all ACTIVE ADMIN'));
+  assert.throws(() => createPlan(root, {...request, requireStandbyCandidate: true}, env), /single active writer/);
+});
+
+test('room-only format plan retains stopped-writer guards before migration and rollout', () => {
+  const {root, request, env} = technologyPlanFixture('', ['scripts/migration/20261021_room_catalog.sql']);
+  const plan = createPlan(root, request, env);
+  const index = key => plan.steps.findIndex(row => row.key === key);
+  const script = key => decodedScriptTree(plan.steps.find(row => row.key === key).command);
+  assert.ok(index('backup-game-release') < index('technology-offline-cutover'));
+  assert.ok(index('technology-offline-cutover') < index('apply-database-migrations'));
+  assert.match(script('technology-offline-cutover'), /RoomCatalogService\.class/);
+  for (const key of ['apply-database-migrations', 'pre-deploy-checklist', 'deploy-stack']) {
+    assert.match(script(key), /\.room-format-floor-v1/);
+    assert.match(script(key), /assert_game_stopped/);
+  }
+  assert.match(script('apply-database-migrations'), /assert_no_database_writers/);
+  assert.doesNotMatch(script('apply-database-migrations'), /availability_monitor_pid/);
   assert.throws(() => createPlan(root, {...request, requireStandbyCandidate: true}, env), /single active writer/);
 });
 

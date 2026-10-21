@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {spawnSync} = require('node:child_process');
-const {MIGRATIONS, requiresTechnologyCutover, technologyOfflineBackupCommands,
+const {MIGRATIONS, ROOM_MIGRATION, requiresTechnologyCutover, technologyOfflineBackupCommands,
   technologyReceiptCommands, technologyRollbackGuardCommands, stoppedWriterCommands} = require('../src/gameTechnologyFormatCutover');
 const migrations = MIGRATIONS.map(filePath => ({filePath, sha256: 'a'.repeat(64)}));
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
@@ -33,11 +33,13 @@ docker() {
         *) if [ "$stopped" = 0 ] || [ "\${LIVE_CONTAINER:-0}" = 1 ]; then echo app1; fi;;
       esac;;
     'inspect task1') if [ "$stopped" = 1 ]; then echo "\${TASK_STATE:-shutdown}"; else echo running; fi;;
-    'run --rm') echo capability >> events; test "\${COMPATIBLE:-1}" = 1;;
+    'run --rm') echo capability >> events; test "\${COMPATIBLE:-1}" = 1 || return 1;
+      case "$*" in *RoomCatalogService*) test "\${ROOM_COMPATIBLE:-1}" = 1;; esac;;
     exec*)
       case "$*" in
         *pg_control_system*) echo 'hospital|35433|f|7692118169925038123';;
         *pg_stat_activity*) echo "\${OTHER_CLIENTS:-0}";;
+        *t_room_catalog_publication*) echo "\${ROOM_FLOOR:-0}";;
         *to_regclass*) echo "\${DATABASE_FLOOR:-1}";;
         *pg_dump*) echo dump >> events; printf 'custom-format-fixture';;
         *pg_restore*) cat >/dev/null; test "\${BAD_DUMP:-0}" = 0 || return 1; echo TABLES;;
@@ -71,11 +73,41 @@ function reset() {
 const offline = technologyOfflineBackupCommands('.', 'hospital_stack_hospital-backend', 'repo:target', migrations).join('\n');
 const receipt = 'service_name=hospital_stack_hospital-backend\nbackup_dir=backup\nstopped=1\n' + technologyReceiptCommands(migrations, 'repo:target').join('\n');
 
-test('only the complete named pair activates the offline format boundary', () => {
+test('complete technology pair or named room migration activates the offline format boundary', () => {
   assert.equal(requiresTechnologyCutover([]), false);
   assert.equal(requiresTechnologyCutover([{filePath: 'scripts/migration/other.sql'}]), false);
   assert.equal(requiresTechnologyCutover(migrations), true);
+  assert.equal(requiresTechnologyCutover([{filePath: ROOM_MIGRATION}]), true);
+  assert.equal(requiresTechnologyCutover([...migrations, {filePath: ROOM_MIGRATION}]), true);
   assert.throws(() => requiresTechnologyCutover(migrations.slice(0, 1)), /together/);
+  assert.throws(() => requiresTechnologyCutover([...migrations.slice(0, 1), {filePath: ROOM_MIGRATION}]), /together/);
+});
+test('room cutover checks room capability and uses a distinct bound format floor', () => {
+  const rooms = [{filePath: ROOM_MIGRATION, sha256: 'b'.repeat(64)}];
+  const program = technologyOfflineBackupCommands('.', 'hospital_stack_hospital-backend', 'repo:target', rooms).join('\n');
+  const roomReceipt = 'service_name=hospital_stack_hospital-backend\nbackup_dir=backup\nstopped=1\n'
+    + technologyReceiptCommands(rooms, 'repo:target').join('\n');
+  reset();
+  assert.notEqual(run(program, {ROOM_COMPATIBLE: '0'}).status, 0);
+  assert.equal(fs.existsSync(path.join(fixture, '.room-format-floor-v1')), false);
+  reset();
+  fs.writeFileSync(path.join(fixture, '.technology-format-floor-v1'), 'completed-prior-format');
+  assert.equal(run(program).status, 0);
+  assert.equal(run(roomReceipt).status, 0);
+  assert.notEqual(run(receipt).status, 0);
+  assert.notEqual(run(program).status, 0);
+  fs.writeFileSync(path.join(fixture, '.room-format-floor-v1'), 'stale');
+  assert.notEqual(run(roomReceipt).status, 0);
+});
+test('room database or partial cutover refuses a technology-only rollback image', () => {
+  const guard = 'service_name=hospital_stack_hospital-backend\n' + technologyRollbackGuardCommands().join('\n');
+  reset();
+  assert.equal(run(guard, {ROOM_FLOOR: '1'}).status, 0);
+  assert.notEqual(run(guard, {ROOM_FLOOR: '1', ROOM_COMPATIBLE: '0'}).status, 0);
+  assert.equal(run(guard, {ROOM_FLOOR: '0', ROOM_COMPATIBLE: '0'}).status, 0);
+  assert.notEqual(run(guard, {ROOM_FLOOR: 'unknown'}).status, 0);
+  fs.writeFileSync(path.join(fixture, '.room-format-floor-v1'), 'partial-room-format');
+  assert.notEqual(run(guard, {DATABASE_FLOOR: '0', ROOM_COMPATIBLE: '0'}).status, 0);
 });
 test('offline backup executes stop before full dump and accepts its bound receipt', () => {
   reset();
