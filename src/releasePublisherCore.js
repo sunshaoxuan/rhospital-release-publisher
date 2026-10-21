@@ -533,14 +533,14 @@ function createPlan(projectRoot, request, env = process.env) {
       key: 'test-game-backend',
       title: '批量测试并编译后端产物',
       summary: '在同一个 Docker 构建阶段运行完整 Maven 测试并生成产物，后续镜像和静态资源复用该缓存',
-      command: dockerCommand(dockerTarget, [
+      command: chainPowerShellCommands([dockerEngineReadinessCommand(dockerTarget), dockerCommand(dockerTarget, [
         'build',
         '--target', 'build',
         '-f', config.dockerfile,
         '--build-arg', `APP_TAG=${appTag}`,
         '-t', `${imageTag}-buildcheck`,
         '.'
-      ]),
+      ])]),
       validation: dockerCommand(dockerTarget, [
         'image', 'inspect', `${imageTag}-buildcheck`,
         '--format', '{{.Id}} {{.RepoTags}}'
@@ -3455,7 +3455,7 @@ function runGit(projectRoot, args, gitRunner = spawnSync) {
   return git.stdout || '';
 }
 
-function dockerCommand(target, args) {
+function dockerCommandParts(target) {
   const parts = ['docker'];
   if (target && target.mode === 'host' && target.host) {
     parts.push('-H', target.host);
@@ -3464,7 +3464,17 @@ function dockerCommand(target, args) {
   } else if (typeof target === 'string' && target) {
     parts.push('--context', target);
   }
-  return parts.concat(args).map(shellToken).join(' ');
+  return parts;
+}
+
+function dockerCommand(target, args) {
+  return dockerCommandParts(target).concat(args).map(shellToken).join(' ');
+}
+
+function dockerEngineReadinessCommand(target) {
+  return ['node', path.resolve(__dirname, '../scripts/check-docker-engine.cjs'),
+    Buffer.from(JSON.stringify(dockerCommandParts(target).slice(1))).toString('base64')]
+    .map(shellToken).join(' ');
 }
 
 function resolveDockerCommandTarget(contextName, dockerContextResolution) {
@@ -5362,6 +5372,8 @@ module.exports = {
   resolvePublisherDockerServerDetails,
   resolveIdeaDockerServerDetails,
   resolveDockerCommandTarget,
+  dockerCommand,
+  dockerEngineReadinessCommand,
   readRemoteComposeImageTag,
   analyzeReleaseChanges,
   assertReleaseTargetChanged,

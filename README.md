@@ -469,6 +469,8 @@ ssh -G GAME_PRD2
 
 当前 `Dockerfile` 是多阶段构建。第一阶段使用 Maven 编译，第二阶段制作运行镜像。发布器会在本机 Docker 完成构建，再把镜像保存为 tar，通过 SSH 上传到目标 Docker 主机并执行 `docker load`。页面会把它拆成三个独立节点显示。
 
+原 `test-game-backend` 步骤的命令链首先执行引擎前检：沿用后续构建相同的 Docker 目标参数、执行账户、工作目录和继承环境，调用 `docker info --format '{{.OSType}}'`。CLI 探测限时30秒，失败后立即退出命令链。只有服务端成功返回 `linux` 才继续；连接失败、超时、空输出或其他操作系统均报告原因并阻断。前检不会启动或重置引擎、切换 context、清理镜像或重试发布。完整 Maven 测试、build 阶段缓存复用、镜像 inspect、强制 CheckList、迁移及最终运行门禁保持。前检通过只证明该时刻引擎可连接，完整构建结果单独验收。
+
 当 `APP_TAG=2026070702` 时，编译应用产物命令类似：
 
 ```powershell

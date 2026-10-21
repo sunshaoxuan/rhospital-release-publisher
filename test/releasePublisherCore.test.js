@@ -3973,6 +3973,41 @@ test('release console exposes game and forum targets with target-aware API paylo
   assert.match(server, /removeReleaseWorktree\(projectRoot, publisherRepositoryRoot, job\.id\)/);
 });
 
+test('build engine preflight runs in the build environment and failure blocks build and production', async t => {
+  const root = tempProject(sampleXml);
+  t.after(() => fs.rmSync(root, {recursive: true, force: true}));
+  const env = {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'history.json'),
+    DOCKER_CONTEXT: 'desktop-linux', DOCKER_CONFIG: 'fixture-config'
+  };
+  const request = {appTag: '2026070702', dryRun: false, gitBranch: 'master', includeStackDeploy: false};
+  const plan = createPlan(root, request, env);
+  const preflight = plan.steps.find(step => step.key === 'test-game-backend');
+  assert.match(preflight.command, /check-docker-engine\.cjs.*; if \(\$LASTEXITCODE -ne 0\) \{ exit \$LASTEXITCODE \}; docker build/s);
+  assert.equal(preflight.productionAction, false);
+  assert.equal(preflight.executable, true);
+  assert.ok(plan.steps.some(step => step.key === 'test-game-backend' && step.validationCommand.includes('image inspect')));
+  const calls = [];
+  const result = await executePlan(root, request, env, {runCommand: async (cwd, command, executionEnv, _chunk, _heartbeat, _signal, timeout) => {
+    calls.push(command);
+    if (command.includes('check-docker-engine.cjs')) {
+      assert.equal(cwd, root);
+      assert.equal(executionEnv, env);
+      assert.equal(timeout, preflight.timeoutSeconds);
+      throw new Error('Docker engine preflight: fixture unavailable');
+    }
+    return 'fixture=PASS';
+  }});
+  assert.equal(result.status, 'ERROR');
+  assert.equal(result.plan.steps.find(step => step.key === preflight.key).status, 'failed');
+  assert.ok(result.logs.some(line => line.includes('fixture unavailable')));
+  assert.equal(calls.some(command => /docker save|docker load|docker stack deploy/.test(command)), false);
+  assert.equal(result.completedStepKeys.includes('test-game-backend'), false);
+});
+
 function tempProject(_xml) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-'));
   fs.writeFileSync(path.join(root, 'mvnw.cmd'), '@echo off\r\nexit /b 0\r\n', 'utf8');
