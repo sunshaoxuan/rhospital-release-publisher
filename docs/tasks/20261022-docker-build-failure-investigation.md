@@ -1,5 +1,26 @@
 # Docker Build Failure Investigation
 
+## Recurrence Investigation (2026-10-23 JST)
+
+User reports the same missing Linux-engine pipe after readiness-preflight installation. Current scope: inspect current Docker processes, established startup path, dependency state and publisher identity; identify the smallest recovery action. Do not treat earlier cross-task recovery authorization recorded below as new authorization for production work, storage changes, reset or pruning. No production retry or backend build. Completion: distinguish current environment loss from helper regression, report evidence and either verify bounded local recovery or state the exact remaining action.
+
+Initial evidence: docker info reproduces missing desktop-linux pipe; publisher service wrapper is running as LocalSystem; actual port 8787 listener is node.exe in session 1 and its owner matches the investigating user. Docker privileged service is stopped/manual; no Desktop/backend process existed before recovery.
+
+Read-only dependency checks: X drive and X:/DockerDesktopWSL/disk/docker_data.vhdx are present, startup.paused is absent. Settings retain WslEngineEnabled=true, AutoStart=false and CustomWslDistroDir=X:/DockerDesktopWSL. RHospital-Docker-Login is Ready, with last run 2026-10-19 01:45:13 JST and no next scheduled time. It is login-triggered, not periodic recovery.
+
+The installed scripts/check-docker-engine.cjs runs docker info with the exact decoded build target, inherited cwd/environment and a 30-second timeout, requiring linux. It never starts Docker. W10= decodes to an empty target-argument array. Current failure confirms unavailable engine; there is no evidence of a Maven or Dockerfile regression.
+
+At 2026-10-23 08:09:13 JST invoked the established Start-DockerAfterStaticDisk.ps1 -WaitSeconds 300 normal local startup path. It checks pinned storage, pause state and endpoint before normal Desktop startup. Desktop/backend processes appeared, while daemon readiness remained pending. No context switch, reset, pruning, forced storage operation or production release. Prior Desktop termination reason remains unverified by inspected scoped log tails.
+
+### Recurrence Final Review
+
+- PASS: normal startup returned pinned X ready and Docker engine 29.9.2 available. At 08:12:51 JST, exact reported helper command (W10=) returned exit 0 with docker_build_engine=PASS OSType=linux; docker info returned linux 29.9.2 and current context remained desktop-linux.
+- PASS: current engine unavailability distinguished from readiness-helper regression. Recovery used existing scripts without any publisher/runtime configuration edits.
+- LIMITATION: live probe ran in this investigating shell. Actual publisher child owner matches this user, but its full process environment was not captured and no release was retried.
+- UNRESOLVED: why Desktop previously terminated and whether it will stay available. Existing login-triggered startup is not an uptime monitor. No new recurring policy was installed.
+- NOT RUN: Maven, backend build, image inspect, production release or publisher npm test. No publisher executable source changed; this follow-up is documentation and local runtime recovery only.
+- Documentation: manual scope/reference review and git diff --check passed. Preserve all unrelated local work and Docker data.
+
 ## Recovery Extension (2026-10-22 JST)
 
 User now authorizes local Docker investigation/recovery, publisher-owned bounded Linux readiness preflight, regression tests, original build and image inspect. This supersedes the diagnosis-only action boundary below. No production execution/retry, context switch, remote build fallback, reset, pruning or game changes.
