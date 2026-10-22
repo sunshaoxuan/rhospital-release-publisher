@@ -6,6 +6,31 @@ Explain reported step 03 certificate failure using current source, gateway confi
 ## Method And Acceptance
 Trace prerequisite and route-check boundaries; inspect each configured gateway certificate with the configured domain as SNI; separate verified expiry from unverified renewal causes. Record exact dates and affected endpoint, explain early gate purpose and remaining work.
 
+## Follow-Up: Renewal Root Cause
+User requests read-only investigation of why riven-45 did not update its certificate and an operations repair prompt. Inspect scoped environment runbooks, active TLS configuration, certificate metadata, renewal configuration and redacted scheduler/log evidence over SSH. Never print private keys, DNS credentials, tokens or full environment/config dumps. Do not run renewal clients, hooks, reloads, restarts, DNS writes or production releases. Completion requires evidence-backed cause, explicit unknowns and a bounded repair prompt with validation and rollback.
+
+### Follow-Up Findings
+
+- Read-only SSH observation at approximately 2026-10-23 01:52 JST: native nginx and Certbot are present. Enabled nginx configuration /etc/nginx/sites-enabled/rhospital-gate.conf references /etc/letsencrypt/live/rhospital-gate/fullchain.pem and privkey.pem for game/API and BBS listeners.
+- /etc/letsencrypt/renewal/rhospital-gate.conf has authenticator=manual and pref_challs=dns-01. Presence-only checks confirm no manual_auth_hook, manual_cleanup_hook, deploy_hook, renew_hook, pre_hook, post_hook or dns_cloudflare_credentials fields. All three renewal-hooks directories are empty. No credentials or private keys were read.
+- certbot.timer is active/waiting. Last trigger: 2026-10-23 00:22:10 JST. certbot.service is failed, Result=exit-code, ExecMainStatus=1. Journal entries on October 21, 22 and 23 consistently report: An authentication script must be provided with --manual-auth-hook when using the manual plugin non-interactively. This establishes renewal failure before certificate issuance.
+- Disk cert.pem resolves to /etc/letsencrypt/archive/rhospital-gate/cert1.pem, with the same expiry and SHA256 fingerprint recorded above for the expired live leaf. No evidence supports a newly issued certificate at the configured nginx path awaiting reload. Other unused certificate locations were not exhaustively searched.
+- Existing SANs: bbs.rhospital.cc, hero-hospital.icu, rhospital-api-services.com, rhospital.cc. Public DNS query to 1.1.1.1 resolves the three hospital names; hero-hospital.icu A and NS return ENOTFOUND. This is a separate issuance-scope risk, not the cause shown by current renewal logs. Zone ownership and domain lifecycle were not independently verified.
+- Existing operations documents C:/workspace/rhospital/docs/ENVIRONMENT_INVENTORY.md and CLOUDFLARE_LB.md already record manual DNS-01 without automatic renewal and recommend least-privilege Cloudflare DNS automation. The planned automation is absent from the observed renewal configuration.
+- Official guidance checked: https://eff-certbot.readthedocs.io/en/stable/using.html and https://certbot-dns-cloudflare.readthedocs.io/en/stable/index.html. Manual renewal requires an authentication hook; maintained DNS plugins support automation. Cloudflare credentials should be zone-scoped and protected.
+
+### Operations Repair Prompt Requirements
+
+Repair only riven-45 certificate lifecycle with explicit authorization for DNS challenge writes, package installation, issuance and graceful nginx reload. Preserve production routing, load-balancer state, upstreams and strict TLS. Before mutation, privately back up nginx/Certbot configuration, permissions and certificate lineage. Verify current installed versions, authorized zones and SAN requirements. Use the maintained Certbot Cloudflare DNS plugin in the existing installation and narrowly scoped DNS credentials in a root-only file; never log or send secrets. Preserve the rhospital-gate lineage and configured nginx certificate path. Obtain user confirmation before excluding an old SAN; do not recreate retired DNS/domain registration. Configure a deploy hook that validates nginx configuration and gracefully reloads only after successful issuance. Keep the existing timer as the single scheduler. Verify noninteractive staging renewal and deploy-hook behavior with the installed version, then verify production leaf dates, hostname and chain on both endpoints using each supported domain as SNI. Run the exact publisher route-check and require both PASS lines. Record rollback that preserves a valid serving certificate; restoring the expired leaf cannot count as recovered TLS. Update operations runbooks and lifecycle alerting through existing mechanisms, with no general infrastructure redesign or automatic production release.
+
+### Follow-Up Review
+
+- PASS: renewal root cause confirmed by configuration, scheduler and matching journal failures.
+- PASS: disk/live certificate identity corroborates that the active lineage was not renewed.
+- PASS: repair prompt includes SAN uncertainty, least privilege, reload, renewal validation, release route-check and rollback constraints.
+- UNPERFORMED: production repair, staging issuance, new certificate deployment and route acceptance. User requested investigation and a handoff prompt.
+- Static documentation validation and commit recorded for this follow-up; no publisher source/UI change.
+
 ## Results
 User log confirms browser and token prerequisites passed before route-check failed.
 
