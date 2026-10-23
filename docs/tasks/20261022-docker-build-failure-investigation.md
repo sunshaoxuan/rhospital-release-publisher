@@ -1,5 +1,22 @@
 # Docker Build Failure Investigation
 
+## Desktop Exit Follow-Up (2026-10-23 JST)
+
+### Exit Follow-Up Findings
+
+All times below are JST on 2026-10-23 unless stated otherwise. Observation, not a crash-cause verdict:
+- Host backend log last response before the gap: 07:38:35.6527914 (UTC 2026-10-22T22:38:35.6527914Z); next process startup: 08:09:17.3971758. Source: %LOCALAPPDATA%/Docker/log/host/com.docker.backend.exe.log.
+- VM multiplexed log last pre-gap record: 07:38:42.191830351, line 5777; next record: 08:09:33.143963026, line 5779. No error/fatal/panic/OOM/shutdown record in the retained 07:30-to-recovery gap. Source: %LOCALAPPDATA%/Docker/log/vm/init.log.20261023-081239.886.
+- System events 234/233/69/71 show WSL virtual NIC disconnect/removal at 07:40:14-15. This establishes VM/network teardown activity; it does not identify the caller or prove a WSL crash.
+- Application log query for Docker-related 1000/1001/1002 events, System reboot/shutdown queries, and Docker-related TaskScheduler events found no matching explanation in the inspected window. Security 4688/4689 query for 07:37-07:42 returned no matching records. Absence of these records cannot exclude external process termination or a crash.
+- Docker updater ran on October 22 at 21:10:30-21:12:20; the backend resumed and responded until the following morning. The update is not established as the direct cause. A separate update apply request at October 23 10:07 occurred after recovery and cannot explain the 08:04 release failure. Windows also recorded an application update near 07:39; temporal proximity does not prove causation.
+- RHospital-Docker-Login is logon-triggered, RestartCount=0, ExecutionTimeLimit=PT35M, and has no observed runtime-loss recovery trigger. The script exits after engine readiness. Startup pause and pinned X data checks are intentional safety boundaries, not evidence of this termination cause.
+
+Verdict: PASS for narrowing the evidence window and identifying missing runtime recovery/termination attribution; UNRESOLVED for the exit trigger, process exit code and parent/caller. Do not claim update, OOM, manual quit or WSL failure as proven. Read-only inspection completed; no runtime/configuration/production changes. Operations handoff: docs/tasks/20261023-docker-operations-repair-prompt.md. Documentation-only validation: reference/scope review and git diff --check; no npm test required because executable code is unchanged.
+
+
+Goal: determine why Desktop became unavailable between the successful October 22 recovery and the October 23 08:04 JST release failure; deliver an operations repair prompt. Read-only runtime investigation, no restart, configuration changes, builds or production retry. Method: correlate retained Desktop host/VM logs with Windows application/system and task events, and inspect the existing startup path. Acceptance: timestamped evidence supporting the termination mechanism or an explicit evidence gap; scoped repair prompt with verification and data-preservation boundaries.
+
 ## Recurrence Investigation (2026-10-23 JST)
 
 User reports the same missing Linux-engine pipe after readiness-preflight installation. Current scope: inspect current Docker processes, established startup path, dependency state and publisher identity; identify the smallest recovery action. Do not treat earlier cross-task recovery authorization recorded below as new authorization for production work, storage changes, reset or pruning. No production retry or backend build. Completion: distinguish current environment loss from helper regression, report evidence and either verify bounded local recovery or state the exact remaining action.
