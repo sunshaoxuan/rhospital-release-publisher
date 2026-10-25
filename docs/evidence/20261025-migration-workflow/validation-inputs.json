@@ -1,0 +1,49 @@
+{
+  "capturedAt": "2026-10-25T04:23:10.357Z",
+  "baseCommit": "a626424e36eb0c567d3883c6b137a30c60ff905f",
+  "mergedSupport": "7de0c9545426287d099cbd4350367f68aab113bf",
+  "branch": "codex/publisher-migration-workflow",
+  "sourceHashes": {
+    "src/codegraphPrerequisites.py": "e920b0fdad94208370f48236c93309eaf2fc0a821fab6da00528c3822771c4d0",
+    "src/gameCodegraphCutover.js": "3289cfb2c0da296d62632b342faa8082e9bd6d57b673c95545d90d9c8276b228",
+    "src/gameFormalProductionTransition.js": "1fd926aa16754c80b40eb17b817fde23d3fdf34fb82946e168cd9bc3b0d6b905",
+    "src/releasePublisherCore.js": "2dffdd1ebca0564e2e9d1974787ed3b47d6ed4e8e856f9e4c95e27e2117c9940",
+    "test/codegraphPrerequisites_test.py": "76e4f2bec9a6b71b804a124157fa2886756b8721d501961f853497174e737244",
+    "test/gameCodegraphCutover.test.js": "5233898b5dbacf3bbe9e4fa18fe4779d6c6feceab57c93531740e443333964f5",
+    "test/releasePublisherCore.test.js": "000158713289ea8097d0b2fad903ca3f91d6bb7420be324a8adaf31e384ae47a",
+    "test/fixtures/codegraph/guild-classes.json": "b450e45e048e484c26e420ccfb6f02f1d2cc7f4c61bda8e3befed529210345b7",
+    "src/gameStandbyCandidate.js": "68def9af94558ee2c9f6dd2c80b344af4e0fa8f3c35f4cfca98a9571a4fbeae6",
+    "test/gameStandbyCandidate.test.js": "fafed3ab0f28f430cac7fc630b9302a8cd13230d1161b7ca16af36d6e29b1444",
+    "src/localCheckPolicy.js": "8f6aab57641713c92237b37bf032202dd1069b5f092c4b600ffdb106c93c9cb3",
+    "src/publisherVersion.js": "9e1c4bd69452119435e014954eca878188938ba5778927d8185e8162e00fd601",
+    "server.js": "5afbad31226f6ac11f10f625eb8ca34506f90cf5ed356d73f4a6891eb769e319",
+    "package.json": "9628bc60a349b245643e450c1a7816db9cc72fd78d55e6a76731cde1da64a00c"
+  },
+  "localExecutableChanges": [
+    "src/gameStandbyCandidate.js",
+    "test/gameStandbyCandidate.test.js"
+  ],
+  "command": "npm test",
+  "node": "v24.19.0",
+  "platform": "win32",
+  "focusedResult": {
+    "tests": 35,
+    "pass": 35,
+    "fail": 0,
+    "skipped": 0
+  },
+  "fullResult": {
+    "status": "PASS",
+    "tests": 430,
+    "pass": 430,
+    "fail": 0,
+    "cancelled": 0,
+    "skipped": 0,
+    "todo": 0,
+    "durationMs": 324645.7541,
+    "log": "npm-test-final.log",
+    "logSha256": "3ed26f310a23f9191251b9d3a458a326312d4db76e12d9f4d976dc3a08a876b5",
+    "frozenSourceHashesUnchanged": true
+  },
+  "productionActionsExecuted": 0
+}

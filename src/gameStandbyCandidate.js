@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const {spawn} = require('node:child_process');
+const {setTimeout: delay} = require('node:timers/promises');
 
 const PRIMARY = '92.113.124.185';
 const STANDBY = '185.184.223.41';
@@ -136,11 +137,28 @@ async function executeUnlocked(action, settings, options = {}) {
   const stateFile = path.join(root, 'candidate.json');
   fs.mkdirSync(root, {recursive: true});
   let binding = fs.existsSync(stateFile) ? publicReceipt(JSON.parse(fs.readFileSync(stateFile, 'utf8'))) : null;
-  const save = value => {
+  const save = async value => {
     const temp = `${stateFile}.${crypto.randomUUID()}.tmp`;
-    fs.writeFileSync(temp, JSON.stringify(value), {mode: 0o600});
-    fs.renameSync(temp, stateFile);
-    binding = value;
+    try {
+      fs.writeFileSync(temp, JSON.stringify(value), {mode: 0o600});
+      const deadline = Date.now() + 1000;
+      for (;;) {
+        try {
+          await fs.promises.rename(temp, stateFile);
+          break;
+        } catch (error) {
+          // Windows readers may briefly deny replacement; keep the old receipt and lock.
+          if (process.platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code)
+              || Date.now() >= deadline) throw error;
+          await delay(25);
+        }
+      }
+      binding = value;
+    } catch (error) {
+      try { fs.rmSync(temp, {force: true}); }
+      catch (cleanupError) { error.cleanupError = cleanupError; }
+      throw error;
+    }
   };
   const operationId = crypto.randomUUID();
   const payload = () => ({protocol: 1, ...binding, operationId});
@@ -168,7 +186,7 @@ async function executeUnlocked(action, settings, options = {}) {
       requireCondition(binding.imageId === imageId && binding.sourceCommit === sourceCommit
         && binding.configVersion === settings.configVersion, 'retry_binding_changed');
     } else {
-      save({candidateId: settings.candidateId, imageTag: settings.imageTag, imageId,
+      await save({candidateId: settings.candidateId, imageTag: settings.imageTag, imageId,
         sourceCommit, configVersion: settings.configVersion, accepted: false});
     }
     const archive = path.join(root, 'image.tar');
@@ -178,7 +196,7 @@ async function executeUnlocked(action, settings, options = {}) {
       await runner('docker', prefix.concat('image', 'save', '--output', archive, binding.imageId));
       const archiveSha256 = await archiveHash(archive);
       requireCondition(!binding.archiveSha256 || binding.archiveSha256 === archiveSha256, 'retry_archive_changed');
-      save({...binding, archiveSha256});
+      await save({...binding, archiveSha256});
       for (const node of [PRIMARY, STANDBY]) {
         const begin = await transport.request(node, 'begin', payload());
         requireCondition(begin && begin.candidateId === binding.candidateId
@@ -186,7 +204,7 @@ async function executeUnlocked(action, settings, options = {}) {
         reservations.push(node);
         await transport.upload(node, archive, binding.candidateId, operationId);
         const receipt = await transport.request(node, node === PRIMARY ? 'load' : 'prepare', payload());
-        if (node === STANDBY) save(validateReady(receipt, binding));
+        if (node === STANDBY) await save(validateReady(receipt, binding));
         else requireCondition(receipt && receipt.imageId === binding.imageId
           && receipt.candidateId === binding.candidateId && receipt.archiveSha256 === archiveSha256, 'primary_load_mismatch');
       }
@@ -209,7 +227,7 @@ async function executeUnlocked(action, settings, options = {}) {
   } else {
     requireCondition(binding && binding.configurationId && binding.candidateId === settings.candidateId
       && binding.configVersion === settings.configVersion && binding.imageTag === settings.imageTag, 'candidate_missing');
-    save(validateReady(await transport.request(STANDBY, 'verify', payload()), binding));
+    await save(validateReady(await transport.request(STANDBY, 'verify', payload()), binding));
     await primaryIdentity(action === 'accept');
     if (action === 'cutover') {
       requireCondition(typeof settings.cutoverScript === 'string' && settings.cutoverScript.length > 0, 'cutover_missing');
@@ -222,7 +240,7 @@ async function executeUnlocked(action, settings, options = {}) {
         && receipt.imageId === binding.imageId && receipt.configVersion === binding.configVersion
         && receipt.configurationId === binding.configurationId && receipt.secretVersion === binding.secretVersion
         && receipt.accepted === true && receipt.standbyStopped === true, 'acceptance_unconfirmed');
-      save({...binding, accepted: true});
+      await save({...binding, accepted: true});
     } else requireCondition(action === 'verify', 'unknown_action');
   }
   return publicReceipt(binding);

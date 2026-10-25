@@ -1,0 +1,349 @@
+{
+  "capturedAt": "2026-10-25T04:00:50.609Z",
+  "scope": "offline pure plan and source identity; no execution",
+  "node": "v24.19.0",
+  "upstreamPolicy": "7de0c9545426287d099cbd4350367f68aab113bf",
+  "sourceHashes": {
+    "src/codegraphPrerequisites.py": "e920b0fdad94208370f48236c93309eaf2fc0a821fab6da00528c3822771c4d0",
+    "src/gameCodegraphCutover.js": "3289cfb2c0da296d62632b342faa8082e9bd6d57b673c95545d90d9c8276b228",
+    "src/gameFormalProductionTransition.js": "1fd926aa16754c80b40eb17b817fde23d3fdf34fb82946e168cd9bc3b0d6b905",
+    "src/releasePublisherCore.js": "2dffdd1ebca0564e2e9d1974787ed3b47d6ed4e8e856f9e4c95e27e2117c9940",
+    "test/codegraphPrerequisites_test.py": "76e4f2bec9a6b71b804a124157fa2886756b8721d501961f853497174e737244",
+    "test/gameCodegraphCutover.test.js": "5233898b5dbacf3bbe9e4fa18fe4779d6c6feceab57c93531740e443333964f5",
+    "test/releasePublisherCore.test.js": "000158713289ea8097d0b2fad903ca3f91d6bb7420be324a8adaf31e384ae47a",
+    "test/fixtures/codegraph/guild-classes.json": "b450e45e048e484c26e420ccfb6f02f1d2cc7f4c61bda8e3befed529210345b7"
+  },
+  "normalizedLfSourceHashes": {
+    "src/codegraphPrerequisites.py": "a2fa74a9413e3012740cca36201aaf34c64565c1345fb811c39bbf064160dc3c",
+    "src/gameCodegraphCutover.js": "389b8a0dbfa81eb7b07f69e57237d46d89e47dc1d21ca8f873824ac39a8035d2",
+    "src/gameFormalProductionTransition.js": "e19990df810894652b9d1755930c6995c41d4d6aa9d9880ad76d0005774507f0",
+    "src/releasePublisherCore.js": "81708d20ab1b39aca45605098c46dfd5d3013119d751bab2e9979b8949878cfc",
+    "test/codegraphPrerequisites_test.py": "48144e2e89ae932f1379980334f66533bfd2c1071ab84e0560e33a701942af2f",
+    "test/gameCodegraphCutover.test.js": "184a4a6333ef980ed9533dd80c9d35ee632d66407849f9068f6701c7dd5a0268",
+    "test/releasePublisherCore.test.js": "157f119cd07d1d064728f3c08c7313fb8c4497abb7ab74118ae05456a96cf337",
+    "test/fixtures/codegraph/guild-classes.json": "cbbbd960a3ac41ae80f9ef978f01476e48a281706f547e70c19ed6794df94450"
+  },
+  "normalizationReason": "Windows Git checkout uses CRLF; Git content and normalized LF match upstream; local suite required",
+  "upstreamSourceMatch": true,
+  "target": "f62422f9b1c878913a37b4ec639db2d7e4dea7dc",
+  "baseline": "6bf869bcc1a0b19a5a178236c60aff6789885637",
+  "historySha256": "bd59e211ea1638d3cbf5891fdc59b737fcdae02b2051aa108c8dbc3715831dc8",
+  "changedRuntimePaths": [
+    "scripts/migration/20261025_finalize_guild_status.sql",
+    "src/main/java/com/zly/hospital/config/initData/WeeklyRewardConfig.java",
+    "src/main/java/com/zly/hospital/controller/api/HospitalController.java",
+    "src/main/java/com/zly/hospital/controller/api/SocialController.java",
+    "src/main/java/com/zly/hospital/controller/api/TaskController.java",
+    "src/main/java/com/zly/hospital/model/Guild.java",
+    "src/main/java/com/zly/hospital/repository/GuildRepository.java",
+    "src/main/java/com/zly/hospital/repository/HospitalRepository.java",
+    "src/main/java/com/zly/hospital/service/BacteriaChallengeService.java",
+    "src/main/java/com/zly/hospital/service/BacteriaDifficultyProof.java",
+    "src/main/java/com/zly/hospital/service/BacteriaLevelCatalogService.java",
+    "src/main/java/com/zly/hospital/service/GuildService.java",
+    "src/main/java/com/zly/hospital/service/GuildStatusService.java",
+    "src/main/java/com/zly/hospital/service/HospitalAddressService.java",
+    "src/main/java/com/zly/hospital/service/HospitalLogService.java",
+    "src/main/java/com/zly/hospital/service/HospitalService.java",
+    "src/main/java/com/zly/hospital/service/RankingService.java",
+    "src/main/java/com/zly/hospital/service/ToiletMarketVisibilityReconciliationService.java",
+    "src/main/java/com/zly/hospital/service/WeeklyRewardService.java",
+    "src/main/java/com/zly/hospital/service/runner/GiftDistributionJobHandler.java",
+    "src/main/java/com/zly/hospital/service/runner/WeeklyRewardResetJobHandler.java",
+    "src/main/resources/bacteria-level-validator.js",
+    "src/main/resources/codegraph-release-contract.json",
+    "src/main/resources/static/css/design.css",
+    "src/main/resources/static/js/design/BacteriaSettings.mjs",
+    "src/main/resources/static/js/design/DesignWorker.mjs",
+    "src/main/resources/static/js/design/DifficultySearch.mjs",
+    "src/main/resources/static/js/design/Editor.mjs",
+    "src/main/resources/static/js/design/EditorPlans.mjs",
+    "src/main/resources/static/js/design/LevelCertification.mjs",
+    "src/main/resources/static/js/design/ProofStatus.mjs",
+    "src/main/resources/static/js/design/SaveTools.mjs",
+    "src/main/resources/static/js/gameplay/BacteriaPackageFormat.mjs",
+    "src/main/resources/static/js/gameplay/BacteriaPathAnalysis.mjs",
+    "src/main/resources/static/js/scenes/components/AddressEditPopup.js",
+    "src/main/resources/static/js/scenes/components/ToiletMarketViewer.js",
+    "src/main/resources/static/js/scenes/components/WorldChatPanel.js",
+    "src/main/resources/templates/design.html"
+  ],
+  "steps": [
+    {
+      "key": "git-status-before-update",
+      "actionType": "local-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "validate-release-input",
+      "actionType": "local-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "validate-game-static-delivery-prerequisites",
+      "actionType": "local-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "game-meelok-readiness",
+      "actionType": "remote-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "git-fetch",
+      "actionType": "local-code",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "git-update",
+      "actionType": "local-code",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "capture-release-commit",
+      "actionType": "local-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "validate-release-impact-checklist",
+      "actionType": "local-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "validate-game-sso-source",
+      "actionType": "local-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "install-game-release-node-dependencies",
+      "actionType": "build",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "validate-game-release-preflight",
+      "actionType": "local-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "test-game-backend",
+      "actionType": "build",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "verify-design-level-packages",
+      "actionType": "local-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "build-image",
+      "actionType": "build",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "build-game-static-assets",
+      "actionType": "build",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "validate-game-image",
+      "actionType": "build",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "resolve-ssh-target",
+      "actionType": "local-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "game-prd2-migration-readiness",
+      "actionType": "remote-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "read-remote-compose",
+      "actionType": "remote-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "game-database-preflight",
+      "actionType": "remote-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "validate-game-database-migration-compatibility",
+      "actionType": "remote-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "publish-image",
+      "actionType": "production",
+      "productionAction": true,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "stage-game-static-assets",
+      "actionType": "production",
+      "productionAction": true,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "verify-game-static-assets-predeploy",
+      "actionType": "remote-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "backup-game-release",
+      "actionType": "production",
+      "productionAction": true,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "verify-codegraph-prerequisites",
+      "actionType": "remote-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "codegraph-offline-cutover",
+      "actionType": "production",
+      "productionAction": true,
+      "recoveryBoundary": true
+    },
+    {
+      "key": "apply-database-migrations",
+      "actionType": "production",
+      "productionAction": true,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "pre-deploy-checklist",
+      "actionType": "remote-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "update-remote-compose",
+      "actionType": "production",
+      "productionAction": true,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "pause-meelok-services",
+      "actionType": "production",
+      "productionAction": true,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "deploy-stack",
+      "actionType": "production",
+      "productionAction": true,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "commit-game-cutover",
+      "actionType": "remote-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "final-runtime-check",
+      "actionType": "remote-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "game-prd2-runtime-contract",
+      "actionType": "remote-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "verify-game-static-delivery",
+      "actionType": "remote-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "verify-relations-release",
+      "actionType": "remote-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "verify-tradepool-release",
+      "actionType": "remote-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "cleanup-game-release-containers",
+      "actionType": "production",
+      "productionAction": true,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "restore-meelok-services",
+      "actionType": "production",
+      "productionAction": true,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "game-rollback-decision",
+      "actionType": "remote-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "game-fatal-rollback-decision",
+      "actionType": "remote-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    },
+    {
+      "key": "game-rollback-command",
+      "actionType": "local-check",
+      "productionAction": false,
+      "recoveryBoundary": false
+    }
+  ],
+  "subprocessPolicy": "Git only; shell/network rejected",
+  "subprocessCount": 13,
+  "stepsExecuted": 0,
+  "planKeys": [
+    "config",
+    "releaseTarget",
+    "releaseTargetLabel",
+    "appTag",
+    "imageTag",
+    "gitBranch",
+    "gitCommit",
+    "changeAnalysis",
+    "includeStackDeploy",
+    "dryRun",
+    "remoteRehearsal",
+    "steps",
+    "guardrails"
+  ]
+}

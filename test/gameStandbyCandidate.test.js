@@ -110,6 +110,71 @@ test('partial transfer can retry the identical candidate without rebuilding', as
   assert.ok(!f.calls.some(c => c.args && c.args.includes('build')));
 });
 
+for (const code of ['EPERM', 'EACCES', 'EBUSY']) {
+  test('Windows journal replacement waits for transient ' + code + ' without repeating acceptance',
+    {skip: process.platform !== 'win32'}, async t => {
+      const f = fixture(t);
+      await f.exec('distribute');
+      const root = path.join(f.options.cwd, '.release-candidates', f.settings.candidateId);
+      const journal = path.join(root, 'candidate.json');
+      const before = fs.readFileSync(journal, 'utf8');
+      const rename = fs.promises.rename;
+      let attempts = 0;
+      t.mock.method(fs.promises, 'rename', async (from, to) => {
+        assert.equal(to, journal);
+        if (!JSON.parse(fs.readFileSync(from, 'utf8')).accepted) return rename(from, to);
+        assert.deepEqual(JSON.parse(fs.readFileSync(journal, 'utf8')), JSON.parse(before));
+        await assert.rejects(f.exec('verify'), /preparation_busy/);
+        if (++attempts <= 2) throw Object.assign(new Error('temporary lock'), {code});
+        return rename(from, to);
+      });
+      assert.equal((await f.exec('accept')).accepted, true);
+      assert.equal(attempts, 3);
+      assert.equal(f.calls.filter(call => call.action === 'accept').length, 1);
+      assert.equal(JSON.parse(fs.readFileSync(journal, 'utf8')).accepted, true);
+      assert.ok(!fs.readdirSync(root).some(name => name.endsWith('.tmp')));
+      assert.ok(!fs.existsSync(path.join(root, 'operation.lock')));
+    });
+}
+
+for (const code of ['EPERM', 'EIO']) {
+  test('journal replacement fails closed and preserves its prior receipt for ' + code, async t => {
+    const f = fixture(t);
+    await f.exec('distribute');
+    const root = path.join(f.options.cwd, '.release-candidates', f.settings.candidateId);
+    const journal = path.join(root, 'candidate.json');
+    const before = fs.readFileSync(journal, 'utf8');
+    const failure = Object.assign(new Error('persistent replacement failure'), {code});
+    let attempts = 0;
+    t.mock.method(fs.promises, 'rename', async () => { attempts++; throw failure; });
+    await assert.rejects(f.exec('verify'), error => error === failure);
+    if (code === 'EPERM' && process.platform === 'win32') assert.ok(attempts > 1 && attempts <= 50);
+    else assert.equal(attempts, 1);
+    assert.equal(fs.readFileSync(journal, 'utf8'), before);
+    assert.ok(!fs.readdirSync(root).some(name => name.endsWith('.tmp')));
+    assert.ok(!fs.existsSync(path.join(root, 'operation.lock')));
+    assert.ok(!f.calls.some(call => call.action === 'cutover' || call.action === 'accept'));
+    t.mock.restoreAll();
+    await f.exec('verify');
+  });
+}
+
+test('journal cleanup refusal retains the original replacement error', async t => {
+  const f = fixture(t);
+  await f.exec('distribute');
+  const failure = Object.assign(new Error('replacement failed'), {code: 'EIO'});
+  const cleanup = Object.assign(new Error('temporary file locked'), {code: 'EPERM'});
+  const remove = fs.rmSync;
+  t.mock.method(fs.promises, 'rename', async () => { throw failure; });
+  t.mock.method(fs, 'rmSync', (file, options) => {
+    if (file.endsWith('.tmp')) throw cleanup;
+    return remove(file, options);
+  });
+  await assert.rejects(f.exec('verify'), error => error === failure && error.cleanupError === cleanup);
+  t.mock.restoreAll();
+  await f.exec('verify');
+});
+
 test('image or config drift on retry is rejected', async t => {
   const f = fixture(t);
   await f.exec('distribute');

@@ -18,7 +18,7 @@ except Exception as error:
 
 function gameServiceSnapshotCommands(mode = 'current', snapshot = 'service.inspect.json') {
   if (!['current', 'rollback', 'restored'].includes(mode)) throw new Error('Invalid snapshot mode');
-  if (!['service.inspect.json', 'technology-quiesced.inspect.json'].includes(snapshot)) throw new Error('Invalid service snapshot');
+  if (!['service.inspect.json', 'technology-quiesced.inspect.json', 'codegraph-quiesced.inspect.json'].includes(snapshot)) throw new Error('Invalid service snapshot');
   const encoded = Buffer.from(SNAPSHOT_SCRIPT).toString('base64');
   return [`printf %s "${encoded}" | base64 -d | python3 - "$backup_dir/${snapshot}" "$service_name" ${mode}`];
 }

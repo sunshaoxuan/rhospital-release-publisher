@@ -4,6 +4,8 @@ RHospital 发布控制台使用仓库内受控配置生成游戏与论坛发布�
 
 正式游戏部署默认沿用A单节点发布，保留全部核心安全检查，B候选接口及配置尚未完成时可继续发布A。API请求显式设置 `requireStandbyCandidate: true` 时启用双节点发布：先向A/B分发同一不可变镜像，B待命配置及Secret版本通过后允许A切换，A全部验收后提交B接管标记。当前基础设施缺少版本化节点接口，双节点模式会在契约门禁停止。实现边界、跨仓库依赖和恢复规则见 [双节点候选协议](docs/GAME_DUAL_NODE_CANDIDATE.md)。本地协议测试与真实部署验收分别记录。
 
+候选回执在同目录临时文件中写入后原子替换，整个过程持有候选操作锁。Windows 的 EPERM、EACCES 或 EBUSY 替换错误最多等待重试 1 秒；持续失败在预算耗尽后结束，其他错误立即按原错误结束。失败时保留旧回执，不删除目标文件，不重复远端验收。
+
 ## 作用
 
 发布结果现在包含首次失败、回滚依据、警告和下一步排查方向，并可通过现存 Qwen 服务执行 OpenJev 式辅助分类。构造历史可点击“复核发布结果”。配置、数据边界与验证方法见 [发布诊断说明](docs/RELEASE_DIAGNOSTICS.md)。
@@ -148,6 +150,8 @@ C:\workspace\rhospital-release-publisher\.service\service-host.log
 
 只读接口 `GET /api/version` 返回产品版本、运行提交、仓库提交、文件指纹、进程号和启动时间。产品版本用于标记发布器功能代次，Git 提交和文件指纹用于判断执行环境差异。
 
+`UP_TO_DATE` 表示运行代码与本地发布器仓库一致。发布器远端的新流程需要先获取并审核合并到本地干净提交，再等待空闲自动重载；该状态不检查 `origin/main` 是否还有未合并更新。
+
 响应中的 `localCheckContracts` 列出采用固定命令和超时的精确注册契约，包含入口、成功标记和服务内 `policyAccepted` 核验结果。当前包含 `verify-toilet-market`：两项洗手间 Node 测试及本功能证据校验器，180秒共享预算；测试进程失败时停止后续校验。`policyAccepted=true` 仅确认运行内注册策略接受该契约，游戏最终证据、候选计划和生产运行仍须各自通过，不能据此标记游戏 PASS。
 
 后台每 10 秒检查一次发布器运行版本。仓库出现新的干净提交且当前没有活动发布任务时，Node 进程会以受控退出码结束，由 Windows 服务看门程序在 10 秒后重新加载当前代码。存在活动任务时会等待任务结束，再执行受控重启。版本状态处于 `RESTART_REQUIRED`、`UNCOMMITTED_CHANGES` 或无法确认时，变更分析、计划生成、TAG 写入和正式执行接口全部闭锁，并返回明确的版本状态提示，避免旧进程继续解析新的发布协议。首次升级到包含此监视机制的版本时，需要手动重载一次发布器服务，后续干净提交才会触发自动重载。
@@ -247,7 +251,11 @@ npm run acceptance:full-flow -- --project-root C:\workspace\hospital-backend --g
 
 远程 Bash 脚本在 Windows 上使用 PowerShell 单引号字面量保存 Base64，再通过 stdin 交给 `ssh`。真实 OpenSSH 会接收到 PowerShell 写入的 CRLF，远端先移除 CR 和 LF，再执行 Base64 解码与 Bash。论坛源码校验优先使用 `GIT_BASH_PATH`，未设置时再从 Git 可执行文件位置解析 `bin\bash.exe`。
 
-游戏发布会比较目标提交和最近一次成功游戏发布提交。差异中的 `scripts/migration/*.sql` 属于运行时变更，发布器会从已经锁定的目标提交读取路径，并在统一 CRLF 为 LF 后计算预期 SHA256。所有迁移脚本必须构建进目标镜像 `/app/migrations`，镜像必须包含可完整验证的 `SHA256SUMS`。发布器禁止把本地 Git SQL 正文编码后注入生产机；它会在目标镜像加载后创建不启动的临时容器，从镜像复制迁移包，依次核对镜像清单、目标提交预期 SHA256 和实际脚本 SHA256，再执行迁移。迁移脚本必须包含 `ON_ERROR_STOP`、事务、锁等待上限、语句执行上限和提交后的只读验收查询，并禁止删除表、字段、索引、约束及其他破坏旧版本兼容性的操作。数据删除默认失败关闭；当前仅允许先固化到任务专用临时表、完成重复匹配检查、按日志主键锁行后，再通过临时表中的唯一日志主键删除三类原玩家日志，其他持久表删除和未受控日志删除均会被拒绝。存在迁移时，发布器会在镜像切换前保存目标镜像 ID、脚本校验和、执行回执、回滚 Compose 和轻量业务表快照。生产灾难恢复继续使用既有流式备份，不创建或恢复整库备份。JPA 实体持久化结构发生变化却没有迁移脚本时，计划生成会直接失败。
+游戏发布会比较目标提交和最近一次成功游戏发布提交。差异中的 `scripts/migration/*.sql` 属于运行时变更，发布器会从已经锁定的目标提交读取路径，并在统一 CRLF 为 LF 后计算预期 SHA256。所有迁移脚本必须构建进目标镜像 `/app/migrations`，镜像必须包含可完整验证的 `SHA256SUMS`。发布器禁止把本地 Git SQL 正文编码后注入生产机；它会在目标镜像加载后创建不启动的临时容器，从镜像复制迁移包，依次核对镜像清单、目标提交预期 SHA256 和实际脚本 SHA256，再执行迁移。迁移脚本必须包含 `ON_ERROR_STOP`、事务、锁等待上限、语句执行上限和提交后的只读验收查询，并禁止删除表、字段、索引、约束及其他破坏旧版本兼容性的操作。数据删除默认失败关闭；当前仅允许先固化到任务专用临时表、完成重复匹配检查、按日志主键锁行后，再通过临时表中的唯一日志主键删除三类原玩家日志，其他持久表删除和未受控日志删除均会被拒绝。存在迁移时，发布器会在镜像切换前保存目标镜像 ID、脚本校验和、执行回执、回滚 Compose 和轻量业务表快照。常规迁移的生产灾难恢复继续使用既有流式备份；专用停写切换另行保存经过核验的迁移前整库备份，恢复操作须单独复核授权。JPA 实体持久化结构发生变化却没有迁移脚本时，计划生成会直接失败。
+
+公会状态 B 迁移 `scripts/migration/20261025_finalize_guild_status.sql` 使用专用停写流程。迁移策略仅允许该路径中现行的 `status SET DEFAULT 'ACTIVE'` 与 `status SET NOT NULL` 精确组合，其他既有列修改和破坏性操作继续阻断。影响评估必须包含 `verify-codegraph-prerequisites`、`codegraph-offline-cutover` 和 `apply-database-migrations`。前置核验要求实际不可变公会准备 A 镜像的持久化回调、全部活跃任务均运行 A，以及旧周奖励调度已归档并排空任务、重试和工作流；归档操作须另行授权，发布器只读核验。公会准备 A/B 指应用迁移阶段，与部署节点名称无关。
+
+专用切换依次执行发布备份、A/B 镜像与调度核验、停止游戏写入实例、等待旧任务退出并确认其他数据库客户端归零、再次检查调度、生成并核验整库自定义格式备份，然后执行绑定目标镜像、SQL 摘要和数据库身份的迁移。迁移后仍保留 CheckList 与最终运行检查；进入停写边界后失败会保留现场并要求恢复复核。回滚只允许经过实际 JAR 验证的不可变兼容 A 或 B，保留规范化公会状态和索引。公会 B 与科技或房间首次迁移分批发布；常规热滚的持续服务规则不适用于本次专用停写窗口。计划生成通过仅证明计划可生成，生产 A、调度和备份条件由执行门禁核验。
 
 热滚前设置独立的 `发布前 CheckList 总验收`。该步骤统一确认目标镜像、当前健康服务、备份文件及 SHA256、迁移执行回执和回滚 Compose，所有检查输出 PASS 后才允许修改生产 Compose。热滚开始后的检查失败会先执行只读的自动回滚最小触发复核。只有目标镜像不健康、运行版本不符或仍有旧版本并行运行等明确证据时，任务才进入 `RECOVERING`，自动暂停在售 ADMIN 挂单、恢复发布前 Compose，并等待旧版本重新健康。目标版本仍满足最小健康条件或复核自身异常时，发布器禁止自动回滚，保留目标版本与现场并记录为 `RECOVERY_REQUIRED`。恢复成功记为 `ROLLED_BACK`，恢复本身失败也记为 `RECOVERY_REQUIRED`。
 
@@ -255,7 +263,7 @@ npm run acceptance:full-flow -- --project-root C:\workspace\hospital-backend --g
 
 固定 CheckList 之外，业务仓库通过 `release/release-impact.json` 保存逐次发版影响评估。发布器比较最近一次成功生产发布提交和目标提交，检测游戏或论坛运行路径变化。存在运行变化时，评估文件必须同时更新并使用新的 `assessmentId`，`coveredRuntimePaths` 必须与 Git 差异完全一致。评估还必须说明代码影响、数据库影响、风险等级、现有检查是否足够，并引用发布器已注册的可执行步骤。`databaseImpact` 接受固定分类，也接受 `固定分类: 详细说明`，发布历史会分别保存规范分类和说明。遗漏评估、沿用旧标识、路径覆盖不完整、数据库影响未声明或检查步骤不存在时，发布计划生成直接失败。
 
-游戏发布固定执行 `validate-game-static-delivery-prerequisites`，并至少保留 `test-game-backend`、`verify-game-static-assets-predeploy`、`pre-deploy-checklist`、`final-runtime-check` 和 `verify-game-static-delivery`。存在数据库迁移时，镜像上传前必须先执行 `validate-game-database-migration-compatibility`：在生产库 READ ONLY 事务中核对当前 schema、目录完整性和发布哈希链，不执行 DDL 或数据写入。迁移执行后、镜像切换前，发布器从当前健康实例读取数据库应用角色，并核对它与既有核心表 owner 一致，同时要求 public schema 的全部普通表、分区表和序列使用同一 owner。任何对象归属漂移都会停止发布。生产灾难恢复使用既有流式备份，发布器只保留编排、服务证据和受影响交易池表的轻量导出。应用切换固定使用 start-first 和健康检查，旧实例持续服务到新实例健康。正式游戏部署计划还会执行 `verify-relations-release`，该步骤已注册为业务影响评估可引用的检查。邮件配置变化可以选择 `verify-game-smtp-sender`，发布器会先要求生产 SMTP 认证账号与发件地址一致，再从目标健康容器读取既有 Secret，按 EHLO、STARTTLS、认证、MAIL FROM 和 RSET 分阶段验证；失败只输出阶段和状态码或错误类型，不发送 DATA 或输出 Secret。论坛构建发布至少保留 `validate-forum-source`、`forum-preflight` 和 `final-runtime-check`，源码门禁包含论坛镜像、搜索迁移和部署配置契约测试。实体、Repository、DAO 或迁移脚本变化时必须声明数据库影响；存在游戏迁移脚本时还必须选择 `apply-database-migrations`。现有步骤无法覆盖新增风险时，应先在本仓库增加可执行检查和测试，再由业务仓库的影响评估引用该步骤。论坛生产 Compose 修改开始后，失败、取消或发布器重启会进入 `RECOVERY_REQUIRED`，保留备份与回滚入口供人工复核。
+游戏发布固定执行 `validate-game-static-delivery-prerequisites`，并至少保留 `test-game-backend`、`verify-game-static-assets-predeploy`、`pre-deploy-checklist`、`final-runtime-check` 和 `verify-game-static-delivery`。存在数据库迁移时，镜像上传前必须先执行 `validate-game-database-migration-compatibility`：在生产库 READ ONLY 事务中核对当前 schema、目录完整性和发布哈希链，不执行 DDL 或数据写入。迁移执行后、镜像切换前，发布器从当前健康实例读取数据库应用角色，并核对它与既有核心表 owner 一致，同时要求 public schema 的全部普通表、分区表和序列使用同一 owner。任何对象归属漂移都会停止发布。常规迁移的生产灾难恢复使用既有流式备份，发布器只保留编排、服务证据和受影响交易池表的轻量导出。常规热滚切换使用 start-first 和健康检查，旧实例持续服务到新实例健康；公会状态 B 的专用停写切换按前述整库备份与停写合同执行。正式游戏部署计划还会执行 `verify-relations-release`，该步骤已注册为业务影响评估可引用的检查。邮件配置变化可以选择 `verify-game-smtp-sender`，发布器会先要求生产 SMTP 认证账号与发件地址一致，再从目标健康容器读取既有 Secret，按 EHLO、STARTTLS、认证、MAIL FROM 和 RSET 分阶段验证；失败只输出阶段和状态码或错误类型，不发送 DATA 或输出 Secret。论坛构建发布至少保留 `validate-forum-source`、`forum-preflight` 和 `final-runtime-check`，源码门禁包含论坛镜像、搜索迁移和部署配置契约测试。实体、Repository、DAO 或迁移脚本变化时必须声明数据库影响；存在游戏迁移脚本时还必须选择 `apply-database-migrations`。现有步骤无法覆盖新增风险时，应先在本仓库增加可执行检查和测试，再由业务仓库的影响评估引用该步骤。论坛生产 Compose 修改开始后，失败、取消或发布器重启会进入 `RECOVERY_REQUIRED`，保留备份与回滚入口供人工复核。
 
 SMTP 探针保留既有 `AUTH PLAIN`，认证拒绝立即报告该阶段状态码，不自动尝试其他机制。STARTTLS 使用系统信任链并校验主机名。探针不修改 SMTP 配置、账号或 Secret，不发送 RCPT 或 DATA；成功仅报告 PASS。选中该门禁时仍必须通过，SMTP 探针通过也不等同于真实邮件送达验收。
 
