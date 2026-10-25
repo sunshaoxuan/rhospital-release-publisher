@@ -1,0 +1,24 @@
+{
+  "scope": "weekly retirement and guild B publisher source/checks only",
+  "overall": "PASS",
+  "productionAccess": "NOT EXECUTED",
+  "schedulingMutations": "NOT EXECUTED",
+  "tests": {
+    "command": "npm test",
+    "tests": 424,
+    "pass": 424,
+    "fail": 0,
+    "skipped": 0,
+    "durationMs": 346173.7048
+  },
+  "sourceHashes": {
+    "src/codegraphPrerequisites.py": "a2fa74a9413e3012740cca36201aaf34c64565c1345fb811c39bbf064160dc3c",
+    "src/gameCodegraphCutover.js": "389b8a0dbfa81eb7b07f69e57237d46d89e47dc1d21ca8f873824ac39a8035d2",
+    "src/gameFormalProductionTransition.js": "e19990df810894652b9d1755930c6995c41d4d6aa9d9880ad76d0005774507f0",
+    "src/releasePublisherCore.js": "81708d20ab1b39aca45605098c46dfd5d3013119d751bab2e9979b8949878cfc",
+    "test/codegraphPrerequisites_test.py": "48144e2e89ae932f1379980334f66533bfd2c1071ab84e0560e33a701942af2f",
+    "test/gameCodegraphCutover.test.js": "184a4a6333ef980ed9533dd80c9d35ee632d66407849f9068f6701c7dd5a0268",
+    "test/releasePublisherCore.test.js": "157f119cd07d1d064728f3c08c7313fb8c4497abb7ab74118ae05456a96cf337",
+    "test/fixtures/codegraph/guild-classes.json": "cbbbd960a3ac41ae80f9ef978f01476e48a281706f547e70c19ed6794df94450"
+  }
+}

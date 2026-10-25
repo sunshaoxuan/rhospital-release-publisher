@@ -12,6 +12,7 @@ const {gameMeelokStatusCommands, gameMeelokPauseCommands, gameMeelokRestoreComma
 const {expectedTomcatVersion, tomcatJarCheckScript} = require('./tomcatSecurityCheck');
 const {gameProductionConfigGuardCommands, gameStripeAuthenticationCommands, gameProductionImageConfigCommands} = require('./gameProductionConfigGuard');
 const {PRIMARY, STANDBY, publicReceipt} = require('./gameStandbyCandidate');
+const codegraphCutover = require('./gameCodegraphCutover');
 const {requiresTechnologyCutover, technologyOfflineBackupCommands, technologyReceiptCommands,
   technologyQuiescedSnapshotCommands, technologyRollbackGuardCommands} = require('./gameTechnologyFormatCutover');
 
@@ -59,6 +60,8 @@ const KNOWN_RELEASE_CHECKS = {
     'validate-game-database-migration-compatibility',
     'apply-database-migrations',
     'technology-offline-cutover',
+    'verify-codegraph-prerequisites',
+    'codegraph-offline-cutover',
     'retire-design-image-settings-file',
     'pre-deploy-checklist',
     'verify-game-static-assets-predeploy',
@@ -245,6 +248,9 @@ function createPlan(projectRoot, request, env = process.env) {
   const catalogSchemaVersion = resolveCatalogSchemaVersion(projectRoot, gitCommit);
   const releaseMigrations = resolveReleaseMigrations(projectRoot, gitCommit, request.changeAnalysis);
   const technologyCutover = requiresTechnologyCutover(releaseMigrations);
+  const codegraph = codegraphCutover.requiresCodegraphCutover(releaseMigrations);
+  const offlineCutover = technologyCutover || codegraph;
+  if (codegraph && technologyCutover) throw new Error('Guild B requires an already prepared A predecessor; release technology/room migrations in A first');
   const requiresDesignImageRetirement = releaseMigrations.some(item => item.filePath === DESIGN_IMAGE_SETTINGS_MIGRATION);
   assertJpaSchemaMigrationCoverage(projectRoot, gitCommit, request.changeAnalysis, releaseMigrations);
   const releaseImpactAssessment = resolveReleaseImpactAssessment(
@@ -254,7 +260,11 @@ function createPlan(projectRoot, request, env = process.env) {
     'game',
     releaseMigrations
   );
-  if (technologyCutover && releaseImpactAssessment && !releaseImpactAssessment.requiredChecks.some(
+  if (codegraph && (!releaseImpactAssessment || ['verify-codegraph-prerequisites', 'codegraph-offline-cutover'].some(
+    key => !releaseImpactAssessment.requiredChecks.some(item => item.stepKey === key)))) {
+    throw new Error('Guild B requires CodeGraph prerequisites and offline cutover checks');
+  }
+  if (technologyCutover && !codegraph && releaseImpactAssessment && !releaseImpactAssessment.requiredChecks.some(
     item => item.stepKey === 'technology-offline-cutover')) {
     throw new Error('Technology migrations require technology-offline-cutover');
   }
@@ -764,7 +774,7 @@ function createPlan(projectRoot, request, env = process.env) {
       : runGit(projectRoot, ['show', `${gitCommit}:${DEFAULT_COMPOSE_FILE}`]))
     : '';
   if (requireStandbyCandidate) {
-    if (technologyCutover) throw new Error('Technology format cutover requires the single active writer release path; standby cutover is unavailable');
+    if (offlineCutover) throw new Error('Technology format cutover requires the single active writer release path; standby cutover is unavailable');
     standbyCandidate = {
       candidateId: standbyCandidateId, imageTag,
       configVersion: crypto.createHash('sha256').update(formalComposeSource).digest('hex'),
@@ -911,7 +921,23 @@ function createPlan(projectRoot, request, env = process.env) {
       productionAction: true,
       executable: true
     }));
-    if (technologyCutover) {
+    if (codegraph) {
+      steps.push(releaseStep({
+        key: 'verify-codegraph-prerequisites', title: '核验公会 A 与退役调度',
+        summary: '只读校验实际 A 镜像、全部任务版本及旧调度归档与排空',
+        command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(codegraphCutover.prerequisiteCommands(
+          remoteComposeDir, gameServiceName(config.stackName, config.containerName), imageTag))),
+        validation: 'codegraph_prerequisites=PASS', actionType: 'remote-check', executable: true
+      }));
+      steps.push(releaseStep({
+        key: 'codegraph-offline-cutover', title: '公会 B 停写与整库备份',
+        summary: '停止全部游戏任务，复核调度排空及数据库连接，绑定镜像、迁移和完整备份',
+        command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(codegraphCutover.offlineCommands(
+          remoteComposeDir, gameServiceName(config.stackName, config.containerName), imageTag, releaseMigrations))),
+        validation: 'codegraph_offline_cutover=PASS；失败保持停写并交由发布恢复流程',
+        actionType: 'production', productionAction: true, executable: true, recoveryBoundary: true, timeoutSeconds: 900
+      }));
+    } else if (technologyCutover) {
       steps.push(releaseStep({
         key: 'technology-offline-cutover',
         title: '科技格式停写与整库备份',
@@ -962,7 +988,7 @@ function createPlan(projectRoot, request, env = process.env) {
         `cd ${shellToken(remoteComposeDir)}`,
         `service_name=${shellToken(gameServiceName(config.stackName, config.containerName))}`,
         'backup_dir=$(cat .last-game-release-backup)',
-        ...(technologyCutover ? technologyQuiescedSnapshotCommands() : gameServiceSnapshotCommands()),
+        ...(codegraph ? codegraphCutover.quiescedCommands() : technologyCutover ? technologyQuiescedSnapshotCommands() : gameServiceSnapshotCommands()),
         ...gameFormalComposeCommands(formalComposeSource, imageTag, appTag),
         ...gameComposeSsoContractCommands(config.stackName, config.containerName, '$compose_candidate', true),
         'cp "$compose_candidate" docker-compose.yml',
@@ -1007,7 +1033,7 @@ function createPlan(projectRoot, request, env = process.env) {
         ...gameComposeSsoContractCommands(config.stackName, config.containerName, 'docker-compose.yml', true),
         `service_name=${shellToken(`${config.stackName}_${config.containerName}`)}`,
         'backup_dir=$(cat .last-game-release-backup)',
-        ...(technologyCutover ? technologyReceiptCommands(releaseMigrations, imageTag) : [
+        ...(offlineCutover ? (codegraph ? codegraphCutover.receiptCommands(releaseMigrations, imageTag) : technologyReceiptCommands(releaseMigrations, imageTag)) : [
           `healthy_before_deploy=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | wc -l)`,
           `[ "$healthy_before_deploy" -ge 1 ] || { echo 'ERROR: deploy blocked because no healthy old container is serving'; exit 1; }`,
           ...gameServiceSnapshotCommands()
@@ -1017,7 +1043,7 @@ function createPlan(projectRoot, request, env = process.env) {
         `docker stack deploy -c docker-compose.yml ${shellToken(config.stackName)}`,
         `replicas_after_submit=$(docker service inspect "$service_name" --format '{{.Spec.Mode.Replicated.Replicas}}')`,
         `[ "$replicas_after_submit" -eq 1 ] || { echo "ERROR: deploy submitted an invalid replica count: $replicas_after_submit"; exit 1; }`,
-        ...(technologyCutover ? ['echo game_stack_deploy_guard=PASS offline_cutover=true replicas=$replicas_after_submit'] : [
+        ...(offlineCutover ? ['echo game_stack_deploy_guard=PASS offline_cutover=true replicas=$replicas_after_submit'] : [
           `healthy_after_submit=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | wc -l)`,
           `[ "$healthy_after_submit" -ge 1 ] || { echo 'ERROR: old healthy container disappeared immediately after deploy'; exit 1; }`,
           `echo game_stack_deploy_guard=PASS healthy_before=$healthy_before_deploy healthy_after_submit=$healthy_after_submit replicas=$replicas_after_submit`
@@ -1028,7 +1054,7 @@ function createPlan(projectRoot, request, env = process.env) {
         [
           `service_name=${shellToken(`${config.stackName}_${config.containerName}`)}`,
           `test "$(docker service inspect "$service_name" --format '{{.Spec.Mode.Replicated.Replicas}}')" -eq 1`,
-          ...(technologyCutover ? [] : [`test "$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | wc -l)" -ge 1`]),
+          ...(offlineCutover ? [] : [`test "$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | wc -l)" -ge 1`]),
           `docker stack services ${shellToken(config.stackName)}`
         ]
       )),
@@ -2900,7 +2926,10 @@ function validateReleaseMigration(filePath, sql) {
   if (missing.length > 0) {
     throw new Error(`数据库迁移 ${filePath} 缺少发布安全约束: ${missing.join(', ')}`);
   }
-  const compatibilitySource = stripAdditiveNewColumnFinalization(source).replace(
+  const guildFinalization = filePath === codegraphCutover.MIGRATION
+    ? source.replace(/ALTER TABLE t_guild ALTER COLUMN status SET DEFAULT 'ACTIVE', ALTER COLUMN status SET NOT NULL;/g, '')
+    : source;
+  const compatibilitySource = stripAdditiveNewColumnFinalization(guildFinalization).replace(
     /\bCREATE\s+TRIGGER\s+[a-z_][a-z0-9_]*\s+BEFORE\s+TRUNCATE\s+ON\s+[a-z_][a-z0-9_]*\s+FOR\s+EACH\s+STATEMENT\s+EXECUTE\s+FUNCTION\s+[a-z_][a-z0-9_]*\s*\(\s*\)\s*;/gi, '');
   const incompatible = compatibilitySource.match(/\b(drop\s+(?:table|column|index|constraint)|truncate\b|rename\s+(?:column|to)\b|alter\s+column\b)/i);
   if (incompatible) {
@@ -4070,7 +4099,8 @@ function gameDesignImageSettingsRetirementCommand(remoteComposeDir, stackName, c
 
 function gamePreDeployChecklistCommand(remoteComposeDir, stackName, containerName, imageTag, releaseMigrations) {
   const serviceName = gameServiceName(stackName, containerName);
-  const offline = requiresTechnologyCutover(releaseMigrations);
+  const codegraph = codegraphCutover.requiresCodegraphCutover(releaseMigrations);
+  const offline = codegraph || requiresTechnologyCutover(releaseMigrations);
   return [
     `cd ${shellToken(remoteComposeDir)}`,
     `service_name=${shellToken(serviceName)}`,
@@ -4081,7 +4111,7 @@ function gamePreDeployChecklistCommand(remoteComposeDir, stackName, containerNam
     'test -s "$backup_dir/docker-compose.yml"',
     'test -s "$backup_dir/database/schema-status.txt"',
     'docker image inspect "$target_image" >/dev/null',
-    ...(offline ? technologyReceiptCommands(releaseMigrations, imageTag) : [
+    ...(offline ? (codegraph ? codegraphCutover.receiptCommands(releaseMigrations, imageTag) : technologyReceiptCommands(releaseMigrations, imageTag)) : [
       'current_healthy=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | wc -l)',
       '[ "$current_healthy" -ge 1 ] || { echo "ERROR: current production service has no healthy container"; exit 1; }'
     ]),
@@ -4102,7 +4132,7 @@ function gamePreDeployChecklistCommand(remoteComposeDir, stackName, containerNam
     'echo "checklist_backup=PASS path=$backup_dir"',
     'echo "checklist_database_migrations=PASS count=$actual_migrations"',
     'echo "checklist_migration_image_source=PASS image=$target_image"',
-    ...(offline ? technologyQuiescedSnapshotCommands() : gameServiceSnapshotCommands()),
+    ...(codegraph ? codegraphCutover.quiescedCommands() : offline ? technologyQuiescedSnapshotCommands() : gameServiceSnapshotCommands()),
     'echo "checklist_rollback_source=PASS snapshot=$backup_dir/service.inspect.json"',
     'echo "pre_deploy_checklist=PASS"'
   ];
@@ -4193,7 +4223,8 @@ function applyGameDatabaseMigrationsCommand(
   imageTag,
   releaseMigrations
 ) {
-  const offline = requiresTechnologyCutover(releaseMigrations);
+  const codegraph = codegraphCutover.requiresCodegraphCutover(releaseMigrations);
+  const offline = codegraph || requiresTechnologyCutover(releaseMigrations);
   const applicationOwnershipSql = `
 WITH application_identity AS (
   SELECT to_regrole(:'application_role') AS role_oid
@@ -4225,7 +4256,7 @@ CROSS JOIN ownership_mismatches;
     `service_name=${shellToken(gameServiceName(stackName, containerName))}`,
     `target_image=${shellToken(imageTag)}`,
     'backup_dir=$(cat .last-game-release-backup)',
-    ...(offline ? technologyReceiptCommands(releaseMigrations, imageTag) : []),
+    ...(offline ? (codegraph ? codegraphCutover.receiptCommands(releaseMigrations, imageTag) : technologyReceiptCommands(releaseMigrations, imageTag)) : []),
     'mkdir -p "$backup_dir/database/migrations"',
     'image_migration_dir="$backup_dir/database/migrations/image-bundle"',
     'test ! -e "$image_migration_dir" || { echo "ERROR: migration image bundle already exists in release backup"; exit 1; }',
@@ -4283,7 +4314,7 @@ CROSS JOIN ownership_mismatches;
   commands.push(
     `application_ownership_sql=$(printf %s '${Buffer.from(applicationOwnershipSql, 'utf8').toString('base64')}' | base64 -d)`,
     `application_service_name=${shellToken(gameServiceName(stackName, containerName))}`,
-    ...(offline ? ['application_database_role=$(cat "$backup_dir/database/technology-application-role")'] : [
+    ...(offline ? ['application_database_role=$(cat "$backup_dir/database/' + (codegraph ? 'codegraph' : 'technology') + '-application-role")'] : [
     'application_container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$application_service_name" --filter health=healthy | head -n 1)',
     '[ -n "$application_container_id" ] || { echo "ERROR: no healthy application container is available for database ownership validation"; exit 1; }',
     "application_database_role=$(docker exec \"$application_container_id\" sh -lc 'if [ -n \"${SPRING_DATASOURCE_USERNAME:-}\" ]; then printf \"%s\" \"$SPRING_DATASOURCE_USERNAME\"; else IFS= read -r value < /run/secrets/spring.datasource.username; printf \"%s\" \"$value\"; fi')",
@@ -4459,6 +4490,7 @@ function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName
     '(cd "$backup_dir" && sha256sum -c SHA256SUMS)',
     ...gameServiceSnapshotCommands('rollback'),
     ...technologyRollbackGuardCommands(),
+    ...codegraphCutover.rollbackCommands(),
     'if [ -f "$backup_dir/design-image.json" ] && [ ! -e data/private/design-image.json ]; then mkdir -p data/private && cp "$backup_dir/design-image.json" data/private/design-image.json && chmod 600 data/private/design-image.json; fi',
     'echo "WARNING: suspending all ACTIVE ADMIN listings before old-code rollback"',
     ...gameDatabaseContainerResolutionCommands(false),

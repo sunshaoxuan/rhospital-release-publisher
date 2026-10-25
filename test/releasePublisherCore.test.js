@@ -4658,3 +4658,53 @@ test('Steam release pairs ticket tests and runtime DNS validation with a guarded
     assert.throws(() => createPlan(root, {...request, gitCommit: invalid}), /Steam/);
   }
 });
+
+
+test('guild B schedules observed A and archive prerequisites before the offline migration boundary', () => {
+  const root = releaseImpactGitProject();
+  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
+  const migrationPath = 'scripts/migration/20261025_finalize_guild_status.sql';
+  const migration = "\\set ON_ERROR_STOP on\n-- Guild preparation A must be live and all old instances/transactions retired.\n-- Publisher owns that boundary and backup. Roll back application only to A.\n-- Historical weekly reward fields, guild audit timestamps and version stay intact.\nBEGIN;\nSET LOCAL lock_timeout = '10s';\nSET LOCAL statement_timeout = '60s';\nLOCK TABLE t_guild IN SHARE ROW EXCLUSIVE MODE;\nCREATE TEMP TABLE codegraph_guild_before ON COMMIT DROP AS\nSELECT id, to_jsonb(g) - 'status' AS preserved FROM t_guild g;\nDO $$\nBEGIN\n  IF EXISTS (SELECT 1 FROM t_guild WHERE status IS NOT NULL AND status NOT IN ('ACTIVE','DISBANDED')) THEN\n    RAISE EXCEPTION 'Unexpected guild status; review before migration';\n  END IF;\nEND $$;\nUPDATE t_guild SET status = 'ACTIVE' WHERE status IS NULL;\nALTER TABLE t_guild ALTER COLUMN status SET DEFAULT 'ACTIVE', ALTER COLUMN status SET NOT NULL;\nCREATE INDEX IF NOT EXISTS idx_guild_status_level_id ON t_guild (status, level DESC, id ASC);\nDO $$\nBEGIN\n  IF EXISTS (SELECT 1 FROM t_guild g FULL JOIN codegraph_guild_before b USING (id)\n             WHERE g.id IS NULL OR b.id IS NULL OR (to_jsonb(g) - 'status') IS DISTINCT FROM b.preserved) THEN\n    RAISE EXCEPTION 'Guild migration changed a preserved field';\n  END IF;\n  IF NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = current_schema()\n       AND tablename = 't_guild' AND indexname = 'idx_guild_status_level_id'\n       AND indexdef LIKE '% USING btree (status, level DESC, id)') THEN\n    RAISE EXCEPTION 'Guild status index definition differs';\n  END IF;\nEND $$;\nCOMMIT;\nSELECT 'guild_status_b=PASS' AS result, count(*) FILTER (WHERE status = 'ACTIVE') AS active_guilds,\n       count(*) FILTER (WHERE status = 'DISBANDED') AS disbanded_guilds FROM t_guild;\n";
+  fs.mkdirSync(path.dirname(path.join(root, migrationPath)), {recursive: true});
+  fs.writeFileSync(path.join(root, migrationPath), migration);
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
+    'final-runtime-check', 'verify-game-static-delivery', 'apply-database-migrations',
+    'verify-codegraph-prerequisites', 'codegraph-offline-cutover'];
+  const save = checks => {
+    writeReleaseImpact(root, {assessmentId: '20261025-guild-b-' + checks.length,
+      coveredRuntimePaths: [migrationPath], checklistDecision: 'checklist-updated',
+      databaseImpact: 'schema-change', requiredChecks: checks});
+    runGit(root, ['add', '.']);
+    runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'guild B fixture']);
+    return releaseImpactPlanRequest(runGit(root, ['rev-parse', 'HEAD']).trim(), baseline,
+      [migrationPath], ['release/release-impact.json']);
+  };
+  const plan = createPlan(root, save(requiredChecks));
+  const index = key => plan.steps.findIndex(step => step.key === key);
+  assert.ok(index('backup-game-release') < index('verify-codegraph-prerequisites'));
+  assert.ok(index('verify-codegraph-prerequisites') < index('codegraph-offline-cutover'));
+  assert.ok(index('codegraph-offline-cutover') < index('apply-database-migrations'));
+  assertStepType(plan, 'verify-codegraph-prerequisites', 'remote-check', false);
+  const localEvidence = plan.steps.filter(step => step.executable && /^verify-/.test(step.key) && step.actionType !== 'remote-check');
+  assert.equal(localEvidence.some(step => step.key === 'verify-codegraph-prerequisites'), false);
+  const localPreflight = plan.steps.find(step => step.key === 'validate-game-release-preflight');
+  if (localPreflight) {
+    const payload = localPreflight.command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/);
+    assert.equal(JSON.parse(Buffer.from(payload[1], 'base64').toString('utf8')).checks.some(step => step.key === 'verify-codegraph-prerequisites'), false);
+  }
+  assertStepType(plan, 'codegraph-offline-cutover', 'production', true);
+  assert.equal(plan.steps[index('codegraph-offline-cutover')].recoveryBoundary, true);
+  assert.equal(index('technology-offline-cutover'), -1);
+  assert.match(decodedRemoteScript(plan.steps[index('apply-database-migrations')].command), /codegraph-offline-backup/);
+  for (const missing of ['verify-codegraph-prerequisites', 'codegraph-offline-cutover']) {
+    assert.throws(() => createPlan(root, save(requiredChecks.filter(key => key !== missing))), /CodeGraph|codegraph/);
+  }
+  const technologyPaths = require('../src/gameTechnologyFormatCutover').MIGRATIONS;
+  for(const file of technologyPaths) fs.writeFileSync(path.join(root,file), "\\set ON_ERROR_STOP on\nBEGIN;\nSET LOCAL lock_timeout = '10s';\nSET LOCAL statement_timeout = '60s';\nSELECT 1;\nCOMMIT;\nSELECT 1;\n");
+  const mixed = save(requiredChecks);
+  mixed.changeAnalysis.targets.game.changedPaths.push(...technologyPaths);
+  assert.throws(()=>createPlan(root,mixed), /Guild B requires an already prepared A predecessor/);
+  for(const file of technologyPaths) fs.unlinkSync(path.join(root,file));
+  fs.writeFileSync(path.join(root, migrationPath), migration + '\nALTER TABLE t_hospitals ALTER COLUMN name SET NOT NULL;\n');
+  assert.throws(() => createPlan(root, save(requiredChecks)), /compatible|兼容|NOT NULL|destructive/i);
+});
