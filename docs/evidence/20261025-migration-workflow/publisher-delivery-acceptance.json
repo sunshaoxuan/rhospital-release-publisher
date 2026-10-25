@@ -1,0 +1,43 @@
+{
+  "at": "2026-10-25T09:33:23.711Z",
+  "scope": "publisher-only",
+  "command": "npm test",
+  "result": "PASS",
+  "tests": 434,
+  "passed": 434,
+  "failed": 0,
+  "skipped": 0,
+  "durationMs": 518448.54,
+  "inputIndexSha256": "0a1d366e47b984dd71b68d4892d083c598856752e60b523dd261b41536063efc",
+  "logSha256": "60393f22df5ef8abead9ea184ebf04a6d904ba6de6f04a70ecee6a2d7f21f446",
+  "testEnvironment": {
+    "temporaryDirectory": "C:/Users/X02851/.codex/worktrees/publisher-migration-workflow/rhospital-release-publisher/.qa/t",
+    "network": "fixture-only; no running publisher action endpoints",
+    "gitConfig": {
+      "scope": "process-only",
+      "core.longpaths": true
+    }
+  },
+  "firstAttempt": {
+    "tests": 432,
+    "passed": 394,
+    "failed": 38,
+    "reason": "Windows Git fixture path too long",
+    "logSha256": "a0cbfe770b94ef162e7853101b392d1f02463aa16accf7df7f219d11bc7b2ded"
+  },
+  "independentReview": {
+    "earlyDirectionGuard": [
+      "game",
+      "forum"
+    ],
+    "forumReusePreserved": true,
+    "currentConfigReaderPreserved": true,
+    "localCheckPolicyUnchanged": true,
+    "productionCommandsExecuted": false,
+    "uiSourceChanged": false
+  },
+  "remaining": [
+    "push accepted commit to origin/master",
+    "publisher-only service deployment and live version verification"
+  ]
+}

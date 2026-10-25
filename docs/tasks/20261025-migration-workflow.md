@@ -2,6 +2,12 @@
 
 ## Objective And Request
 
+Current delivery authorization (2026-10-25): complete publisher-only changes, acceptance, push to publisher origin/master and publish the publisher to its existing runtime endpoint. No game/application edits, production data changes, game plans, game publication, cutover or rollback. The repository hard execution boundary governs all following work. Earlier production sections below are historical records only.
+
+Delivery batch: retain publisher migration workflow and role resolution fixes, repository hard boundary and audit correction. Reconcile current publisher main/task/master histories without absorbing unrelated work, freeze executable/test/dependency identities and run a fresh npm test for the combined candidate, push a fast-forward to origin/master, deploy a clean publisher checkout and verify version/hash, endpoint HTTP behavior, idle job state and service health. No visible UI code change is included in this batch. Preserve the previous publisher runtime identity for publisher-only rollback.
+
+Acceptance criteria: origin/master equals accepted publisher commit; existing endpoint 192.168.20.218:8787 serves that same clean commit and content hash with UP_TO_DATE; publisher process is supervised and idle; mandatory npm test evidence is valid for identical executable/test/dependency inputs; unrelated dirty files and all application/production state remain untouched in this delivery. Any service-management permission limitation must be reported without bypassing the publisher version gate.
+
 Adjust publisher workflow for plan-generation rejection of
 `scripts/migration/20261025_finalize_guild_status.sql` with `ALTER COLUMN`.
 Diagnose the actual SQL and preserve release and rollback safety.
@@ -11,7 +17,7 @@ Diagnose the actual SQL and preserve release and rollback safety.
 - Publisher policy, plan orchestration, regression tests, docs and changelog.
 - Read application migration and evidence only as required for diagnosis.
 - Preserve original checkout and its five existing unpushed commits.
-- No production release, database mutation, application edits, remote push or explicit service restart.
+- No game/application production release, database mutation or application edits. Publisher-only remote push and service update are authorized by the current delivery request.
 - A verified fast-forward may trigger the existing idle publisher auto-reload.
 - Work in the isolated publisher worktree based on initial HEAD.
 - No visible UI change planned; browser acceptance required if UI changes.
@@ -30,7 +36,7 @@ Batch: migration classification, any required plan ordering, tests and docs.
 Shared checks: syntax, migration/plan assertions in the full publisher test suite.
 Split if actual SQL requires application changes, migration redesign or new authorization.
 
-## Acceptance Matrix
+## Historical Initial Acceptance Matrix
 
 | Item | Required Evidence | Status |
 | --- | --- | --- |
@@ -45,6 +51,17 @@ Split if actual SQL requires application changes, migration redesign or new auth
 | Production readiness | Live prepared A and scheduler prerequisites | OUT OF SCOPE, UNVERIFIED |
 
 ## Evidence And Decisions
+
+### Publisher-Only Final Delivery Batch
+
+- Final combined-candidate npm test: PASS, 434 tests, 434 passed, zero failures/skips, 518448.54 ms. Frozen executable/test/dependency index SHA256 remains 0a1d366e47b984dd71b68d4892d083c598856752e60b523dd261b41536063efc. Evidence: docs/evidence/20261025-migration-workflow/publisher-delivery-acceptance.json and publisher-delivery-npm-test.log. Independent review retains mandatory checks, forum reuse, current config reader, immutable A/migration protection and role resolution fail-closed behavior. Push and publisher service deployment are subsequent acceptance items.
+
+- First combined-candidate npm test: 432 tests, 394 PASS and 38 FAIL, all failing in Git fixture reads with Windows Filename too long. Preserve the failed log. Shorten the task-local temporary directory and enable core.longpaths through process-local Git environment only; no global Git configuration or product source change. The failed full gate requires a fresh full npm test with the corrected environment.
+
+- Live publisher before delivery: 0.2.0+85ac7a4b, port 8787, Windows service RHospitalReleaseConsole. Main source is 7daeb209 with unrelated untracked orchestration-audit documents. Preserve those files exactly; do not hide them or relax dirty-version checks.
+- origin/master has independent commit d526b3d, absent from main. Merge it while preserving current readReleaseConfig behavior, selected-check budgets and existing tests. The combined candidate retains the early direction guard for both game and forum fixture plans. No live plan request is needed.
+- This integration changes src/releasePublisherCore.js and its tests, invalidating the prior 432-test evidence for the final combined candidate. Freeze executable inputs after syntax/diff/conflict checks and run mandatory npm test once. Extra broad game/backend checks are outside scope.
+- Deployment method: install a clean publisher checkout under the publisher project .service directory; point only the publisher Windows service to that checkout, retaining canonical publisher history/jobs and protected diagnostics through publisher-local links. Preserve old service configuration for publisher-only rollback. Require idle job API and no persisted active jobs before service update. No application or remote-production command is permitted.
 
 - Initial primary checkout: clean `main`, five commits ahead of `origin/main`.
 - Screenshot: plan creation stopped before release actions, image label
@@ -350,3 +367,137 @@ Split if actual SQL requires application changes, migration redesign or new auth
   `AUTHORIZED_A_RELEASE_ACCEPTANCE.md`; structured runtime receipt:
   `a-immutable-runtime-result.json`; live evidence:
   `a-live-immutable-final.json`.
+
+## Authorized B Preparation And Publication
+
+- User now authorizes updating B impact against accepted A, archiving the two
+  disabled scheduler jobs under project rules, accepting a frozen B candidate,
+  executing formal gates and publishing B only when all required checks pass.
+- Batch members: exact-baseline assessment and candidate documentation; bounded
+  archival of scheduler jobs 18 and 20; candidate gates; production migration
+  and B cutover; final runtime and migration receipt verification.
+- Dependency order: verify current immutable A and B source; prepare candidate
+  in an isolated application worktree; verify archival conventions, backup and
+  conditional transaction; freeze candidate and run required native gates;
+  dispatch one formal release; track that job through runtime acceptance.
+- Retain stopped-writer cutover, full database backup, immutable predecessor,
+  scheduler archive/drain, migration idempotency and rollback-floor protections.
+  No bypasses, unrelated scheduler changes or Meelok recovery are authorized.
+- Completion: exact A-baseline path assessment accepted; only two eligible
+  scheduler jobs archived with before/after evidence; all required candidate
+  and formal gates pass; B live identity, migration and final runtime accepted.
+  Any missing mandatory evidence keeps publication/acceptance blocked.
+- Reuse matching evidence only. Native exact-staged-tree commit/push and
+  release gates remain mandatory. Preserve unrelated application dirty work.
+
+### B Archival And Candidate Freeze
+
+- Isolated application clone at task-local .task-temp/application-b uses master
+  and native project hooks. Remote master initially 931bad01; unrelated main
+  workspace remains unchanged. Only assessment, changelog, reviewed identity
+  bindings and a new intent receipt are candidate changes. Runtime and SQL
+  bytes remain identical to that original B source.
+- Scheduler archival ops committed in rhospital c209364. Versioned transaction
+  locks exact rows 18/20, verifies disabled status, exact retained fields, empty
+  tasks/batches/workflow references and unrelated-job digest. Official SnailJob
+  vsj1.10.0 soft-delete configuration is bound in upstream evidence.
+- Rollback rehearsal PASS: persisted deleted values remain 0. Apply and replay
+  PASS: both deleted=1, job_status=0; every other field and unrelated job digest
+  unchanged. Private remote backup SHA256
+  445e2780d1eed1a9f2c35f18d909062c18cd2fe7fd1407e0097879eef38240d2.
+- First native commit attempt stopped on stale CHANGELOG metadata binding before
+  Docker build or feature execution. Reviewed changelog, assessment and preflight
+  binding successor identities updated without changing historical evidence.
+  Static current-binding validation PASS. Refrozen native hook is running;
+  its required full checks own this validation phase. No duplicate pre-run.
+
+- Refrozen attempt reached candidate-gate-regressions: 45/63 PASS, 18 failed
+  because nested Git fixtures exceeded Windows path limits. Selected feature
+  and backend checks did not run in that attempt. Native Git invocation will
+  inherit core.longpaths=true through its child Git processes; no source,
+  policy or assertions change. Environment identity changes invalidate that
+  failed run. Required native gate is rerun for the same staged candidate.
+
+- Process-scoped longpaths rerun reached 60/63 PASS. Three nested Git transport
+  cases still fail with loose-object filename length / remote unpacker errors.
+  Logs retained as b-failed-prebuild receipts. Relocate the same isolated clone
+  to C:/workspace/codex-work/guild-b, verify frozen tree identity and first run
+  the three failing cases there. No source or policy change is planned. The
+  shorter execution path invalidates the failed environment identity; native
+  full candidate gates remain required after the focused regression succeeds.
+
+- Short-path focused regression PASS: 3/3, zero skipped. Source tree remains
+  da3d5e6382951880c4b5be05405edc782eddba3a before/after relocation. Native
+  commit gate restarted from C:/workspace/codex-work/guild-b with explicit
+  process Git longpath configuration. Staged files remain the same five.
+
+- Short-path native run passed all 63 gate regressions and initial design
+  checks, then stopped at ERR_MODULE_NOT_FOUND pngjs in image evidence. The
+  relocated clone lacks its own locked Node dependencies. Install npm ci
+  --ignore-scripts --no-audit --no-fund in the isolated clone. This changes
+  dependency/execution identity; failed evidence is retained and the native
+  exact candidate gate will run again after dependency installation. Runtime,
+  SQL, policy and frozen five-file source tree remain unchanged.
+
+### B Native Candidate Acceptance
+
+- Locked dependencies installed in the short-path clone. Native commit gate
+  PASS for tree da3d5e6382951880c4b5be05405edc782eddba3a, accepted commit
+  a466baa8ee9f1aa4f22815b0d5a1c337af65f3cc, parent 931bad01. Exactly five
+  metadata/document files changed; runtime and migration bytes are unchanged.
+- Gate regressions 63/63 PASS; selected design behavior 472/472 and evidence
+  tests 51/51 PASS; lazy-assets supplemental tests 313/313 PASS.
+- Fresh Maven clean package compiled 667 main and 390 test sources: 1904
+  tests, zero failures/errors, 96 conditional skips; BUILD SUCCESS at
+  2026-10-25T07:44:14Z. Docker candidate image identity validated.
+- Prebuild and staged receipts retained in b-accepted-prebuild/staged files.
+  Native Push-VerifiedMaster.ps1 is running the push and remote identity
+  gates. Production B has not been dispatched at this checkpoint.
+
+- Native verified push PASS: origin/master a466baa8; post-push remote gate
+  reused the authentic matching preflight and confirmed exact A baseline.
+- Formal plan HTTP 200, assessment 20261025-guild-b-after-a-v1, exactly 16
+  runtime paths. Independent command/timeout/entrypoint and transitive scope
+  review retained in b-formal-scope-review.json. Mandatory safety retained.
+- Formal B job 1792915241732-d56bbe5bdd5db8 accepted at
+  2026-10-25T08:00:41.732Z. HTTP response wait timed out; active-job readback
+  reconciled the same job and no duplicate execute request was issued.
+  Isolated publisher worktree protects unrelated main application changes.
+
+### B Formal Prestop Failure And Bounded Repair
+
+Publisher role repair: focused shell regression 9/9 PASS; mandatory npm test 432/432 PASS (412422.8858 ms). Task commit 3989fc2, installed main commit 7daeb209b73e8a42e40a7257e2e721e07a749ba1. Main has unrelated untracked orchestration-audit documents; preserve them in place. Use a clean detached runtime at C:/workspace/codex-work/guild-b-publisher on port 8788 with the same production configuration, application root, Docker target and canonical history file. Retain independent job evidence and compare resolved targets before new native/formal checks. This environment change invalidates policy-bound validation; rerun native push/remote phases under the new exact policy. No application source or migration changes.
+
+- Attempt 1 reached 26 completed steps, including immutable A/B image and
+  archived scheduler checks. Offline cutover failed reading a missing
+  /run/secrets/spring.datasource.username before the floor file and scaling.
+- Read-only live proof: immutable A unchanged, one healthy replica, username
+  environment present, username secret absent, CodeGraph floor absent. No B
+  startup or guild migration occurred. Failed job and backup remain retained.
+- Repair scope: align CodeGraph role resolution with the existing technology
+  cutover environment-first/secret configuration contract. Test real nested
+  shell resolution for environment, secret, absent and empty credentials;
+  failures must precede floor creation and stopping. No application changes.
+- Publisher policy source identity changes, invalidating policy-bound gates.
+  Run focused tests then the required npm test once, commit and install the
+  clean policy, refresh exact-candidate native gates and dispatch a new formal
+  B attempt only after verifying the prior job has ended and A is unchanged.
+  Matching application runtime/build artifacts can be reused by native gates.
+
+### Scope Correction: Publisher Only (2026-10-25)
+
+The user explicitly corrected the task boundary: this project may modify, validate and publish only the publisher itself. Game source, application release assessments, migrations, scheduler records and production data are outside scope. Starting game/application production publication, cutover or rollback is prohibited. Earlier release plans and authorizations are superseded by this correction. All following work must stay inside this publisher repository and use local or isolated test fixtures.
+
+The previous execution exceeded this boundary. Historical records remain for audit and do not authorize continuation. Formal B job 1792918255808-0c31726ea44d18 was cancelled at 2026-10-25T09:03:29.873Z, during publish-image, with 21 completed steps and cutoverCommitted=false. Active-job readback confirmed busy=false. The dedicated port-8788 publisher process was stopped. No further application publication or production mutation is permitted.
+
+Read-only post-cancellation evidence b-attempt2-cancelled-live.json confirms immutable A image sha256:2422d371f0c99aecab57fbaae49eb8a38bc5b89bd836809ad0d6a1a245a50aec, one replica, container 7f80181341ea healthy, and no CodeGraph format floor. B service cutover and database migration were not reached. Image transfer may have left staging artifacts; no production cleanup or reversal is authorized. Earlier A publication, B metadata preparation/push and scheduler jobs 18/20 archival already occurred and are not undone.
+
+Publisher repair remains task commit 3989fc2, installed publisher commit 7daeb209. Focused tests 9/9 and mandatory npm test 432/432 passed before this documentation-only correction. No repeat full test is required for these boundary and audit text additions; validate document consistency and git diff --check. B production acceptance is CANCELLED and must not be reported as delivered.
+
+### B Attempt 2 Native Gate And Dispatch (Historical, Cancelled)
+
+- Clean runtime UP_TO_DATE at 7daeb209; runtime content hash 59f5b6a67caecb2e4cefc170464666238a18220fbd1326e95c4c7a86aceddd61. Same resolved application root, production SSH/compose target and local Docker execution target. Canonical history remains in the original publisher repository.
+- First isolated native refresh rejected incomplete cache identity because its environment lacked explicit canonical configuration paths. No production mutation. Corrected process-local paths for config, history and gateways; no policy or candidate changes.
+- Refreshed native committed phase PASS: 63 gate regressions, 472 selected behavior tests and 51 evidence tests, zero failures/skips. Native remote phase PASS with authentic matching result reuse and exact origin/master a466baa8 confirmation. Saved b-role-accepted-committed/remote receipts.
+- Independent scope review confirms unchanged keys/timeouts and retained safety. Generated remote differences are the tested role resolver and the expected per-plan Meelok ownership nonce. Frozen plan and scope review retained.
+- Read-only pre-dispatch proof: immutable A, one healthy replica, role environment present, secret absent, no CodeGraph floor. Formal attempt 2 job 1792918255808-0c31726ea44d18 accepted at 2026-10-25T08:50:55.808Z on port 8788. Preserve failed attempt 1. Overall B acceptance remains PENDING until migration and final runtime gates complete.

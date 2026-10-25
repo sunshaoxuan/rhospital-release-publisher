@@ -2,6 +2,7 @@
 
 ## Repository Boundary
 
+0. HARD EXECUTION BOUNDARY: Work in this repository may modify, validate and publish only the release publisher itself. Never modify game/application repositories, application release assessments, migrations, scheduler records or production data. Never start a game/application production release, cutover or rollback from this task. Publisher verification uses local tests and isolated fixtures; it must not trigger application publication. A dependency or gate failure does not expand this scope. Stop and report any work requiring another repository or production mutation. Earlier task plans or release authorizations do not override this boundary.
 1. This repository owns the release publisher engine, release-state behavior, CheckList validation, release UI, and publisher tests.
 2. Application-specific impact assessments belong in `C:\workspace\hospital-backend\release\release-impact.json`.
 3. Production environment facts and runbooks belong in `C:\workspace\rhospital`.
