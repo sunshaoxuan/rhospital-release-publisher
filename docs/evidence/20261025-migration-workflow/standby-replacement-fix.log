@@ -1,0 +1,116 @@
+✔ one immutable archive reaches A/B; B stays dormant; acceptance is explicit and idempotent (232.1423ms)
+✔ unreachable prevents readiness and retains previous acceptance (15.6279ms)
+✔ identity prevents readiness and retains previous acceptance (30.0472ms)
+✔ config prevents readiness and retains previous acceptance (25.269ms)
+✔ partial prevents readiness and retains previous acceptance (19.0516ms)
+✔ partial transfer can retry the identical candidate without rebuilding (45.7887ms)
+✖ Windows journal replacement waits for transient EPERM without repeating acceptance (108.1877ms)
+✖ Windows journal replacement waits for transient EACCES without repeating acceptance (110.995ms)
+✖ Windows journal replacement waits for transient EBUSY without repeating acceptance (124.2672ms)
+✔ journal replacement fails closed and preserves its prior receipt for EPERM (1064.6551ms)
+✔ journal replacement fails closed and preserves its prior receipt for EIO (41.4439ms)
+✔ image or config drift on retry is rejected (23.7944ms)
+✔ missing build IID fails before node contact or image transfer (7.858ms)
+✔ mutable tag drift from the built IID blocks first distribution (5.9296ms)
+✔ shared node lock conflict blocks staging; local concurrent operations also fail closed (31.4458ms)
+✔ B lock refusal never cleans up another B operation reservation (15.6568ms)
+✔ a different flock path cannot claim compatibility with background staging (7.8523ms)
+✔ upload paths fence concurrent attempts by an independent operation ID (0.2938ms)
+✔ unconfirmed owned reservation cleanup blocks the otherwise complete candidate (23.3267ms)
+✔ an existing production standby requires a verified prior acceptance baseline (21.2627ms)
+✔ B running, missing secrets or production semantics block cutover (25.25ms)
+✔ A failure and failed final runtime never advance B acceptance (30.8073ms)
+✔ secretsReady is a mandatory pre-cutover constraint (24.4312ms)
+✔ jobsDisabled is a mandatory pre-cutover constraint (19.5324ms)
+✔ databaseUnchanged is a mandatory pre-cutover constraint (151.6308ms)
+✔ localConnections is a mandatory pre-cutover constraint (22.9264ms)
+✔ productionSemantics is a mandatory pre-cutover constraint (24.2046ms)
+✔ isolatedCandidate is a mandatory pre-cutover constraint (22.2977ms)
+✔ complete is a mandatory pre-cutover constraint (23.1923ms)
+✔ missing helper capability and conflicting CAS fail closed (25.232ms)
+✔ lost acceptance response is reconciled by idempotent acceptance retry (42.5596ms)
+✔ SSH pins host keys; helper output and errors stay private (0.3733ms)
+✔ CLI errors expose only a safe classification, never malformed input (78.449ms)
+✔ Windows PowerShell pipes oversized candidate settings without native argument limits (1483.6905ms)
+ℹ tests 34
+ℹ suites 0
+ℹ pass 31
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4025.9785
+
+✖ failing tests:
+
+test at test\gameStandbyCandidate.test.js:114:3
+✖ Windows journal replacement waits for transient EPERM without repeating acceptance (108.1877ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + '{"candidateId":"064ed61c-9914-48ae-b1dd-631a35394530","imageTag":"hospital-backend:test","imageId":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceCommit":"dddddddddddddddddddddddddddddddddddddddd","configVersion":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","archiveSha256":"873a986f652dc332db8f3e46ae168455ea3075ee1be4253782daf952e2b6075b","configurationId":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","secretVersion":"29623181-fd09-42a3-9f5d-fb09c87d2e59","previousAccepted":"e2981e60-83f7-44a7-9ca1-0e83b6dd5ff4","accepted":false}'
+  - '{"candidateId":"064ed61c-9914-48ae-b1dd-631a35394530","imageTag":"hospital-backend:test","imageId":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceCommit":"dddddddddddddddddddddddddddddddddddddddd","configVersion":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","accepted":false,"archiveSha256":"873a986f652dc332db8f3e46ae168455ea3075ee1be4253782daf952e2b6075b","configurationId":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","secretVersion":"29623181-fd09-42a3-9f5d-fb09c87d2e59","previousAccepted":"e2981e60-83f7-44a7-9ca1-0e83b6dd5ff4"}'
+  
+      at Object.<anonymous> (C:\Users\X02851\.codex\worktrees\publisher-migration-workflow\rhospital-release-publisher\test\gameStandbyCandidate.test.js:125:16)
+      at Object.apply (node:internal/test_runner/mock/mock:767:20)
+      at save (C:\Users\X02851\.codex\worktrees\publisher-migration-workflow\rhospital-release-publisher\src\gameStandbyCandidate.js:147:29)
+      at executeUnlocked (C:\Users\X02851\.codex\worktrees\publisher-migration-workflow\rhospital-release-publisher\src\gameStandbyCandidate.js:241:13)
+      at async executeCandidate (C:\Users\X02851\.codex\worktrees\publisher-migration-workflow\rhospital-release-publisher\src\gameStandbyCandidate.js:126:16)
+      at async TestContext.<anonymous> (C:\Users\X02851\.codex\worktrees\publisher-migration-workflow\rhospital-release-publisher\test\gameStandbyCandidate.test.js:130:21)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '{"candidateId":"064ed61c-9914-48ae-b1dd-631a35394530","imageTag":"hospital-backend:test","imageId":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceCommit":"dddddddddddddddddddddddddddddddddddddddd","configVersion":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","archiveSha256":"873a986f652dc332db8f3e46ae168455ea3075ee1be4253782daf952e2b6075b","configurationId":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","secretVersion":"29623181-fd09-42a3-9f5d-fb09c87d2e59","previousAccepted":"e2981e60-83f7-44a7-9ca1-0e83b6dd5ff4","accepted":false}',
+    expected: '{"candidateId":"064ed61c-9914-48ae-b1dd-631a35394530","imageTag":"hospital-backend:test","imageId":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceCommit":"dddddddddddddddddddddddddddddddddddddddd","configVersion":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","accepted":false,"archiveSha256":"873a986f652dc332db8f3e46ae168455ea3075ee1be4253782daf952e2b6075b","configurationId":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","secretVersion":"29623181-fd09-42a3-9f5d-fb09c87d2e59","previousAccepted":"e2981e60-83f7-44a7-9ca1-0e83b6dd5ff4"}',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test\gameStandbyCandidate.test.js:114:3
+✖ Windows journal replacement waits for transient EACCES without repeating acceptance (110.995ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + '{"candidateId":"a8ebfe38-1ca2-49ef-ac85-eacf12671c7a","imageTag":"hospital-backend:test","imageId":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceCommit":"dddddddddddddddddddddddddddddddddddddddd","configVersion":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","archiveSha256":"873a986f652dc332db8f3e46ae168455ea3075ee1be4253782daf952e2b6075b","configurationId":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","secretVersion":"de7b0128-9b12-4805-9200-3f4237bad628","previousAccepted":"f1b34150-03ae-4aab-85b1-686acb2f1005","accepted":false}'
+  - '{"candidateId":"a8ebfe38-1ca2-49ef-ac85-eacf12671c7a","imageTag":"hospital-backend:test","imageId":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceCommit":"dddddddddddddddddddddddddddddddddddddddd","configVersion":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","accepted":false,"archiveSha256":"873a986f652dc332db8f3e46ae168455ea3075ee1be4253782daf952e2b6075b","configurationId":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","secretVersion":"de7b0128-9b12-4805-9200-3f4237bad628","previousAccepted":"f1b34150-03ae-4aab-85b1-686acb2f1005"}'
+  
+      at Object.<anonymous> (C:\Users\X02851\.codex\worktrees\publisher-migration-workflow\rhospital-release-publisher\test\gameStandbyCandidate.test.js:125:16)
+      at Object.apply (node:internal/test_runner/mock/mock:767:20)
+      at save (C:\Users\X02851\.codex\worktrees\publisher-migration-workflow\rhospital-release-publisher\src\gameStandbyCandidate.js:147:29)
+      at executeUnlocked (C:\Users\X02851\.codex\worktrees\publisher-migration-workflow\rhospital-release-publisher\src\gameStandbyCandidate.js:241:13)
+      at async executeCandidate (C:\Users\X02851\.codex\worktrees\publisher-migration-workflow\rhospital-release-publisher\src\gameStandbyCandidate.js:126:16)
+      at async TestContext.<anonymous> (C:\Users\X02851\.codex\worktrees\publisher-migration-workflow\rhospital-release-publisher\test\gameStandbyCandidate.test.js:130:21)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '{"candidateId":"a8ebfe38-1ca2-49ef-ac85-eacf12671c7a","imageTag":"hospital-backend:test","imageId":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceCommit":"dddddddddddddddddddddddddddddddddddddddd","configVersion":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","archiveSha256":"873a986f652dc332db8f3e46ae168455ea3075ee1be4253782daf952e2b6075b","configurationId":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","secretVersion":"de7b0128-9b12-4805-9200-3f4237bad628","previousAccepted":"f1b34150-03ae-4aab-85b1-686acb2f1005","accepted":false}',
+    expected: '{"candidateId":"a8ebfe38-1ca2-49ef-ac85-eacf12671c7a","imageTag":"hospital-backend:test","imageId":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceCommit":"dddddddddddddddddddddddddddddddddddddddd","configVersion":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","accepted":false,"archiveSha256":"873a986f652dc332db8f3e46ae168455ea3075ee1be4253782daf952e2b6075b","configurationId":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","secretVersion":"de7b0128-9b12-4805-9200-3f4237bad628","previousAccepted":"f1b34150-03ae-4aab-85b1-686acb2f1005"}',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at test\gameStandbyCandidate.test.js:114:3
+✖ Windows journal replacement waits for transient EBUSY without repeating acceptance (124.2672ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+  
+  + '{"candidateId":"fcb24609-b102-418d-b882-525141ac9b6e","imageTag":"hospital-backend:test","imageId":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceCommit":"dddddddddddddddddddddddddddddddddddddddd","configVersion":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","archiveSha256":"873a986f652dc332db8f3e46ae168455ea3075ee1be4253782daf952e2b6075b","configurationId":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","secretVersion":"cba04d61-e2ec-4aa9-935e-0c8e1f3b1ba2","previousAccepted":"b11f59bd-fe8c-44c2-a752-cd73403e4122","accepted":false}'
+  - '{"candidateId":"fcb24609-b102-418d-b882-525141ac9b6e","imageTag":"hospital-backend:test","imageId":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceCommit":"dddddddddddddddddddddddddddddddddddddddd","configVersion":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","accepted":false,"archiveSha256":"873a986f652dc332db8f3e46ae168455ea3075ee1be4253782daf952e2b6075b","configurationId":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","secretVersion":"cba04d61-e2ec-4aa9-935e-0c8e1f3b1ba2","previousAccepted":"b11f59bd-fe8c-44c2-a752-cd73403e4122"}'
+  
+      at Object.<anonymous> (C:\Users\X02851\.codex\worktrees\publisher-migration-workflow\rhospital-release-publisher\test\gameStandbyCandidate.test.js:125:16)
+      at Object.apply (node:internal/test_runner/mock/mock:767:20)
+      at save (C:\Users\X02851\.codex\worktrees\publisher-migration-workflow\rhospital-release-publisher\src\gameStandbyCandidate.js:147:29)
+      at executeUnlocked (C:\Users\X02851\.codex\worktrees\publisher-migration-workflow\rhospital-release-publisher\src\gameStandbyCandidate.js:241:13)
+      at async executeCandidate (C:\Users\X02851\.codex\worktrees\publisher-migration-workflow\rhospital-release-publisher\src\gameStandbyCandidate.js:126:16)
+      at async TestContext.<anonymous> (C:\Users\X02851\.codex\worktrees\publisher-migration-workflow\rhospital-release-publisher\test\gameStandbyCandidate.test.js:130:21)
+      at async Test.run (node:internal/test_runner/test:1389:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:960:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '{"candidateId":"fcb24609-b102-418d-b882-525141ac9b6e","imageTag":"hospital-backend:test","imageId":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceCommit":"dddddddddddddddddddddddddddddddddddddddd","configVersion":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","archiveSha256":"873a986f652dc332db8f3e46ae168455ea3075ee1be4253782daf952e2b6075b","configurationId":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","secretVersion":"cba04d61-e2ec-4aa9-935e-0c8e1f3b1ba2","previousAccepted":"b11f59bd-fe8c-44c2-a752-cd73403e4122","accepted":false}',
+    expected: '{"candidateId":"fcb24609-b102-418d-b882-525141ac9b6e","imageTag":"hospital-backend:test","imageId":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceCommit":"dddddddddddddddddddddddddddddddddddddddd","configVersion":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","accepted":false,"archiveSha256":"873a986f652dc332db8f3e46ae168455ea3075ee1be4253782daf952e2b6075b","configurationId":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","secretVersion":"cba04d61-e2ec-4aa9-935e-0c8e1f3b1ba2","previousAccepted":"b11f59bd-fe8c-44c2-a752-cd73403e4122"}',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

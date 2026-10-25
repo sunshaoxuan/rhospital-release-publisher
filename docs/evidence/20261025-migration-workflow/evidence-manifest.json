@@ -1,0 +1,75 @@
+{
+  "capturedAt": "2026-10-25T04:37:22.358Z",
+  "normalization": "Raw SHA-256 binds tested worktree bytes. normalizedLfSha256 also binds UTF-8 text after CRLF to LF for Git Windows checkout equivalence.",
+  "files": {
+    "browser-acceptance.json": {
+      "bytes": 3631,
+      "sha256": "5a3123c2cbad1300cc09465c40f91257b8ea19f3f2d438e76daa3956b7e2f70e",
+      "normalizedLfSha256": "5a3123c2cbad1300cc09465c40f91257b8ea19f3f2d438e76daa3956b7e2f70e"
+    },
+    "FINAL_INTENT_ACCEPTANCE.md": {
+      "bytes": 2109,
+      "sha256": "04a5220aa7ab18929c365dc2914ec2e1155668bd4d4ca83908740eff31d6c92d",
+      "normalizedLfSha256": "04a5220aa7ab18929c365dc2914ec2e1155668bd4d4ca83908740eff31d6c92d"
+    },
+    "live-publisher-acceptance.json": {
+      "bytes": 36078,
+      "sha256": "a13d890a124928401487c5eb1af0b97338dd3b3f051178915555fffebf8ac3d5",
+      "normalizedLfSha256": "a13d890a124928401487c5eb1af0b97338dd3b3f051178915555fffebf8ac3d5"
+    },
+    "npm-test-final.log": {
+      "bytes": 39312,
+      "sha256": "3ed26f310a23f9191251b9d3a458a326312d4db76e12d9f4d976dc3a08a876b5",
+      "normalizedLfSha256": "8804eac69cad7e9874e43482b6d33dd353f1ecda900c74519cf10a1b9bd9cb42"
+    },
+    "npm-test-rerun.log": {
+      "bytes": 40893,
+      "sha256": "533cba2f83e5c857d26c7f2a2b3ca89aab1006824038323526a6c8527c66f2a7",
+      "normalizedLfSha256": "1c9e577e857177c974a9cb5d6ac68ddb79ba59dcbcfabc375aafc4f1684767c1"
+    },
+    "npm-test.log": {
+      "bytes": 40877,
+      "sha256": "61b3745a49f0b4277fd41bcf888abdca2cc89961750520517292f3ad859797f9",
+      "normalizedLfSha256": "4d9d13c03591ec11cf8408ff642568f982a2e5a597a169fda150a2356663903a"
+    },
+    "offline-plan-current-tip.json": {
+      "bytes": 12135,
+      "sha256": "2f662dc7f3e473076994f148f68b76d2e9d55eee029b140eb569b013334f6f5f",
+      "normalizedLfSha256": "2f662dc7f3e473076994f148f68b76d2e9d55eee029b140eb569b013334f6f5f"
+    },
+    "offline-plan.json": {
+      "bytes": 11940,
+      "sha256": "3025cf1d5ea448da69bf0f8fb729aa2c5d57f7e3230f939ec18eaa48b9aeb2ce",
+      "normalizedLfSha256": "3025cf1d5ea448da69bf0f8fb729aa2c5d57f7e3230f939ec18eaa48b9aeb2ce"
+    },
+    "standby-file-recheck.log": {
+      "bytes": 2471,
+      "sha256": "284bf3658ae0b73346949b53fdbe76533db233462492fda75d811ce6b2a4eb16",
+      "normalizedLfSha256": "1e315765519d43f2b5b246648f157e2c121f2c475f534e9ccd1ab6f3ee2483ed"
+    },
+    "standby-rename-recheck.log": {
+      "bytes": 196,
+      "sha256": "08684da00e6a6e902406e9d41d2d22c87144405d8040a1d3fda2a825dc5c5b92",
+      "normalizedLfSha256": "0e7ba00e9edaa925045ac6954470017d46cf09605b70f6db0f8392b7496f662c"
+    },
+    "standby-replacement-final.log": {
+      "bytes": 3033,
+      "sha256": "cb51db5704105b60f02517dd8bf09512e8e99e390c8d1ad40ae4698f9614b2ab",
+      "normalizedLfSha256": "4490bc6035fda97f80f37360510f5c43f8aaec528c0582ab9958f04829498bae"
+    },
+    "standby-replacement-fix.log": {
+      "bytes": 14604,
+      "sha256": "ea40962f149018a24105570df843a8307cb9ffcda89dac2b18c0e91210e8c230",
+      "normalizedLfSha256": "caaae22e36f704615895a880cc9c1579fcb66e2feccbc489fca7bb02c0d75d0f"
+    },
+    "validation-inputs.json": {
+      "bytes": 2340,
+      "sha256": "ad0ede4a7508be0e70e60e523c8b6e389a54c8ba0ced2775b3e9b7b8d7f084a3",
+      "normalizedLfSha256": "ad0ede4a7508be0e70e60e523c8b6e389a54c8ba0ced2775b3e9b7b8d7f084a3"
+    },
+    "workflow-desktop.png": {
+      "bytes": 144935,
+      "sha256": "0923de88517f76f7a5b6cf53be73d073887257619b6c08d1916b917a6f69d4dc"
+    }
+  }
+}

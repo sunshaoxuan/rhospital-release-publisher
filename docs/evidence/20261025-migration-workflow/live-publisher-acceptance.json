@@ -1,0 +1,918 @@
+{
+  "capturedAt": "2026-10-25T04:35:52.454Z",
+  "scope": "local publisher update and pure-plan API; no release execution",
+  "candidateCommit": "6888056d43fe14f5e9e4e1e131365d21ee763b40",
+  "runtime": {
+    "commit": "6888056d43fe14f5e9e4e1e131365d21ee763b40",
+    "shortCommit": "6888056d",
+    "contentHash": "68ae9fdcb410f34e6c7f29f07d58118dfdcaec4adf121c88ec73bf84e01b9ffe",
+    "dirty": false,
+    "capturedAt": "2026-10-25T04:33:32.249Z",
+    "processId": 65468
+  },
+  "repository": {
+    "commit": "6888056d43fe14f5e9e4e1e131365d21ee763b40",
+    "shortCommit": "6888056d",
+    "contentHash": "68ae9fdcb410f34e6c7f29f07d58118dfdcaec4adf121c88ec73bf84e01b9ffe",
+    "dirty": false
+  },
+  "status": "UP_TO_DATE",
+  "sourceTransfer": {
+    "src/codegraphPrerequisites.py": {
+      "testedRaw": "e920b0fdad94208370f48236c93309eaf2fc0a821fab6da00528c3822771c4d0",
+      "installedRaw": "e920b0fdad94208370f48236c93309eaf2fc0a821fab6da00528c3822771c4d0",
+      "testedLf": "a2fa74a9413e3012740cca36201aaf34c64565c1345fb811c39bbf064160dc3c",
+      "installedLf": "a2fa74a9413e3012740cca36201aaf34c64565c1345fb811c39bbf064160dc3c"
+    },
+    "src/gameCodegraphCutover.js": {
+      "testedRaw": "3289cfb2c0da296d62632b342faa8082e9bd6d57b673c95545d90d9c8276b228",
+      "installedRaw": "3289cfb2c0da296d62632b342faa8082e9bd6d57b673c95545d90d9c8276b228",
+      "testedLf": "389b8a0dbfa81eb7b07f69e57237d46d89e47dc1d21ca8f873824ac39a8035d2",
+      "installedLf": "389b8a0dbfa81eb7b07f69e57237d46d89e47dc1d21ca8f873824ac39a8035d2"
+    },
+    "src/gameFormalProductionTransition.js": {
+      "testedRaw": "1fd926aa16754c80b40eb17b817fde23d3fdf34fb82946e168cd9bc3b0d6b905",
+      "installedRaw": "1fd926aa16754c80b40eb17b817fde23d3fdf34fb82946e168cd9bc3b0d6b905",
+      "testedLf": "e19990df810894652b9d1755930c6995c41d4d6aa9d9880ad76d0005774507f0",
+      "installedLf": "e19990df810894652b9d1755930c6995c41d4d6aa9d9880ad76d0005774507f0"
+    },
+    "src/releasePublisherCore.js": {
+      "testedRaw": "2dffdd1ebca0564e2e9d1974787ed3b47d6ed4e8e856f9e4c95e27e2117c9940",
+      "installedRaw": "2dffdd1ebca0564e2e9d1974787ed3b47d6ed4e8e856f9e4c95e27e2117c9940",
+      "testedLf": "81708d20ab1b39aca45605098c46dfd5d3013119d751bab2e9979b8949878cfc",
+      "installedLf": "81708d20ab1b39aca45605098c46dfd5d3013119d751bab2e9979b8949878cfc"
+    },
+    "test/codegraphPrerequisites_test.py": {
+      "testedRaw": "76e4f2bec9a6b71b804a124157fa2886756b8721d501961f853497174e737244",
+      "installedRaw": "76e4f2bec9a6b71b804a124157fa2886756b8721d501961f853497174e737244",
+      "testedLf": "48144e2e89ae932f1379980334f66533bfd2c1071ab84e0560e33a701942af2f",
+      "installedLf": "48144e2e89ae932f1379980334f66533bfd2c1071ab84e0560e33a701942af2f"
+    },
+    "test/gameCodegraphCutover.test.js": {
+      "testedRaw": "5233898b5dbacf3bbe9e4fa18fe4779d6c6feceab57c93531740e443333964f5",
+      "installedRaw": "5233898b5dbacf3bbe9e4fa18fe4779d6c6feceab57c93531740e443333964f5",
+      "testedLf": "184a4a6333ef980ed9533dd80c9d35ee632d66407849f9068f6701c7dd5a0268",
+      "installedLf": "184a4a6333ef980ed9533dd80c9d35ee632d66407849f9068f6701c7dd5a0268"
+    },
+    "test/releasePublisherCore.test.js": {
+      "testedRaw": "000158713289ea8097d0b2fad903ca3f91d6bb7420be324a8adaf31e384ae47a",
+      "installedRaw": "000158713289ea8097d0b2fad903ca3f91d6bb7420be324a8adaf31e384ae47a",
+      "testedLf": "157f119cd07d1d064728f3c08c7313fb8c4497abb7ab74118ae05456a96cf337",
+      "installedLf": "157f119cd07d1d064728f3c08c7313fb8c4497abb7ab74118ae05456a96cf337"
+    },
+    "test/fixtures/codegraph/guild-classes.json": {
+      "testedRaw": "b450e45e048e484c26e420ccfb6f02f1d2cc7f4c61bda8e3befed529210345b7",
+      "installedRaw": "b450e45e048e484c26e420ccfb6f02f1d2cc7f4c61bda8e3befed529210345b7",
+      "testedLf": "cbbbd960a3ac41ae80f9ef978f01476e48a281706f547e70c19ed6794df94450",
+      "installedLf": "cbbbd960a3ac41ae80f9ef978f01476e48a281706f547e70c19ed6794df94450"
+    },
+    "src/gameStandbyCandidate.js": {
+      "testedRaw": "68def9af94558ee2c9f6dd2c80b344af4e0fa8f3c35f4cfca98a9571a4fbeae6",
+      "installedRaw": "68def9af94558ee2c9f6dd2c80b344af4e0fa8f3c35f4cfca98a9571a4fbeae6",
+      "testedLf": "33ab014fc0a916a6108e0f624f489ab65450b4a509fd6aa48f72d2be94a6df6e",
+      "installedLf": "33ab014fc0a916a6108e0f624f489ab65450b4a509fd6aa48f72d2be94a6df6e"
+    },
+    "test/gameStandbyCandidate.test.js": {
+      "testedRaw": "fafed3ab0f28f430cac7fc630b9302a8cd13230d1161b7ca16af36d6e29b1444",
+      "installedRaw": "fafed3ab0f28f430cac7fc630b9302a8cd13230d1161b7ca16af36d6e29b1444",
+      "testedLf": "827dac4774c365d9f691870967feba782feab4c666cc7c6bf1cc1af59f73737b",
+      "installedLf": "827dac4774c365d9f691870967feba782feab4c666cc7c6bf1cc1af59f73737b"
+    },
+    "src/localCheckPolicy.js": {
+      "testedRaw": "8f6aab57641713c92237b37bf032202dd1069b5f092c4b600ffdb106c93c9cb3",
+      "installedRaw": "8fc5ca10bf651eb9d67dce1e8aca77884bc7b9ed798d22acf039e307e7b42e7d",
+      "testedLf": "8fc5ca10bf651eb9d67dce1e8aca77884bc7b9ed798d22acf039e307e7b42e7d",
+      "installedLf": "8fc5ca10bf651eb9d67dce1e8aca77884bc7b9ed798d22acf039e307e7b42e7d"
+    },
+    "src/publisherVersion.js": {
+      "testedRaw": "9e1c4bd69452119435e014954eca878188938ba5778927d8185e8162e00fd601",
+      "installedRaw": "9e1c4bd69452119435e014954eca878188938ba5778927d8185e8162e00fd601",
+      "testedLf": "565aacd8da7fb18fd9c4109dd47c97c129f8c3248a4c2ca0fda92944a62b29a8",
+      "installedLf": "565aacd8da7fb18fd9c4109dd47c97c129f8c3248a4c2ca0fda92944a62b29a8"
+    },
+    "server.js": {
+      "testedRaw": "5afbad31226f6ac11f10f625eb8ca34506f90cf5ed356d73f4a6891eb769e319",
+      "installedRaw": "4f79cf6429dc6a647237c7e8fd3d340996a5a716d7bfd45c6936f2dfd932a82e",
+      "testedLf": "cb60d75ae7689151ab5a1c57e0352dd3bd2c1de021771515ca4348371414aa6a",
+      "installedLf": "cb60d75ae7689151ab5a1c57e0352dd3bd2c1de021771515ca4348371414aa6a"
+    },
+    "package.json": {
+      "testedRaw": "9628bc60a349b245643e450c1a7816db9cc72fd78d55e6a76731cde1da64a00c",
+      "installedRaw": "9628bc60a349b245643e450c1a7816db9cc72fd78d55e6a76731cde1da64a00c",
+      "testedLf": "ea7de05b038c7aa8f3d942dccce8f3dcba33d541cfc0eba8ab3ebfba466057e5",
+      "installedLf": "ea7de05b038c7aa8f3d942dccce8f3dcba33d541cfc0eba8ab3ebfba466057e5"
+    }
+  },
+  "historySha256Before": "bd59e211ea1638d3cbf5891fdc59b737fcdae02b2051aa108c8dbc3715831dc8",
+  "historySha256After": "bd59e211ea1638d3cbf5891fdc59b737fcdae02b2051aa108c8dbc3715831dc8",
+  "activity": {
+    "job": null,
+    "busy": false
+  },
+  "plans": [
+    {
+      "requestedCommit": "f62422f9b1c878913a37b4ec639db2d7e4dea7dc",
+      "httpStatus": 200,
+      "gitCommit": "f62422f9b1c878913a37b4ec639db2d7e4dea7dc",
+      "releaseTarget": "game",
+      "appTag": "20261025",
+      "dryRun": true,
+      "includeStackDeploy": true,
+      "baselineCommit": "6bf869bcc1a0b19a5a178236c60aff6789885637",
+      "changedRuntimePaths": [
+        "scripts/migration/20261025_finalize_guild_status.sql",
+        "src/main/java/com/zly/hospital/config/initData/WeeklyRewardConfig.java",
+        "src/main/java/com/zly/hospital/controller/api/HospitalController.java",
+        "src/main/java/com/zly/hospital/controller/api/SocialController.java",
+        "src/main/java/com/zly/hospital/controller/api/TaskController.java",
+        "src/main/java/com/zly/hospital/model/Guild.java",
+        "src/main/java/com/zly/hospital/repository/GuildRepository.java",
+        "src/main/java/com/zly/hospital/repository/HospitalRepository.java",
+        "src/main/java/com/zly/hospital/service/BacteriaChallengeService.java",
+        "src/main/java/com/zly/hospital/service/BacteriaDifficultyProof.java",
+        "src/main/java/com/zly/hospital/service/BacteriaLevelCatalogService.java",
+        "src/main/java/com/zly/hospital/service/GuildService.java",
+        "src/main/java/com/zly/hospital/service/GuildStatusService.java",
+        "src/main/java/com/zly/hospital/service/HospitalAddressService.java",
+        "src/main/java/com/zly/hospital/service/HospitalLogService.java",
+        "src/main/java/com/zly/hospital/service/HospitalService.java",
+        "src/main/java/com/zly/hospital/service/RankingService.java",
+        "src/main/java/com/zly/hospital/service/ToiletMarketVisibilityReconciliationService.java",
+        "src/main/java/com/zly/hospital/service/WeeklyRewardService.java",
+        "src/main/java/com/zly/hospital/service/runner/GiftDistributionJobHandler.java",
+        "src/main/java/com/zly/hospital/service/runner/WeeklyRewardResetJobHandler.java",
+        "src/main/resources/bacteria-level-validator.js",
+        "src/main/resources/codegraph-release-contract.json",
+        "src/main/resources/static/css/design.css",
+        "src/main/resources/static/js/design/BacteriaSettings.mjs",
+        "src/main/resources/static/js/design/DesignWorker.mjs",
+        "src/main/resources/static/js/design/DifficultySearch.mjs",
+        "src/main/resources/static/js/design/Editor.mjs",
+        "src/main/resources/static/js/design/EditorPlans.mjs",
+        "src/main/resources/static/js/design/LevelCertification.mjs",
+        "src/main/resources/static/js/design/ProofStatus.mjs",
+        "src/main/resources/static/js/design/SaveTools.mjs",
+        "src/main/resources/static/js/gameplay/BacteriaPackageFormat.mjs",
+        "src/main/resources/static/js/gameplay/BacteriaPathAnalysis.mjs",
+        "src/main/resources/static/js/scenes/components/AddressEditPopup.js",
+        "src/main/resources/static/js/scenes/components/ToiletMarketViewer.js",
+        "src/main/resources/static/js/scenes/components/WorldChatPanel.js",
+        "src/main/resources/templates/design.html"
+      ],
+      "assessmentId": "20261025-codegraph-weekly-retirement-guild-b-v1",
+      "riskLevel": "high",
+      "databaseImpact": "schema-change",
+      "steps": [
+        {
+          "key": "git-status-before-update",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "检查本地代码状态",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "validate-release-input",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "读取配置并校验 TAG",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "validate-game-static-delivery-prerequisites",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "校验登录验收运行条件",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "game-meelok-readiness",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "通知 Meelok 启动与重启状态",
+          "timeoutSeconds": 60
+        },
+        {
+          "key": "git-fetch",
+          "actionType": "local-code",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "获取远端代码",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "git-update",
+          "actionType": "local-code",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "切换到指定提交",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "capture-release-commit",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "记录发布提交",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "validate-release-impact-checklist",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "校验本次发版影响与 CheckList",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "validate-game-sso-source",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "校验游戏 SSO 发布基线",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "install-game-release-node-dependencies",
+          "actionType": "build",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "安装发布证据依赖",
+          "timeoutSeconds": 900
+        },
+        {
+          "key": "validate-game-release-preflight",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "全量预检发布候选",
+          "timeoutSeconds": 3600
+        },
+        {
+          "key": "test-game-backend",
+          "actionType": "build",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "批量测试并编译后端产物",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "verify-design-level-packages",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "验证色块工坊与关卡包",
+          "timeoutSeconds": 1800
+        },
+        {
+          "key": "build-image",
+          "actionType": "build",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "制作 Docker 镜像",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "build-game-static-assets",
+          "actionType": "build",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "构建内容寻址静态资源交付物",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "validate-game-image",
+          "actionType": "build",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "验证游戏镜像版本、迁移包与交易池能力",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "resolve-ssh-target",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "确认 SSH 连接配置",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "game-prd2-migration-readiness",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "验证 Prd2 迁移发布门禁",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "read-remote-compose",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "读取生产编排当前版本",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "game-database-preflight",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "盘点交易池数据库升级前状态",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "validate-game-database-migration-compatibility",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "只读核验生产数据库迁移兼容性",
+          "timeoutSeconds": 120
+        },
+        {
+          "key": "publish-image",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "发布到目标镜像池",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "stage-game-static-assets",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "预置双前置不可变静态资源",
+          "timeoutSeconds": 1800
+        },
+        {
+          "key": "verify-game-static-assets-predeploy",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "应用切换前逐文件验证双前置资源",
+          "timeoutSeconds": 2100
+        },
+        {
+          "key": "backup-game-release",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "备份游戏编排与交易池数据",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "verify-codegraph-prerequisites",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "核验公会 A 与退役调度",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "codegraph-offline-cutover",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": true,
+          "title": "公会 B 停写与整库备份",
+          "timeoutSeconds": 900
+        },
+        {
+          "key": "apply-database-migrations",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "执行目标提交数据库迁移",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "pre-deploy-checklist",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "发布前 CheckList 总验收",
+          "timeoutSeconds": 120
+        },
+        {
+          "key": "update-remote-compose",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "备份并替换生产编排 TAG",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "pause-meelok-services",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "尝试暂停同机 Meelok 服务并通知",
+          "timeoutSeconds": 1200
+        },
+        {
+          "key": "deploy-stack",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "执行 Docker Stack 热发布",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "commit-game-cutover",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "进入新版本观察期",
+          "timeoutSeconds": 1860
+        },
+        {
+          "key": "final-runtime-check",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "最终运行校验",
+          "timeoutSeconds": 1860
+        },
+        {
+          "key": "game-prd2-runtime-contract",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "验证 Prd2 登录、支付、调度与监控合同",
+          "timeoutSeconds": 180
+        },
+        {
+          "key": "verify-game-static-delivery",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "验证双前置游戏静态资源交付",
+          "timeoutSeconds": 2100
+        },
+        {
+          "key": "verify-relations-release",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "验证管理员关系图发布结果",
+          "timeoutSeconds": 900
+        },
+        {
+          "key": "verify-tradepool-release",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "验证管理员交易池发布结果",
+          "timeoutSeconds": 120
+        },
+        {
+          "key": "cleanup-game-release-containers",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "清理游戏发布历史容器",
+          "timeoutSeconds": 120
+        },
+        {
+          "key": "restore-meelok-services",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "尝试恢复同机 Meelok 服务并通知",
+          "timeoutSeconds": 2400
+        },
+        {
+          "key": "game-rollback-decision",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "记录自动回滚最小触发复核",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "game-fatal-rollback-decision",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "复核全链路致命故障",
+          "timeoutSeconds": 420
+        },
+        {
+          "key": "game-rollback-command",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "记录游戏回滚命令",
+          "timeoutSeconds": 0
+        }
+      ],
+      "stepsExecuted": 0
+    },
+    {
+      "requestedCommit": "931bad014c1e9356e13652df608704cfda8ec514",
+      "httpStatus": 200,
+      "gitCommit": "931bad014c1e9356e13652df608704cfda8ec514",
+      "releaseTarget": "game",
+      "appTag": "20261025",
+      "dryRun": true,
+      "includeStackDeploy": true,
+      "baselineCommit": "6bf869bcc1a0b19a5a178236c60aff6789885637",
+      "changedRuntimePaths": [
+        "scripts/migration/20261025_finalize_guild_status.sql",
+        "src/main/java/com/zly/hospital/config/initData/WeeklyRewardConfig.java",
+        "src/main/java/com/zly/hospital/controller/api/HospitalController.java",
+        "src/main/java/com/zly/hospital/controller/api/SocialController.java",
+        "src/main/java/com/zly/hospital/controller/api/TaskController.java",
+        "src/main/java/com/zly/hospital/model/Guild.java",
+        "src/main/java/com/zly/hospital/repository/GuildRepository.java",
+        "src/main/java/com/zly/hospital/repository/HospitalRepository.java",
+        "src/main/java/com/zly/hospital/service/BacteriaChallengeService.java",
+        "src/main/java/com/zly/hospital/service/BacteriaDifficultyProof.java",
+        "src/main/java/com/zly/hospital/service/BacteriaLevelCatalogService.java",
+        "src/main/java/com/zly/hospital/service/GuildService.java",
+        "src/main/java/com/zly/hospital/service/GuildStatusService.java",
+        "src/main/java/com/zly/hospital/service/HospitalAddressService.java",
+        "src/main/java/com/zly/hospital/service/HospitalLogService.java",
+        "src/main/java/com/zly/hospital/service/HospitalService.java",
+        "src/main/java/com/zly/hospital/service/RankingService.java",
+        "src/main/java/com/zly/hospital/service/ToiletMarketVisibilityReconciliationService.java",
+        "src/main/java/com/zly/hospital/service/WeeklyRewardService.java",
+        "src/main/java/com/zly/hospital/service/runner/GiftDistributionJobHandler.java",
+        "src/main/java/com/zly/hospital/service/runner/WeeklyRewardResetJobHandler.java",
+        "src/main/resources/bacteria-level-validator.js",
+        "src/main/resources/codegraph-release-contract.json",
+        "src/main/resources/static/css/design-bacteria-settings.css",
+        "src/main/resources/static/css/design.css",
+        "src/main/resources/static/js/design/BacteriaSettings.mjs",
+        "src/main/resources/static/js/design/DesignWorker.mjs",
+        "src/main/resources/static/js/design/DifficultySearch.mjs",
+        "src/main/resources/static/js/design/Editor.mjs",
+        "src/main/resources/static/js/design/EditorPlans.mjs",
+        "src/main/resources/static/js/design/LevelCertification.mjs",
+        "src/main/resources/static/js/design/LevelMatrixView.mjs",
+        "src/main/resources/static/js/design/ProofStatus.mjs",
+        "src/main/resources/static/js/design/SaveTools.mjs",
+        "src/main/resources/static/js/gameplay/BacteriaPackageFormat.mjs",
+        "src/main/resources/static/js/gameplay/BacteriaPathAnalysis.mjs",
+        "src/main/resources/static/js/scenes/components/AddressEditPopup.js",
+        "src/main/resources/static/js/scenes/components/ToiletMarketViewer.js",
+        "src/main/resources/static/js/scenes/components/WorldChatPanel.js",
+        "src/main/resources/templates/design.html",
+        "src/main/resources/templates/design_bacteria_settings.html"
+      ],
+      "assessmentId": "20261025-bacteria-matrix-recovery-v1",
+      "riskLevel": "high",
+      "databaseImpact": "schema-change",
+      "steps": [
+        {
+          "key": "git-status-before-update",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "检查本地代码状态",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "validate-release-input",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "读取配置并校验 TAG",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "validate-game-static-delivery-prerequisites",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "校验登录验收运行条件",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "game-meelok-readiness",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "通知 Meelok 启动与重启状态",
+          "timeoutSeconds": 60
+        },
+        {
+          "key": "git-fetch",
+          "actionType": "local-code",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "获取远端代码",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "git-update",
+          "actionType": "local-code",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "切换到指定提交",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "capture-release-commit",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "记录发布提交",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "validate-release-impact-checklist",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "校验本次发版影响与 CheckList",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "validate-game-sso-source",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "校验游戏 SSO 发布基线",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "install-game-release-node-dependencies",
+          "actionType": "build",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "安装发布证据依赖",
+          "timeoutSeconds": 900
+        },
+        {
+          "key": "validate-game-release-preflight",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "全量预检发布候选",
+          "timeoutSeconds": 3600
+        },
+        {
+          "key": "test-game-backend",
+          "actionType": "build",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "批量测试并编译后端产物",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "verify-design-level-packages",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "验证色块工坊与关卡包",
+          "timeoutSeconds": 1800
+        },
+        {
+          "key": "build-image",
+          "actionType": "build",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "制作 Docker 镜像",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "build-game-static-assets",
+          "actionType": "build",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "构建内容寻址静态资源交付物",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "validate-game-image",
+          "actionType": "build",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "验证游戏镜像版本、迁移包与交易池能力",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "resolve-ssh-target",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "确认 SSH 连接配置",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "game-prd2-migration-readiness",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "验证 Prd2 迁移发布门禁",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "read-remote-compose",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "读取生产编排当前版本",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "game-database-preflight",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "盘点交易池数据库升级前状态",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "validate-game-database-migration-compatibility",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "只读核验生产数据库迁移兼容性",
+          "timeoutSeconds": 120
+        },
+        {
+          "key": "publish-image",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "发布到目标镜像池",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "stage-game-static-assets",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "预置双前置不可变静态资源",
+          "timeoutSeconds": 1800
+        },
+        {
+          "key": "verify-game-static-assets-predeploy",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "应用切换前逐文件验证双前置资源",
+          "timeoutSeconds": 2100
+        },
+        {
+          "key": "backup-game-release",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "备份游戏编排与交易池数据",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "verify-codegraph-prerequisites",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "核验公会 A 与退役调度",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "codegraph-offline-cutover",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": true,
+          "title": "公会 B 停写与整库备份",
+          "timeoutSeconds": 900
+        },
+        {
+          "key": "apply-database-migrations",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "执行目标提交数据库迁移",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "pre-deploy-checklist",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "发布前 CheckList 总验收",
+          "timeoutSeconds": 120
+        },
+        {
+          "key": "update-remote-compose",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "备份并替换生产编排 TAG",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "pause-meelok-services",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "尝试暂停同机 Meelok 服务并通知",
+          "timeoutSeconds": 1200
+        },
+        {
+          "key": "deploy-stack",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "执行 Docker Stack 热发布",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "commit-game-cutover",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "进入新版本观察期",
+          "timeoutSeconds": 1860
+        },
+        {
+          "key": "final-runtime-check",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "最终运行校验",
+          "timeoutSeconds": 1860
+        },
+        {
+          "key": "game-prd2-runtime-contract",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "验证 Prd2 登录、支付、调度与监控合同",
+          "timeoutSeconds": 180
+        },
+        {
+          "key": "verify-game-static-delivery",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "验证双前置游戏静态资源交付",
+          "timeoutSeconds": 2100
+        },
+        {
+          "key": "verify-relations-release",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "验证管理员关系图发布结果",
+          "timeoutSeconds": 900
+        },
+        {
+          "key": "verify-tradepool-release",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "验证管理员交易池发布结果",
+          "timeoutSeconds": 120
+        },
+        {
+          "key": "cleanup-game-release-containers",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "清理游戏发布历史容器",
+          "timeoutSeconds": 120
+        },
+        {
+          "key": "restore-meelok-services",
+          "actionType": "production",
+          "productionAction": true,
+          "recoveryBoundary": false,
+          "title": "尝试恢复同机 Meelok 服务并通知",
+          "timeoutSeconds": 2400
+        },
+        {
+          "key": "game-rollback-decision",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "记录自动回滚最小触发复核",
+          "timeoutSeconds": 0
+        },
+        {
+          "key": "game-fatal-rollback-decision",
+          "actionType": "remote-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "复核全链路致命故障",
+          "timeoutSeconds": 420
+        },
+        {
+          "key": "game-rollback-command",
+          "actionType": "local-check",
+          "productionAction": false,
+          "recoveryBoundary": false,
+          "title": "记录游戏回滚命令",
+          "timeoutSeconds": 0
+        }
+      ],
+      "stepsExecuted": 0
+    }
+  ],
+  "productionActionsExecuted": 0
+}

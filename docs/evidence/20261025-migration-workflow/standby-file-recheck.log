@@ -1,0 +1,37 @@
+✔ one immutable archive reaches A/B; B stays dormant; acceptance is explicit and idempotent (78.1325ms)
+✔ unreachable prevents readiness and retains previous acceptance (11.8677ms)
+✔ identity prevents readiness and retains previous acceptance (25.4781ms)
+✔ config prevents readiness and retains previous acceptance (27.3593ms)
+✔ partial prevents readiness and retains previous acceptance (25.8617ms)
+✔ partial transfer can retry the identical candidate without rebuilding (46.7241ms)
+✔ image or config drift on retry is rejected (34.4669ms)
+✔ missing build IID fails before node contact or image transfer (10.2583ms)
+✔ mutable tag drift from the built IID blocks first distribution (15.4665ms)
+✔ shared node lock conflict blocks staging; local concurrent operations also fail closed (46.931ms)
+✔ B lock refusal never cleans up another B operation reservation (24.4559ms)
+✔ a different flock path cannot claim compatibility with background staging (12.9527ms)
+✔ upload paths fence concurrent attempts by an independent operation ID (0.6972ms)
+✔ unconfirmed owned reservation cleanup blocks the otherwise complete candidate (37.115ms)
+✔ an existing production standby requires a verified prior acceptance baseline (27.6932ms)
+✔ B running, missing secrets or production semantics block cutover (38.6979ms)
+✔ A failure and failed final runtime never advance B acceptance (49.6734ms)
+✔ secretsReady is a mandatory pre-cutover constraint (32.8579ms)
+✔ jobsDisabled is a mandatory pre-cutover constraint (29.0914ms)
+✔ databaseUnchanged is a mandatory pre-cutover constraint (28.0995ms)
+✔ localConnections is a mandatory pre-cutover constraint (29.5546ms)
+✔ productionSemantics is a mandatory pre-cutover constraint (28.8582ms)
+✔ isolatedCandidate is a mandatory pre-cutover constraint (25.4603ms)
+✔ complete is a mandatory pre-cutover constraint (24.3165ms)
+✔ missing helper capability and conflicting CAS fail closed (30.4262ms)
+✔ lost acceptance response is reconciled by idempotent acceptance retry (48.1762ms)
+✔ SSH pins host keys; helper output and errors stay private (0.4553ms)
+✔ CLI errors expose only a safe classification, never malformed input (77.9294ms)
+✔ Windows PowerShell pipes oversized candidate settings without native argument limits (1518.8464ms)
+ℹ tests 29
+ℹ suites 0
+ℹ pass 29
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2482.788

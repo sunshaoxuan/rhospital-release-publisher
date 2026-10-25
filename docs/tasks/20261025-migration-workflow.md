@@ -41,7 +41,7 @@ Split if actual SQL requires application changes, migration redesign or new auth
 | Independent review | Command/selection and transitive-call/isolation review | PASS |
 | Verification | Final `npm test`: 430/430, no skips; frozen hashes unchanged | PASS |
 | Documentation | README, changelog, boundaries and evidence review | PASS |
-| Local runtime | Clean fast-forward, idle reload and live plan/browser verification | PENDING |
+| Local runtime | 6888056d loaded cleanly; two HTTP 200 plans and browser evidence | PASS |
 | Production readiness | Live prepared A and scheduler prerequisites | OUT OF SCOPE, UNVERIFIED |
 
 ## Evidence And Decisions
@@ -176,3 +176,38 @@ Split if actual SQL requires application changes, migration redesign or new auth
 - Next: commit the integrated candidate, fast-forward clean original main,
   observe existing idle auto-reload, then check live pure-plan API and browser.
   No production actions or remote push are included.
+
+## Local Delivery Acceptance
+
+- Integrated merge commit: `6888056d43fe14f5e9e4e1e131365d21ee763b40`,
+  parents initial `a626424e` and upstream `7de0c954`. The original clean main
+  fast-forwarded and the existing idle watchdog reloaded without manual restart.
+- `/api/version`: runtime and repository 6888056d, clean, UP_TO_DATE;
+  content hash `68ae9fdcb410f34e6c7f29f07d58118dfdcaec4adf121c88ec73bf84e01b9ffe`.
+- All 14 tested and installed inputs match after CRLF normalization. Raw bytes
+  differ only for unchanged `server.js` and `src/localCheckPolicy.js`; exact raw
+  and normalized identities are retained in `live-publisher-acceptance.json`.
+- Live POST `/api/plan` returned HTTP 200 for both f62422f9 and 931bad01,
+  each 43 steps, against recorded baseline 6bf869bc. Exact paths remain 38/41.
+  Prerequisite, offline cutover, migration, pre-deploy and final checks are present.
+- Browser reload and fixed 931bad01 selection display the normal workflow,
+  new Guild checks and pending execution state. All observed HTTP responses are
+  successful, no new console warning/error or network failure, no execute request.
+  Desktop screenshot and `browser-acceptance.json` record the existing UI state.
+  No UI source/style changes or new layout/responsive certification are claimed.
+- Release history SHA-256 remains
+  `bd59e211ea1638d3cbf5891fdc59b737fcdae02b2051aa108c8dbc3715831dc8`;
+  active job null, busy false. No build, migration, cutover or production release
+  executed. Remote-tag display is a read-only production image observation.
+- Existing prepared A and scheduler archival/drain prerequisites still require
+  live evidence at formal release. Plan generation does not certify readiness.
+- Final intent: publisher workflow correction PASS; production readiness
+  UNVERIFIED and out of scope. Follow-up commit contains evidence/docs only,
+  with unchanged executable inputs, so no additional full test run is needed.
+- Windows receipt learning remains candidate-only at
+  `C:/workspace/codex-selfimp/20261025-publisher-atomic-receipt/TASK_LEARNING_RECEIPT.md`.
+  No global rule, skill, provider, authentication or memory change was installed.
+- Final whitespace check excludes captured `*.log` only. The unmodified Node
+  assertion output in `standby-replacement-fix.log` has six whitespace-only
+  lines flagged by the unrestricted diff check. Keep raw diagnostic evidence;
+  code, configuration, documentation and JSON diff checks pass.

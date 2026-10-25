@@ -1,0 +1,144 @@
+{
+  "capturedAt": "2026-10-25T04:36:31.253Z",
+  "startedAt": "2026-10-25T04:34:03.574Z",
+  "runtimeCommit": "6888056d43fe14f5e9e4e1e131365d21ee763b40",
+  "url": "http://192.168.20.218:8787",
+  "selectedApplicationCommit": "931bad014c1e9356e13652df608704cfda8ec514",
+  "appTag": "20261025",
+  "dryRun": true,
+  "consoleNewWarningsOrErrors": [],
+  "responses": [
+    {
+      "url": "http://192.168.20.218:8787/",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/static/styles.css",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/static/app.js",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/version",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/config?releaseTarget=game",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/history?page=1&limit=10",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/git/branches",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/git/commits?branch=origin%2Fmaster&limit=80",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/changes",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/plan",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/remote-tag?releaseTarget=game",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/plan",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/jobs/active",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/version",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/version",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/version",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/version",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/version",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/version",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/version",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/version",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/version",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/changes",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/plan",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/version",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/version",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/version",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/version",
+      "status": 200
+    },
+    {
+      "url": "http://192.168.20.218:8787/api/version",
+      "status": 200
+    }
+  ],
+  "loadingFailures": [],
+  "executeRequestCount": 0,
+  "networkTruncated": false,
+  "networkHasMore": false,
+  "stepTitlesPresent": [
+    "核验公会 A 与退役调度",
+    "公会 B 停写与整库备份",
+    "执行目标提交数据库迁移",
+    "发布前 CheckList 总验收",
+    "最终运行校验"
+  ],
+  "screenshotFiles": [
+    "workflow-desktop.png"
+  ],
+  "visualScope": "Existing desktop workflow smoke, no UI code/style or layout changes; no new geometry/responsive certification",
+  "screenshotNote": "Full viewport capture only; requested clip did not isolate the intended region and was discarded."
+}

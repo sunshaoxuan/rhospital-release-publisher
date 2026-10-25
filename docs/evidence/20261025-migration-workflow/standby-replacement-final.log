@@ -1,0 +1,43 @@
+✔ one immutable archive reaches A/B; B stays dormant; acceptance is explicit and idempotent (66.8395ms)
+✔ unreachable prevents readiness and retains previous acceptance (7.0375ms)
+✔ identity prevents readiness and retains previous acceptance (21.1408ms)
+✔ config prevents readiness and retains previous acceptance (20.4752ms)
+✔ partial prevents readiness and retains previous acceptance (17.2845ms)
+✔ partial transfer can retry the identical candidate without rebuilding (32.2573ms)
+✔ Windows journal replacement waits for transient EPERM without repeating acceptance (93.038ms)
+✔ Windows journal replacement waits for transient EACCES without repeating acceptance (92.8385ms)
+✔ Windows journal replacement waits for transient EBUSY without repeating acceptance (94.0875ms)
+✔ journal replacement fails closed and preserves its prior receipt for EPERM (1032.3011ms)
+✔ journal replacement fails closed and preserves its prior receipt for EIO (30.2646ms)
+✔ journal cleanup refusal retains the original replacement error (30.2545ms)
+✔ image or config drift on retry is rejected (21.585ms)
+✔ missing build IID fails before node contact or image transfer (6.5081ms)
+✔ mutable tag drift from the built IID blocks first distribution (7.3124ms)
+✔ shared node lock conflict blocks staging; local concurrent operations also fail closed (28.1971ms)
+✔ B lock refusal never cleans up another B operation reservation (17.5083ms)
+✔ a different flock path cannot claim compatibility with background staging (6.0916ms)
+✔ upload paths fence concurrent attempts by an independent operation ID (0.2499ms)
+✔ unconfirmed owned reservation cleanup blocks the otherwise complete candidate (19.7869ms)
+✔ an existing production standby requires a verified prior acceptance baseline (19.8665ms)
+✔ B running, missing secrets or production semantics block cutover (33.7081ms)
+✔ A failure and failed final runtime never advance B acceptance (43.4069ms)
+✔ secretsReady is a mandatory pre-cutover constraint (29.9222ms)
+✔ jobsDisabled is a mandatory pre-cutover constraint (35.9296ms)
+✔ databaseUnchanged is a mandatory pre-cutover constraint (36.3824ms)
+✔ localConnections is a mandatory pre-cutover constraint (26.6304ms)
+✔ productionSemantics is a mandatory pre-cutover constraint (24.7474ms)
+✔ isolatedCandidate is a mandatory pre-cutover constraint (23.6148ms)
+✔ complete is a mandatory pre-cutover constraint (23.4334ms)
+✔ missing helper capability and conflicting CAS fail closed (27.6084ms)
+✔ lost acceptance response is reconciled by idempotent acceptance retry (40.2726ms)
+✔ SSH pins host keys; helper output and errors stay private (0.4722ms)
+✔ CLI errors expose only a safe classification, never malformed input (67.8862ms)
+✔ Windows PowerShell pipes oversized candidate settings without native argument limits (1282.6526ms)
+ℹ tests 35
+ℹ suites 0
+ℹ pass 35
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 3442.3518
