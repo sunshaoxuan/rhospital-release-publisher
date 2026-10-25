@@ -83,7 +83,7 @@ function offlineCommands(directory, serviceName, imageTag, migrations) {
     'test "$(docker service inspect "$service_name" --format \'{{.Spec.UpdateConfig.FailureAction}}\')" = pause',
     'application_container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
     'test -n "$application_container_id"',
-    'docker exec "$application_container_id" cat /run/secrets/spring.datasource.username > "$backup_dir/database/codegraph-application-role"',
+    "docker exec \"$application_container_id\" sh -ec 'if [ -n \"${SPRING_DATASOURCE_USERNAME:-}\" ]; then printf \"%s\" \"$SPRING_DATASOURCE_USERNAME\"; else tr -d \"\\r\\n\" < /run/secrets/spring.datasource.username; fi' > \"$backup_dir/database/codegraph-application-role\"",
     'test -s "$backup_dir/database/codegraph-application-role"', 'umask 077', 'codegraph_binding=' + quote(binding(migrations)),
     'printf "%s\n" "$backup_dir|$codegraph_binding|$target_image_id" > .codegraph-format-floor-v1',
     'docker service scale --detach=true "$service_name=0"', ...stoppedWriterCommands(),

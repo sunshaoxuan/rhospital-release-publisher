@@ -67,7 +67,9 @@ docker() {
       case "$*" in
         *snail-job*username*) printf scheduler_fixture;;
         *snail-job*password*) printf local_fixture_only;;
-        *codegraph-application-role*|*spring.datasource.username*) printf application_fixture;;
+        *spring.datasource.username*)
+          role_program="\${5//\\/run\\/secrets\\/spring.datasource.username/\${ROLE_SECRET_FILE:-missing-role-secret}}"
+          SPRING_DATASOURCE_USERNAME="\${APPLICATION_ROLE-application_fixture}" sh -ec "$role_program";;
         *pg_control_system*) echo 'hospital|35433|f|7692118169925038123';;
         *pg_stat_activity*) echo "\${OTHER_CLIENTS:-0}";;
         *is_nullable*) echo "\${GUILD_FLOOR:-1}";;
@@ -115,6 +117,29 @@ test('offline execution drains after stop, validates full dump and accepts the e
   assert.match(fs.readFileSync(path.join(shellFixture, 'events'), 'utf8'), /scheduler\nstopped\nscheduler\ndump/);
   const receipt = runShell(receiptProgram);
   assert.equal(receipt.status, 0, receipt.stdout + receipt.stderr);
+});
+test('application role uses environment first and accepts a secret-only runtime', () => {
+  for (const [role, secret, expected] of [
+    ['production_environment_role', 'different_secret_role\r\n', 'production_environment_role'],
+    ['', 'secret_runtime_role\r\n', 'secret_runtime_role']
+  ]) {
+    resetShell();
+    fs.writeFileSync(path.join(shellFixture, 'role-secret'), secret);
+    const result = runShell(offlineProgram, {APPLICATION_ROLE:role, ROLE_SECRET_FILE:'role-secret'});
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(fs.readFileSync(path.join(shellFixture, 'backup/database/codegraph-application-role'), 'utf8'), expected);
+    assert.doesNotMatch(result.stdout + result.stderr, new RegExp(expected));
+  }
+});
+test('missing or empty application role refuses cutover before floor and scale', () => {
+  for (const emptySecret of [false, true]) {
+    resetShell();
+    if (emptySecret) fs.writeFileSync(path.join(shellFixture, 'role-secret'), '');
+    const result = runShell(offlineProgram, {APPLICATION_ROLE:'', ROLE_SECRET_FILE:'role-secret'});
+    assert.notEqual(result.status, 0);
+    assert.equal(fs.existsSync(path.join(shellFixture, '.codegraph-format-floor-v1')), false);
+    assert.doesNotMatch(fs.readFileSync(path.join(shellFixture, 'events'), 'utf8'), /stopped|dump/);
+  }
 });
 test('unprepared images, active references, old tasks and unfinished rollout cannot stop the game', () => {
   for (const env of [{IMAGE_A_VALID: '0'}, {IMAGE_B_VALID: '0'}, {ARCHIVED: '0'},
