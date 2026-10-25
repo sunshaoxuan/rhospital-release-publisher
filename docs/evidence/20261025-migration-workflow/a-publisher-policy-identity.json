@@ -1,0 +1,69 @@
+{
+  "capturedAt": "2026-10-25T06:23:30.317Z",
+  "version": {
+    "packageVersion": "0.2.0",
+    "runtimeVersion": "0.2.0+85ac7a4b",
+    "status": "UP_TO_DATE",
+    "statusLabel": "执行环境与仓库一致",
+    "runtime": {
+      "commit": "85ac7a4b9f77d945d687b278c6c5fb51e2c67b15",
+      "shortCommit": "85ac7a4b",
+      "contentHash": "68ae9fdcb410f34e6c7f29f07d58118dfdcaec4adf121c88ec73bf84e01b9ffe",
+      "dirty": false,
+      "capturedAt": "2026-10-25T04:39:58.167Z",
+      "processId": 36040
+    },
+    "repository": {
+      "commit": "85ac7a4b9f77d945d687b278c6c5fb51e2c67b15",
+      "shortCommit": "85ac7a4b",
+      "contentHash": "68ae9fdcb410f34e6c7f29f07d58118dfdcaec4adf121c88ec73bf84e01b9ffe",
+      "dirty": false
+    },
+    "localCheckContracts": [
+      {
+        "key": "verify-toilet-market",
+        "command": "node --test src/test/js/toiletMarket.test.mjs src/test/js/toiletMarketEvidence.test.mjs && node scripts/validation/toilet-market/validate-evidence.mjs",
+        "timeoutSeconds": 180,
+        "inputs": [
+          "src/test/js/toiletMarket.test.mjs",
+          "src/test/js/toiletMarketEvidence.test.mjs",
+          "scripts/validation/toilet-market/validate-evidence.mjs"
+        ],
+        "successMarker": "PASS toilet market barter, hourly positions, legacy-safe migration, runtime visuals and final source binding",
+        "policyAccepted": true
+      }
+    ]
+  },
+  "postPinRecheck": {
+    "scriptSha256": "9c30b766710dd3c78dfbe8e0c40020c75b000cfc67b1e14815ec1baf00b86e6a",
+    "inputsSha256": "f3811ac5e09318e32b39fca82097ccba46fa4e58575d10fc56a551ba0940ad7c",
+    "checks": [
+      {
+        "key": "final-runtime-check",
+        "timeoutSeconds": 1860,
+        "commandSha256": "df58cc681babf80847e06124e1f1712c230be0e66cfde8949912d2250303e39c"
+      },
+      {
+        "key": "game-prd2-runtime-contract",
+        "timeoutSeconds": 180,
+        "commandSha256": "34d484d2ce0779f63e9738f5c3f50d49496ca9919747d98195bf2cf467656e3a"
+      },
+      {
+        "key": "verify-game-static-delivery",
+        "timeoutSeconds": 2100,
+        "commandSha256": "e9022c12e2fea27cb360ccaf74cc466e69d22915e6d29033696dff10834e27ab"
+      },
+      {
+        "key": "verify-relations-release",
+        "timeoutSeconds": 900,
+        "commandSha256": "e7c10293590ad750d8ffe062383c03fbe3f8130cc30934926543885ac5585262"
+      },
+      {
+        "key": "verify-tradepool-release",
+        "timeoutSeconds": 120,
+        "commandSha256": "d4872cb57e13062936dca123854b807df183f13a86180189cb98e9b058c9a153"
+      }
+    ],
+    "reason": "A service image reference will change from tag to verified immutable digest, invalidating previous runtime task identity only."
+  }
+}

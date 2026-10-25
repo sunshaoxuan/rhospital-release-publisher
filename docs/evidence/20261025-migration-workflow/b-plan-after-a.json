@@ -1,0 +1,15 @@
+{
+  "capturedAt": "2026-10-25T06:30:02.013Z",
+  "request": {
+    "releaseTarget": "game",
+    "gitBranch": "origin/master",
+    "gitCommit": "931bad014c1e9356e13652df608704cfda8ec514",
+    "appTag": "20261025",
+    "dryRun": true,
+    "includeStackDeploy": true
+  },
+  "status": 400,
+  "response": {
+    "message": "game 发版影响评估必须精确覆盖生产基线到目标提交的运行变更；非本次运行变更: src/main/java/com/zly/hospital/controller/api/HospitalController.java, src/main/java/com/zly/hospital/controller/api/SocialController.java, src/main/java/com/zly/hospital/service/BacteriaChallengeService.java, src/main/java/com/zly/hospital/service/BacteriaDifficultyProof.java, src/main/java/com/zly/hospital/service/BacteriaLevelCatalogService.java, src/main/java/com/zly/hospital/service/HospitalAddressService.java, src/main/java/com/zly/hospital/service/HospitalLogService.java, src/main/java/com/zly/hospital/service/HospitalService.java, src/main/java/com/zly/hospital/service/RankingService.java, src/main/java/com/zly/hospital/service/ToiletMarketVisibilityReconciliationService.java, src/main/resources/bacteria-level-validator.js, src/main/resources/static/css/design.css, src/main/resources/static/js/design/DesignWorker.mjs, src/main/resources/static/js/design/DifficultySearch.mjs, src/main/resources/static/js/design/Editor.mjs, src/main/resources/static/js/design/EditorPlans.mjs, src/main/resources/static/js/design/LevelCertification.mjs, src/main/resources/static/js/design/ProofStatus.mjs, src/main/resources/static/js/design/SaveTools.mjs, src/main/resources/static/js/gameplay/BacteriaPackageFormat.mjs, src/main/resources/static/js/gameplay/BacteriaPathAnalysis.mjs, src/main/resources/static/js/scenes/components/AddressEditPopup.js, src/main/resources/static/js/scenes/components/ToiletMarketViewer.js, src/main/resources/static/js/scenes/components/WorldChatPanel.js, src/main/resources/templates/design.html"
+  }
+}

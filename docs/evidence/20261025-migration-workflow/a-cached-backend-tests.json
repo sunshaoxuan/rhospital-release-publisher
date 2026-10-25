@@ -1,0 +1,16 @@
+{
+  "capturedAt": "2026-10-25T06:04:37.715Z",
+  "candidate": "96193ca1825389bf920ad93a5f11b0a77e73cde1",
+  "image": "hospital-backend:20261025-a-buildcheck",
+  "imageId": "sha256:0cfe277055972488e2411954c05ca64d2720cc6020e255dc80061252d5b38d50",
+  "evidenceKind": "cached-build-retained-surefire-reports",
+  "formalGate": "test-game-backend PASS; Docker COPY and mvn clean package layers CACHED",
+  "reportRead": "local network-disabled ephemeral container; parsed complete TEST-*.xml with ElementTree",
+  "totals": {
+    "tests": 1896,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 91
+  },
+  "limitation": "Maven tests were not freshly executed in this release run; existing candidate-keyed BuildKit result reused."
+}

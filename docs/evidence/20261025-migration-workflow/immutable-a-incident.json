@@ -1,0 +1,267 @@
+{
+  "observedAt": "2026-10-25T05:40:26.537Z",
+  "job": {
+    "id": "2026-10-25T05:27:58.790Z-20261025",
+    "status": "ERROR",
+    "dryRun": false,
+    "candidate": "931bad014c1e9356e13652df608704cfda8ec514",
+    "completedStepCount": 25,
+    "totalDurationMs": 1329098
+  },
+  "publisher": {
+    "commit": "85ac7a4b9f77d945d687b278c6c5fb51e2c67b15"
+  },
+  "firstFailure": {
+    "key": "verify-codegraph-prerequisites",
+    "message": "immutable A predecessor required"
+  },
+  "steps": [
+    {
+      "key": "git-status-before-update",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "validate-release-input",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "validate-game-static-delivery-prerequisites",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "game-meelok-readiness",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "git-fetch",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "git-update",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "capture-release-commit",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "validate-release-impact-checklist",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "validate-game-sso-source",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "install-game-release-node-dependencies",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "validate-game-release-preflight",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "test-game-backend",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "verify-design-level-packages",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "build-image",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "build-game-static-assets",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "validate-game-image",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "resolve-ssh-target",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "game-prd2-migration-readiness",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "read-remote-compose",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "game-database-preflight",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "validate-game-database-migration-compatibility",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "publish-image",
+      "status": "done",
+      "productionAction": true
+    },
+    {
+      "key": "stage-game-static-assets",
+      "status": "done",
+      "productionAction": true
+    },
+    {
+      "key": "verify-game-static-assets-predeploy",
+      "status": "done",
+      "productionAction": false
+    },
+    {
+      "key": "backup-game-release",
+      "status": "done",
+      "productionAction": true
+    },
+    {
+      "key": "verify-codegraph-prerequisites",
+      "status": "failed",
+      "productionAction": false
+    },
+    {
+      "key": "codegraph-offline-cutover",
+      "status": "pending",
+      "productionAction": true
+    },
+    {
+      "key": "apply-database-migrations",
+      "status": "pending",
+      "productionAction": true
+    },
+    {
+      "key": "pre-deploy-checklist",
+      "status": "pending",
+      "productionAction": false
+    },
+    {
+      "key": "update-remote-compose",
+      "status": "pending",
+      "productionAction": true
+    },
+    {
+      "key": "pause-meelok-services",
+      "status": "pending",
+      "productionAction": true
+    },
+    {
+      "key": "deploy-stack",
+      "status": "pending",
+      "productionAction": true
+    },
+    {
+      "key": "commit-game-cutover",
+      "status": "pending",
+      "productionAction": false
+    },
+    {
+      "key": "final-runtime-check",
+      "status": "pending",
+      "productionAction": false
+    },
+    {
+      "key": "game-prd2-runtime-contract",
+      "status": "pending",
+      "productionAction": false
+    },
+    {
+      "key": "verify-game-static-delivery",
+      "status": "pending",
+      "productionAction": false
+    },
+    {
+      "key": "verify-relations-release",
+      "status": "pending",
+      "productionAction": false
+    },
+    {
+      "key": "verify-tradepool-release",
+      "status": "pending",
+      "productionAction": false
+    },
+    {
+      "key": "cleanup-game-release-containers",
+      "status": "pending",
+      "productionAction": true
+    },
+    {
+      "key": "restore-meelok-services",
+      "status": "pending",
+      "productionAction": true
+    },
+    {
+      "key": "game-rollback-decision",
+      "status": "pending",
+      "productionAction": false
+    },
+    {
+      "key": "game-fatal-rollback-decision",
+      "status": "pending",
+      "productionAction": false
+    },
+    {
+      "key": "game-rollback-command",
+      "status": "pending",
+      "productionAction": false
+    }
+  ],
+  "liveReadOnly": {
+    "serviceImage": "hospital-backend:20261023",
+    "replicas": 1,
+    "container": "34403f44478e",
+    "health": "healthy",
+    "imageId": "sha256:b4d56e2e93200c5edcb59ab73630cb97ec15e3f5e618a6f062ea65860557a004",
+    "serviceReferenceHasDigest": false,
+    "guildPreparationCallbackPresent": false,
+    "BContractPresent": false,
+    "recoveryFloorPresent": false
+  },
+  "effects": {
+    "completed": [
+      "new image uploaded",
+      "immutable static assets staged to both gateways",
+      "release backup created"
+    ],
+    "notExecuted": [
+      "codegraph offline cutover",
+      "database migration",
+      "compose update",
+      "stack deploy",
+      "automatic rollback"
+    ],
+    "backup": "/opt/1panel/backup/game-release-20261025T052753Z"
+  },
+  "conclusion": "Required prepared A predecessor is absent in the live JAR. Adding a digest alone cannot satisfy compatibility. No retry or production mutation performed during investigation.",
+  "pending": [
+    "Authorize and formally validate prepared A deployment",
+    "Live scheduler archival/drain evidence",
+    "B release readiness and runtime acceptance"
+  ]
+}

@@ -1,0 +1,284 @@
+{
+  "capturedAt": "2026-10-25T05:50:39.224Z",
+  "request": {
+    "releaseTarget": "game",
+    "gitBranch": "origin/master",
+    "gitCommit": "96193ca1825389bf920ad93a5f11b0a77e73cde1",
+    "appTag": "20261025-a",
+    "dryRun": false,
+    "includeStackDeploy": true
+  },
+  "baseline": "6bf869bcc1a0b19a5a178236c60aff6789885637",
+  "changedPaths": [
+    "src/main/java/com/zly/hospital/controller/api/HospitalController.java",
+    "src/main/java/com/zly/hospital/controller/api/SocialController.java",
+    "src/main/java/com/zly/hospital/model/Guild.java",
+    "src/main/java/com/zly/hospital/repository/HospitalRepository.java",
+    "src/main/java/com/zly/hospital/service/BacteriaChallengeService.java",
+    "src/main/java/com/zly/hospital/service/BacteriaDifficultyProof.java",
+    "src/main/java/com/zly/hospital/service/BacteriaLevelCatalogService.java",
+    "src/main/java/com/zly/hospital/service/HospitalAddressService.java",
+    "src/main/java/com/zly/hospital/service/HospitalLogService.java",
+    "src/main/java/com/zly/hospital/service/HospitalService.java",
+    "src/main/java/com/zly/hospital/service/RankingService.java",
+    "src/main/java/com/zly/hospital/service/ToiletMarketVisibilityReconciliationService.java",
+    "src/main/resources/bacteria-level-validator.js",
+    "src/main/resources/static/css/design.css",
+    "src/main/resources/static/js/design/BacteriaSettings.mjs",
+    "src/main/resources/static/js/design/DesignWorker.mjs",
+    "src/main/resources/static/js/design/DifficultySearch.mjs",
+    "src/main/resources/static/js/design/Editor.mjs",
+    "src/main/resources/static/js/design/EditorPlans.mjs",
+    "src/main/resources/static/js/design/LevelCertification.mjs",
+    "src/main/resources/static/js/design/ProofStatus.mjs",
+    "src/main/resources/static/js/design/SaveTools.mjs",
+    "src/main/resources/static/js/gameplay/BacteriaPackageFormat.mjs",
+    "src/main/resources/static/js/gameplay/BacteriaPathAnalysis.mjs",
+    "src/main/resources/static/js/scenes/components/AddressEditPopup.js",
+    "src/main/resources/static/js/scenes/components/ToiletMarketViewer.js",
+    "src/main/resources/static/js/scenes/components/WorldChatPanel.js",
+    "src/main/resources/templates/design.html"
+  ],
+  "steps": [
+    {
+      "key": "git-status-before-update",
+      "title": "检查本地代码状态",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "validate-release-input",
+      "title": "读取配置并校验 TAG",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "validate-game-static-delivery-prerequisites",
+      "title": "校验登录验收运行条件",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "game-meelok-readiness",
+      "title": "通知 Meelok 启动与重启状态",
+      "productionAction": false,
+      "timeoutSeconds": 60
+    },
+    {
+      "key": "git-fetch",
+      "title": "获取远端代码",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "git-update",
+      "title": "切换到指定提交",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "capture-release-commit",
+      "title": "记录发布提交",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "validate-release-impact-checklist",
+      "title": "校验本次发版影响与 CheckList",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "validate-game-sso-source",
+      "title": "校验游戏 SSO 发布基线",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "install-game-release-node-dependencies",
+      "title": "安装发布证据依赖",
+      "productionAction": false,
+      "timeoutSeconds": 900
+    },
+    {
+      "key": "validate-game-release-preflight",
+      "title": "全量预检发布候选",
+      "productionAction": false,
+      "timeoutSeconds": 3600
+    },
+    {
+      "key": "test-game-backend",
+      "title": "批量测试并编译后端产物",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "verify-design-level-packages",
+      "title": "验证色块工坊与关卡包",
+      "productionAction": false,
+      "timeoutSeconds": 1800
+    },
+    {
+      "key": "build-image",
+      "title": "制作 Docker 镜像",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "build-game-static-assets",
+      "title": "构建内容寻址静态资源交付物",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "validate-game-image",
+      "title": "验证游戏镜像版本、迁移包与交易池能力",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "resolve-ssh-target",
+      "title": "确认 SSH 连接配置",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "game-prd2-migration-readiness",
+      "title": "验证 Prd2 迁移发布门禁",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "read-remote-compose",
+      "title": "读取生产编排当前版本",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "game-database-preflight",
+      "title": "盘点交易池数据库升级前状态",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "publish-image",
+      "title": "发布到目标镜像池",
+      "productionAction": true,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "stage-game-static-assets",
+      "title": "预置双前置不可变静态资源",
+      "productionAction": true,
+      "timeoutSeconds": 1800
+    },
+    {
+      "key": "verify-game-static-assets-predeploy",
+      "title": "应用切换前逐文件验证双前置资源",
+      "productionAction": false,
+      "timeoutSeconds": 2100
+    },
+    {
+      "key": "backup-game-release",
+      "title": "备份游戏编排与交易池数据",
+      "productionAction": true,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "pre-deploy-checklist",
+      "title": "发布前 CheckList 总验收",
+      "productionAction": false,
+      "timeoutSeconds": 120
+    },
+    {
+      "key": "update-remote-compose",
+      "title": "备份并替换生产编排 TAG",
+      "productionAction": true,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "pause-meelok-services",
+      "title": "尝试暂停同机 Meelok 服务并通知",
+      "productionAction": true,
+      "timeoutSeconds": 1200
+    },
+    {
+      "key": "deploy-stack",
+      "title": "执行 Docker Stack 热发布",
+      "productionAction": true,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "commit-game-cutover",
+      "title": "进入新版本观察期",
+      "productionAction": false,
+      "timeoutSeconds": 1860
+    },
+    {
+      "key": "final-runtime-check",
+      "title": "最终运行校验",
+      "productionAction": false,
+      "timeoutSeconds": 1860
+    },
+    {
+      "key": "game-prd2-runtime-contract",
+      "title": "验证 Prd2 登录、支付、调度与监控合同",
+      "productionAction": false,
+      "timeoutSeconds": 180
+    },
+    {
+      "key": "verify-game-static-delivery",
+      "title": "验证双前置游戏静态资源交付",
+      "productionAction": false,
+      "timeoutSeconds": 2100
+    },
+    {
+      "key": "verify-relations-release",
+      "title": "验证管理员关系图发布结果",
+      "productionAction": false,
+      "timeoutSeconds": 900
+    },
+    {
+      "key": "verify-tradepool-release",
+      "title": "验证管理员交易池发布结果",
+      "productionAction": false,
+      "timeoutSeconds": 120
+    },
+    {
+      "key": "cleanup-game-release-containers",
+      "title": "清理游戏发布历史容器",
+      "productionAction": true,
+      "timeoutSeconds": 120
+    },
+    {
+      "key": "restore-meelok-services",
+      "title": "尝试恢复同机 Meelok 服务并通知",
+      "productionAction": true,
+      "timeoutSeconds": 2400
+    },
+    {
+      "key": "game-rollback-decision",
+      "title": "记录自动回滚最小触发复核",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    },
+    {
+      "key": "game-fatal-rollback-decision",
+      "title": "复核全链路致命故障",
+      "productionAction": false,
+      "timeoutSeconds": 420
+    },
+    {
+      "key": "game-rollback-command",
+      "title": "记录游戏回滚命令",
+      "productionAction": false,
+      "timeoutSeconds": 0
+    }
+  ],
+  "guardrails": [
+    "勾选 dry run 时只生成命令和写入预览",
+    "取消 dry run 后会执行本地测试、镜像上传和勾选范围内的远端发布步骤",
+    "目标提交新增或修改的 scripts/migration/*.sql 必须存在于目标镜像，并在镜像切换前完成备份、提取、校验和执行",
+    "旧代码回滚前必须暂停所有 ACTIVE 的 ADMIN 挂单，避免旧版交易逻辑继续处理系统库存"
+  ]
+}

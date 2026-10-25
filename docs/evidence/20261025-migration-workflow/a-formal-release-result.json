@@ -1,0 +1,501 @@
+{
+  "capturedAt": "2026-10-25T06:28:17.914Z",
+  "id": "1792907441383-9e7b412f4d5cd8",
+  "status": "EXECUTED",
+  "createdAt": "2026-10-25T05:50:41.383Z",
+  "updatedAt": "2026-10-25T06:27:35.864Z",
+  "cutoverCommitted": true,
+  "cutoverCommittedAt": "2026-10-25T06:14:07.325Z",
+  "releaseCommit": "96193ca1825389bf920ad93a5f11b0a77e73cde1",
+  "appTag": "20261025-a",
+  "completedStepKeys": [
+    "git-status-before-update",
+    "validate-release-input",
+    "validate-game-static-delivery-prerequisites",
+    "game-meelok-readiness",
+    "git-fetch",
+    "git-update",
+    "capture-release-commit",
+    "validate-release-impact-checklist",
+    "validate-game-sso-source",
+    "install-game-release-node-dependencies",
+    "validate-game-release-preflight",
+    "test-game-backend",
+    "verify-design-level-packages",
+    "build-image",
+    "build-game-static-assets",
+    "validate-game-image",
+    "resolve-ssh-target",
+    "game-prd2-migration-readiness",
+    "read-remote-compose",
+    "game-database-preflight",
+    "publish-image",
+    "stage-game-static-assets",
+    "verify-game-static-assets-predeploy",
+    "backup-game-release",
+    "pre-deploy-checklist",
+    "update-remote-compose",
+    "pause-meelok-services",
+    "deploy-stack",
+    "commit-game-cutover",
+    "final-runtime-check",
+    "game-prd2-runtime-contract",
+    "verify-game-static-delivery",
+    "verify-relations-release",
+    "verify-tradepool-release",
+    "cleanup-game-release-containers",
+    "restore-meelok-services"
+  ],
+  "steps": [
+    {
+      "key": "git-status-before-update",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "2f0b3c95f233acae198ae22a7178b1c0db8aeb55731481041b38cd7fa213ec53",
+      "evidence": [
+        "[DONE] 检查本地代码状态，用时 9s"
+      ]
+    },
+    {
+      "key": "validate-release-input",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "3c079b56a0530655b8fdecbae17fb4bd4267fae10c04ef3837e6d3993f8f394c",
+      "evidence": [
+        "[DONE] 读取配置并校验 TAG，用时 0ms"
+      ]
+    },
+    {
+      "key": "validate-game-static-delivery-prerequisites",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "81cda9e06475835b4be60850290131561c5f2097473fa4d945a95ae84fe30e79",
+      "evidence": [
+        "game_static_delivery_browser=PASS renderer=\"ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)\" webgl=\"WebGL 2.0 (OpenGL ES 3.0 Chromium)\" framebuffer=Complete viewport=764x485 dpr=1 texture=1280x720",
+        "game_static_delivery_prerequisites=PASS token=readable chrome=webgl-ready gateways=2 game_host=rhospital.cc steam_host=rhospital-api-services.com",
+        "gateway_static_route_preflight=PASS gateway=riven-45 sample=/CHANGELOG.md",
+        "gateway_static_route_preflight=PASS gateway=vmiss-64 sample=/CHANGELOG.md",
+        "[DONE] 校验登录验收运行条件，用时 4s"
+      ]
+    },
+    {
+      "key": "game-meelok-readiness",
+      "status": "done",
+      "timeoutSeconds": 60,
+      "commandSha256": "b6bd851f27a0b7a5911bc5aa6901c594346a099d1cef082b433d9bced4fb9863",
+      "evidence": [
+        "meelok_status service=meelok_web desired=1 running=0",
+        "WARNING: Meelok meelok_web is not a running singleton; notification only",
+        "meelok_status service=meelok_worker desired=1 running=1",
+        "meelok_status service=meelok_worker container=a3e2deb7dbfe health=none started_at=2026-10-20T08:09:55.377059105Z restart_count=0",
+        "meelok_status service=meelok_api desired=1 running=1",
+        "meelok_status service=meelok_api container=e609d41e5f77 health=healthy started_at=2026-10-20T08:07:50.307350712Z restart_count=0",
+        "meelok_status service=meelok_redis desired=1 running=1",
+        "meelok_status service=meelok_redis container=f8104d43df47 health=healthy started_at=2026-10-20T08:07:30.863235559Z restart_count=0",
+        "meelok_status service=meelok_object_storage desired=1 running=1",
+        "meelok_status service=meelok_object_storage container=4974223818dd health=none started_at=2026-10-20T08:07:24.339275101Z restart_count=0",
+        "meelok_status=OBSERVED services=5",
+        "[DONE] 通知 Meelok 启动与重启状态，用时 2s"
+      ]
+    },
+    {
+      "key": "git-fetch",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "ce8432965e13e517a002c972e54c679c2f3d6cd00ebea98f85f22c52bcba321e",
+      "evidence": [
+        "[DONE] 获取远端代码，用时 5s"
+      ]
+    },
+    {
+      "key": "git-update",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "64cc7342b0fe16b96affd61354f1c8d7c563574b6792e84ba054baa53e74493e",
+      "evidence": [
+        "[DONE] 切换到指定提交，用时 1s"
+      ]
+    },
+    {
+      "key": "capture-release-commit",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "fae14f493859be33721175c29c76f2ae246686328c399c80b6a589a85f1b5b69",
+      "evidence": [
+        "[DONE] 记录发布提交，用时 1s"
+      ]
+    },
+    {
+      "key": "validate-release-impact-checklist",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "353fc1c138e70a748de3e087d0d2dc239058eb886df98e5ef8b7a5607526172f",
+      "evidence": [
+        "[DONE] 校验本次发版影响与 CheckList，用时 0ms"
+      ]
+    },
+    {
+      "key": "validate-game-sso-source",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "fa7d1cb4db1cfe1e8db87a7dd6f9b910c3f5e9afdfd47538ab7c4a5a413958e3",
+      "evidence": [
+        "[DONE] 校验游戏 SSO 发布基线，用时 5s"
+      ]
+    },
+    {
+      "key": "install-game-release-node-dependencies",
+      "status": "done",
+      "timeoutSeconds": 900,
+      "commandSha256": "be3f6fa12989bdb2551ef0d8358bbc8c4a79500299107aab0297a81c8ed017a5",
+      "evidence": [
+        "[DONE] 安装发布证据依赖，用时 31s"
+      ]
+    },
+    {
+      "key": "validate-game-release-preflight",
+      "status": "done",
+      "timeoutSeconds": 3600,
+      "commandSha256": "0b801e383b1d3245d459a97f7179943cac9d9e75e66f8807dcc8f13deb1a22ad",
+      "evidence": [
+        "PASS: minimum cohort quota, unique/wrong-branch proof, forced-path exclusion, bounded search, saturation, linked aliases, ordered state and100 independent runtime comparisons",
+        "PASS: quantization, alpha, deterministic layouts, replay, malformed-package rejection, release sample round trips",
+        "PASS: worker export proves every layout; invalid witness rejected; import recomputes path evidence",
+        "PASS: worker proves hard and unique candidates with retained repairs, linkage and visibility",
+        "PASS: painted art survives worker rebuild and export exactly; singleton color cannot be silently merged",
+        "PASS: adding unused swatches then rebuilding/exporting/importing retains colors; retained swatches can be painted later",
+        "PASS: auto-colors are used in all three generations; explicit reduction and insufficient capacity are verified",
+        "PASS: shared numeric frontier matches independent physical geometry across 250 boards, regardless of obsolete stage metadata",
+        "PASS: physical obstruction, delayed reservation opening, automatic waiting-dish eligibility and duplicate-target guard",
+        "PASS: pending depleted-slot return cannot settle a false loss",
+        "PASS: 500 packages, release 3b1bd8707151, migration and Docker image inputs match",
+        "✔ visible geometry and scroll defects reject functional PASS (6.7461ms)",
+        "PASS: editor exposes catalog, level and mechanic controls and runtime renders every new mechanic",
+        "✔ runtime source or screenshot drift never inherits old reward PASS (269.7541ms)",
+        "PASS: final desktop/mobile geometry, browser functions, console and resource responses; current desktop workbench validated, mobile evidence historical only",
+        "preflight_check=PASS key=verify-design-level-packages",
+        "game_release_preflight=PASS checks=1",
+        "[DONE] 全量预检发布候选，用时 6m 44s"
+      ]
+    },
+    {
+      "key": "test-game-backend",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "cb5b7e737582b45ffd567a6aaf9d65d69d0956f418fb5f1971f31edba88945e2",
+      "evidence": [
+        "docker_build_engine=PASS OSType=linux",
+        "#6 CACHED",
+        "#7 CACHED",
+        "#8 CACHED",
+        "[DONE] 批量测试并编译后端产物，用时 2m 27s"
+      ]
+    },
+    {
+      "key": "verify-design-level-packages",
+      "status": "done",
+      "timeoutSeconds": 1800,
+      "commandSha256": "6b6b3e44249bc2cf0c5a15f19e69b7dda5d04bb61ec2ff6467c4273006699f6d",
+      "evidence": [
+        "[PREFLIGHT_COVERED] validate-game-release-preflight"
+      ]
+    },
+    {
+      "key": "build-image",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "299816f6e0c4700f3f315ae854ab5e8524d3bd5ad84ed2dce28ab548d7a4b561",
+      "evidence": [
+        "#6 CACHED",
+        "#10 CACHED",
+        "#11 CACHED",
+        "#12 CACHED",
+        "[DONE] 制作 Docker 镜像，用时 1m 43s"
+      ]
+    },
+    {
+      "key": "build-game-static-assets",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "fb1cbf0b2801870da1360021faffdb4e19ae6f3e96df65de785a4b1b02acc902",
+      "evidence": [
+        "#9 CACHED",
+        "#10 CACHED",
+        "#11 CACHED",
+        "#12 CACHED",
+        "static_asset_artifact=PASS files=1411",
+        "static_gateway_config=PASS gateways=2",
+        "[DONE] 构建内容寻址静态资源交付物，用时 3m 28s"
+      ]
+    },
+    {
+      "key": "validate-game-image",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "5ce1d8ae0cbc546a8d98a0c778868ae5db8d4666dbb5d83f09dde1b3a7403f6a",
+      "evidence": [
+        "game_image_migration_bundle=PASS count=109",
+        "game_image_tradepool_validation=PASS",
+        "[DONE] 验证游戏镜像版本、迁移包与交易池能力，用时 8s"
+      ]
+    },
+    {
+      "key": "resolve-ssh-target",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "2b811ecd6cad0aa4b2f501c8d74a1dba55d230d34282686aded060644647b813",
+      "evidence": [
+        "[DONE] 确认 SSH 连接配置，用时 2s"
+      ]
+    },
+    {
+      "key": "game-prd2-migration-readiness",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "952618cf713f2cfc56dea5bb2acdccf7fbfbe2df4a1761c1973e64c5b8da1636",
+      "evidence": [
+        "game_database_identity=PASS",
+        "game_prd2_migration_readiness=PASS",
+        "[DONE] 验证 Prd2 迁移发布门禁，用时 2s"
+      ]
+    },
+    {
+      "key": "read-remote-compose",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "8a62988b9b3eeb185dca83fbaeea36a9dcf728827303ca1294e9e2d539906fa1",
+      "evidence": [
+        "game_compose_live_config=PASS ignored=IMAGE_TAG transition=none",
+        "game_compose_runtime_contract=PASS",
+        "[DONE] 读取生产编排当前版本，用时 2s"
+      ]
+    },
+    {
+      "key": "game-database-preflight",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "eebe058173b03a645b587ededafeae2498353863d38051ba635402b9d2447e4e",
+      "evidence": [
+        "game_database_identity=PASS",
+        "game_database_preflight=PASS",
+        "[DONE] 盘点交易池数据库升级前状态，用时 4s"
+      ]
+    },
+    {
+      "key": "publish-image",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "531c532cbf7f8e36a0c80d630497edf1fbf2cd5277cad3f99cf7c987125ca511",
+      "evidence": [
+        "[DONE] 发布到目标镜像池，用时 45s"
+      ]
+    },
+    {
+      "key": "stage-game-static-assets",
+      "status": "done",
+      "timeoutSeconds": 1800,
+      "commandSha256": "044ce8928f98e7f11f23407c6bd7d8b5e19839058c80ffae81bd628d515c978e",
+      "evidence": [
+        "static_asset_artifact=PASS files=1411",
+        "static_gateway_config=PASS gateways=2",
+        "gateway_static_stage=PASS gateway=riven-45 files=1411 manifest=/var/lib/rhospital-assets/manifests/20261025-a.tsv",
+        "gateway_static_stage=PASS gateway=vmiss-64 files=1411 manifest=/opt/1panel/www/sites/rhospital.cc/index/rhospital-assets/manifests/20261025-a.tsv",
+        "[DONE] 预置双前置不可变静态资源，用时 2m 29s"
+      ]
+    },
+    {
+      "key": "verify-game-static-assets-predeploy",
+      "status": "done",
+      "timeoutSeconds": 2100,
+      "commandSha256": "8ce55dee3156d8a85bf99405cf2b4b766e6e8e5f72c7fdacfcbf932a6206df3b",
+      "evidence": [
+        "static_asset_artifact=PASS files=1411",
+        "static_gateway_config=PASS gateways=2",
+        "gateway_static_http=PASS gateway=riven-45 files=1411",
+        "gateway_static_http=PASS gateway=vmiss-64 files=1411",
+        "[DONE] 应用切换前逐文件验证双前置资源，用时 1m 24s"
+      ]
+    },
+    {
+      "key": "backup-game-release",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "be7f612a8bf698f059600067e309c9a119d61a85213f0a2a3b430c4b62faba29",
+      "evidence": [
+        "game_database_identity=PASS",
+        "[DONE] 备份游戏编排与交易池数据，用时 4s"
+      ]
+    },
+    {
+      "key": "pre-deploy-checklist",
+      "status": "done",
+      "timeoutSeconds": 120,
+      "commandSha256": "f6b1da80b91957db943ab825a7521f3e6359211b7145ce2fb1d2d6b45e0e7d65",
+      "evidence": [
+        "checklist_target_image=PASS image=hospital-backend:20261025-a",
+        "checklist_current_service=PASS healthy=1",
+        "checklist_backup=PASS path=/opt/1panel/backup/game-release-20261025T061314Z",
+        "checklist_database_migrations=PASS count=0",
+        "checklist_migration_image_source=PASS image=hospital-backend:20261025-a",
+        "game_service_snapshot=PASS mode=current",
+        "checklist_rollback_source=PASS snapshot=/opt/1panel/backup/game-release-20261025T061314Z/service.inspect.json",
+        "pre_deploy_checklist=PASS",
+        "[DONE] 发布前 CheckList 总验收，用时 1s"
+      ]
+    },
+    {
+      "key": "update-remote-compose",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "3e2dd5d245a9dadfb72b2142e760c21557b8f02b4052d86fbe1b2b33e531dcf7",
+      "evidence": [
+        "game_service_snapshot=PASS mode=current",
+        "game_compose_live_config=PASS ignored=IMAGE_TAG transition=none",
+        "game_compose_runtime_contract=PASS",
+        "game_compose_live_config=PASS ignored=IMAGE_TAG transition=none",
+        "game_compose_runtime_contract=PASS",
+        "[DONE] 备份并替换生产编排 TAG，用时 4s"
+      ]
+    },
+    {
+      "key": "pause-meelok-services",
+      "status": "done",
+      "timeoutSeconds": 1200,
+      "commandSha256": "5e2fb0a6e402eea9c56b6e51059ee888324ffabb89902d990f275542fa79618f",
+      "evidence": [
+        "ERROR: prior Meelok pause requires recovery before a new release",
+        "WARNING: Meelok 通知步骤未完成，游戏发版继续；状态请查原始输出: ERROR: prior Meelok pause requires recovery before a new release",
+        "[DONE] 尝试暂停同机 Meelok 服务并通知，用时 2s"
+      ]
+    },
+    {
+      "key": "deploy-stack",
+      "status": "done",
+      "timeoutSeconds": 0,
+      "commandSha256": "e533458d644688880932f9abd42c451b226f32c6549873a3e647017a233ffb66",
+      "evidence": [
+        "game_compose_live_config=PASS ignored=IMAGE_TAG transition=none",
+        "game_compose_runtime_contract=PASS",
+        "game_service_snapshot=PASS mode=current",
+        "game_stack_deploy_guard=PASS healthy_before=1 healthy_after_submit=1 replicas=1",
+        "[DONE] 执行 Docker Stack 热发布，用时 5s"
+      ]
+    },
+    {
+      "key": "commit-game-cutover",
+      "status": "done",
+      "timeoutSeconds": 1860,
+      "commandSha256": "43792809dd508b5b665b9f1b1320b4cf9d7e0ca3319d7dfe80684e56dc3d7786",
+      "evidence": [
+        "ID                          NAME                                    IMAGE                         NODE                       DESIRED STATE   CURRENT STATE                     ERROR     PORTS",
+        "game_cutover_observation=PASS",
+        "[DONE] 进入新版本观察期，用时 37s"
+      ]
+    },
+    {
+      "key": "final-runtime-check",
+      "status": "done",
+      "timeoutSeconds": 1860,
+      "commandSha256": "df58cc681babf80847e06124e1f1712c230be0e66cfde8949912d2250303e39c",
+      "evidence": [
+        "rollout_state=completed image=hospital-backend:20261025-a version=20261025-a sso=true sso_secret_file=/run/secrets/forum_sso_secret sso_secret=forum_sso_secret expected_replicas=1 active_target=1 active_other=0 healthy_target=1",
+        "ID                          NAME                                    IMAGE                         NODE                       DESIRED STATE   CURRENT STATE             ERROR     PORTS",
+        "rollout_validation=PASS",
+        "[DONE] 最终运行校验，用时 12m 9s"
+      ]
+    },
+    {
+      "key": "game-prd2-runtime-contract",
+      "status": "done",
+      "timeoutSeconds": 180,
+      "commandSha256": "34d484d2ce0779f63e9738f5c3f50d49496ca9919747d98195bf2cf467656e3a",
+      "evidence": [
+        "game_database_identity=PASS",
+        "game_stripe_authentication=PASS live=true method=GET",
+        "game_prd2_runtime_contract=PASS stripe_unsigned=400 paddle_unsigned=400",
+        "[DONE] 验证 Prd2 登录、支付、调度与监控合同，用时 3s"
+      ]
+    },
+    {
+      "key": "verify-game-static-delivery",
+      "status": "done",
+      "timeoutSeconds": 2100,
+      "commandSha256": "e9022c12e2fea27cb360ccaf74cc466e69d22915e6d29033696dff10834e27ab",
+      "evidence": [
+        "game_static_delivery_browser=PASS renderer=\"ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)\" webgl=\"WebGL 2.0 (OpenGL ES 3.0 Chromium)\" framebuffer=Complete viewport=764x485 dpr=1 texture=1280x720",
+        "game_static_delivery_validation=PASS probes=6",
+        "[DONE] 验证双前置游戏静态资源交付，用时 44s"
+      ]
+    },
+    {
+      "key": "verify-relations-release",
+      "status": "done",
+      "timeoutSeconds": 900,
+      "commandSha256": "e7c10293590ad750d8ffe062383c03fbe3f8130cc30934926543885ac5585262",
+      "evidence": [
+        "relations_release_browser=PASS framebuffer=Complete",
+        "relations_release_gateway=PASS gateway=riven attempts=1 graph_nodes=2948 hospital_nodes=2914 guild_nodes=34 graph_links=37629 search_hospital_results=1 search_director_results=1 search_email_results=1 query_modes=hospitalName,directorName,email search_email=present graph_email=absent explicit_selection=required search_loading_guard=present main_node=origin-fixed filtered_refresh=preserved ignored_telemetry_failures=0 ignored_telemetry_errors=0",
+        "relations_release_gateway=PASS gateway=vmiss attempts=1 graph_nodes=2948 hospital_nodes=2914 guild_nodes=34 graph_links=37629 search_hospital_results=1 search_director_results=1 search_email_results=1 query_modes=hospitalName,directorName,email search_email=present graph_email=absent explicit_selection=required search_loading_guard=present main_node=origin-fixed filtered_refresh=preserved ignored_telemetry_failures=0 ignored_telemetry_errors=0",
+        "relations_release_validation=PASS gateways=2",
+        "[DONE] 验证管理员关系图发布结果，用时 24s"
+      ]
+    },
+    {
+      "key": "verify-tradepool-release",
+      "status": "done",
+      "timeoutSeconds": 120,
+      "commandSha256": "d4872cb57e13062936dca123854b807df183f13a86180189cb98e9b058c9a153",
+      "evidence": [
+        "tradepool_database_validation=PASS",
+        "tradepool_release_validation=PASS",
+        "[DONE] 验证管理员交易池发布结果，用时 5s"
+      ]
+    },
+    {
+      "key": "cleanup-game-release-containers",
+      "status": "done",
+      "timeoutSeconds": 120,
+      "commandSha256": "7d504c5a64077e8812736d3ce5b770f4212f61f5ca1771760c73d70fe54b24f2",
+      "evidence": [
+        "post_release_container_cleanup=PASS deleted=1 warnings=0 remaining_exited=0",
+        "[DONE] 清理游戏发布历史容器，用时 1s"
+      ]
+    },
+    {
+      "key": "restore-meelok-services",
+      "status": "done",
+      "timeoutSeconds": 2400,
+      "commandSha256": "af70a6b31ef6b8f5d5f5f48619fe9741ab9e4605b4753e375b2548f39295a400",
+      "evidence": [
+        "ERROR: Meelok pause belongs to another release; preserve marker and snapshot",
+        "WARNING: Meelok 通知步骤未完成，游戏发版继续；状态请查原始输出: ERROR: Meelok pause belongs to another release; preserve marker and snapshot",
+        "[DONE] 尝试恢复同机 Meelok 服务并通知，用时 1s"
+      ]
+    },
+    {
+      "key": "game-rollback-decision",
+      "status": "pending",
+      "timeoutSeconds": 0,
+      "commandSha256": "89f326869d895b884f4946d2775428071adfe350b45184205b8a392de0b92901",
+      "evidence": []
+    },
+    {
+      "key": "game-fatal-rollback-decision",
+      "status": "pending",
+      "timeoutSeconds": 420,
+      "commandSha256": "cf02032d218b3a6c15fbe78ce6a7d6c8fe183ffb0d74dc2467e0b141701b2284",
+      "evidence": []
+    },
+    {
+      "key": "game-rollback-command",
+      "status": "pending",
+      "timeoutSeconds": 0,
+      "commandSha256": "c613b2dc14d51d96daf05a1fa36fc7f350babf06f8850324ef6b33ecef4d7a5e",
+      "evidence": []
+    }
+  ],
+  "historyId": "2026-10-25T06:27:34.371Z-20261025-a",
+  "warnings": [
+    "Retained Meelok marker belongs to another release. This run did not pause or restore those services; marker/snapshot preserved."
+  ]
+}

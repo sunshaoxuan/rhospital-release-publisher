@@ -1,0 +1,52 @@
+{
+  "capturedAt": "2026-10-25T06:43:17.203Z",
+  "candidate": "96193ca1825389bf920ad93a5f11b0a77e73cde1",
+  "status": "PASS",
+  "exitCode": 0,
+  "originalChecks": [
+    {
+      "key": "final-runtime-check",
+      "timeoutSeconds": 1860,
+      "commandSha256": "df58cc681babf80847e06124e1f1712c230be0e66cfde8949912d2250303e39c",
+      "status": "PASS"
+    },
+    {
+      "key": "game-prd2-runtime-contract",
+      "timeoutSeconds": 180,
+      "commandSha256": "34d484d2ce0779f63e9738f5c3f50d49496ca9919747d98195bf2cf467656e3a",
+      "status": "PASS"
+    },
+    {
+      "key": "verify-game-static-delivery",
+      "timeoutSeconds": 2100,
+      "commandSha256": "e9022c12e2fea27cb360ccaf74cc466e69d22915e6d29033696dff10834e27ab",
+      "status": "PASS"
+    },
+    {
+      "key": "verify-relations-release",
+      "timeoutSeconds": 900,
+      "commandSha256": "e7c10293590ad750d8ffe062383c03fbe3f8130cc30934926543885ac5585262",
+      "status": "PASS"
+    },
+    {
+      "key": "verify-tradepool-release",
+      "timeoutSeconds": 120,
+      "commandSha256": "d4872cb57e13062936dca123854b807df183f13a86180189cb98e9b058c9a153",
+      "status": "PASS"
+    }
+  ],
+  "successProtocolComplete": true,
+  "executorSha256": "9c30b766710dd3c78dfbe8e0c40020c75b000cfc67b1e14815ec1baf00b86e6a",
+  "inputsSha256": "f3811ac5e09318e32b39fca82097ccba46fa4e58575d10fc56a551ba0940ad7c",
+  "logSha256": "946ee33b52ccba834d6090a8c1de0f69a82e2912a8e1a18c19fe3639ed028ec7",
+  "publisherIdentityUnchanged": true,
+  "publisherAtFinalCheck": {
+    "commit": "85ac7a4b9f77d945d687b278c6c5fb51e2c67b15",
+    "contentHash": "68ae9fdcb410f34e6c7f29f07d58118dfdcaec4adf121c88ec73bf84e01b9ffe",
+    "status": "UP_TO_DATE"
+  },
+  "liveEvidence": "a-live-immutable-final.json",
+  "runtimeCheckLog": "a-immutable-runtime-recheck.log",
+  "retainedSafetyChecks": "Original publisher commands and success protocol unchanged",
+  "boundary": "Only A runtime acceptance was repeated after task identity changed; no build/test repetition, B SQL or B deployment."
+}

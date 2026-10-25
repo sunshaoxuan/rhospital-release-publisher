@@ -1,0 +1,78 @@
+{
+  "capturedAt": "2026-10-25T06:31:55.335Z",
+  "candidate": "931bad014c1e9356e13652df608704cfda8ec514",
+  "productionBaseline": "96193ca1825389bf920ad93a5f11b0a77e73cde1",
+  "status": "BLOCKED",
+  "planHTTP": 400,
+  "actualRuntimePaths": [
+    "scripts/migration/20261025_finalize_guild_status.sql",
+    "src/main/java/com/zly/hospital/config/initData/WeeklyRewardConfig.java",
+    "src/main/java/com/zly/hospital/controller/api/TaskController.java",
+    "src/main/java/com/zly/hospital/model/Guild.java",
+    "src/main/java/com/zly/hospital/repository/GuildRepository.java",
+    "src/main/java/com/zly/hospital/repository/HospitalRepository.java",
+    "src/main/java/com/zly/hospital/service/GuildService.java",
+    "src/main/java/com/zly/hospital/service/GuildStatusService.java",
+    "src/main/java/com/zly/hospital/service/WeeklyRewardService.java",
+    "src/main/java/com/zly/hospital/service/runner/GiftDistributionJobHandler.java",
+    "src/main/java/com/zly/hospital/service/runner/WeeklyRewardResetJobHandler.java",
+    "src/main/resources/codegraph-release-contract.json",
+    "src/main/resources/static/css/design-bacteria-settings.css",
+    "src/main/resources/static/js/design/BacteriaSettings.mjs",
+    "src/main/resources/static/js/design/LevelMatrixView.mjs",
+    "src/main/resources/templates/design_bacteria_settings.html"
+  ],
+  "excessAssessedPaths": [
+    "src/main/java/com/zly/hospital/controller/api/HospitalController.java",
+    "src/main/java/com/zly/hospital/controller/api/SocialController.java",
+    "src/main/java/com/zly/hospital/service/BacteriaChallengeService.java",
+    "src/main/java/com/zly/hospital/service/BacteriaDifficultyProof.java",
+    "src/main/java/com/zly/hospital/service/BacteriaLevelCatalogService.java",
+    "src/main/java/com/zly/hospital/service/HospitalAddressService.java",
+    "src/main/java/com/zly/hospital/service/HospitalLogService.java",
+    "src/main/java/com/zly/hospital/service/HospitalService.java",
+    "src/main/java/com/zly/hospital/service/RankingService.java",
+    "src/main/java/com/zly/hospital/service/ToiletMarketVisibilityReconciliationService.java",
+    "src/main/resources/bacteria-level-validator.js",
+    "src/main/resources/static/css/design.css",
+    "src/main/resources/static/js/design/DesignWorker.mjs",
+    "src/main/resources/static/js/design/DifficultySearch.mjs",
+    "src/main/resources/static/js/design/Editor.mjs",
+    "src/main/resources/static/js/design/EditorPlans.mjs",
+    "src/main/resources/static/js/design/LevelCertification.mjs",
+    "src/main/resources/static/js/design/ProofStatus.mjs",
+    "src/main/resources/static/js/design/SaveTools.mjs",
+    "src/main/resources/static/js/gameplay/BacteriaPackageFormat.mjs",
+    "src/main/resources/static/js/gameplay/BacteriaPathAnalysis.mjs",
+    "src/main/resources/static/js/scenes/components/AddressEditPopup.js",
+    "src/main/resources/static/js/scenes/components/ToiletMarketViewer.js",
+    "src/main/resources/static/js/scenes/components/WorldChatPanel.js",
+    "src/main/resources/templates/design.html"
+  ],
+  "blockingConditions": [
+    {
+      "key": "fresh-release-impact",
+      "status": "FAIL",
+      "reason": "Existing B assessment has 25 paths already released in A; requires new assessment ID and exact 16-path A-to-B coverage."
+    },
+    {
+      "key": "scheduler-archival",
+      "status": "FAIL",
+      "reason": "Jobs 18 and 20 are disabled but unarchived (deleted=0). No tasks, batches or active workflow references observed."
+    }
+  ],
+  "verified": {
+    "BJarContract": "PASS",
+    "BMigrationSourceBinding": "PASS",
+    "localProductionBImageIdentity": "PASS",
+    "immutableAPredecessor": "PASS"
+  },
+  "pending": [
+    "New B candidate and full formal gates",
+    "Fresh B pre-cutover backup/service snapshot",
+    "Rechecked scheduler archive/drain",
+    "Explicitly authorized B stopped-writer cutover and full database backup before migration"
+  ],
+  "boundary": "No scheduler/archive write, writer stop, B SQL or B deployment executed.",
+  "updatedAt": "2026-10-25T06:43:17.209Z"
+}

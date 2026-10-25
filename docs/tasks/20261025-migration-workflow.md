@@ -211,3 +211,142 @@ Split if actual SQL requires application changes, migration redesign or new auth
   assertion output in `standby-replacement-fix.log` has six whitespace-only
   lines flagged by the unrestricted diff check. Keep raw diagnostic evidence;
   code, configuration, documentation and JSON diff checks pass.
+
+## Follow-up: immutable A predecessor failure
+
+- User reports formal release failure after current service snapshot PASS,
+  with `ERROR: immutable A predecessor required`.
+- Goal: identify the recorded job, first failed step, immutable image input
+  and actual production effects; repair any confirmed publisher defect.
+- Method: inspect job/history, runtime identity and source call flow, then
+  apply the smallest justified correction and relevant regression tests.
+- Boundaries: production investigation is read-only. No release retry, SQL,
+  writer stop, scheduler modification or prerequisite bypass.
+- Acceptance: evidence-backed cause and effects, preserved recovery guards;
+  code corrections require focused tests and mandatory `npm test`.
+- Previous plan-generation PASS is distinct from this release failure.
+
+### Follow-up findings and acceptance
+
+- Job `2026-10-25T05:27:58.790Z-20261025`, candidate `931bad01`,
+  failed at `verify-codegraph-prerequisites` after 25 completed steps.
+- Live service references `hospital-backend:20261023` without a digest.
+  Read-only inspection of its running JAR confirms the required
+  `normalizeLegacyStatusBeforeWrite` callback is absent. Digest pinning alone
+  cannot satisfy the prepared A contract. Image identity is in the receipt.
+- New image upload, two-gateway static staging and release backup completed.
+  Writer stop, migration, compose replacement, deployment and rollback remain
+  pending. Live service has one healthy replica; recovery floor is absent.
+- Evidence: `docs/evidence/20261025-migration-workflow/immutable-a-incident.json`.
+- Diagnosis and production-effect boundary: PASS. Release readiness: BLOCKED.
+  Prepared A deployment requires explicit production authorization; scheduler
+  archival/drain remains unverified. No release retry or production mutation
+  was performed during this follow-up. No executable source was changed.
+- Existing guard remains enforced. Further workflow enhancement can move
+  independent live predecessor checks ahead of build/upload, retaining the
+  final pre-cutover recheck; this is not implemented or claimed as verified.
+
+## Authorized A release and B prerequisite validation
+
+- User authorizes preparing and accepting A, running formal release gates,
+  publishing A only after they pass, then verifying B release prerequisites.
+- Split phases because A is the required independently accepted predecessor.
+  B deployment and B contraction SQL are outside this authorization.
+- Method: inspect A source/impact assessment and current baseline, freeze a
+  scoped candidate, use publisher-owned formal gates, publish A, inspect its
+  exact live JAR/image/tasks and final runtime checks, then read B prerequisites.
+- Acceptance A: exact-baseline impact coverage, required checks PASS, compatible
+  prepared A callback in the live immutable image, healthy rollout and runtime
+  acceptance. B: image/SQL identity plus scheduler archive/drain and predecessor
+  checks, with unresolved conditions explicitly recorded.
+- Preserve unrelated work and existing recovery floors. Do not bypass safety
+  checks or silently archive/delete production scheduler data to satisfy B.
+
+### A frozen candidate and dispatch
+
+- Candidate `96193ca1825389bf920ad93a5f11b0a77e73cde1`, tag `20261025-a`.
+  Existing A product and portrait receipts reviewed. Source includes constructor
+  and lifecycle normalization, retains weekly chain, excludes B contraction.
+- Formal plan HTTP 200, baseline `6bf869bc`, 28 covered runtime paths,
+  39 steps, no new migration. Core backend/predeploy/final runtime gates retained.
+- Dispatched once at 2026-10-25T05:50:41.383Z, job
+  `1792907441383-9e7b412f4d5cd8`. Transport timed out during synchronous Git
+  checkout; persisted job and subsequent live status confirmed the same run.
+  No duplicate dispatch. Plan and dispatch evidence saved beside incident receipt.
+- Existing dirty application master/index left untouched. Publisher creates
+  its own detached exact-commit worktree and owns normal cleanup.
+
+### A immutable runtime acceptance method
+
+- The running publisher deploys a tag-only reference. After the same formal
+  job completes, verify the live A callback, exact uploaded image, all tasks
+  and healthy completed rollout before binding the accepted digest.
+- Remote Docker resolves the verified A tag plus digest to image
+  `sha256:2422d371f0c99aecab57fbaae49eb8a38bc5b89bd836809ad0d6a1a245a50aec`.
+  Preserve the existing start-first/pause policy and all non-image Spec fields.
+- This binding may replace the task. Recheck the affected final runtime gates
+  against the same immutable artifact; do not repeat unchanged build/tests.
+- Any drift fails closed. B remains validation-only, with no scheduler writes,
+  writer stop, migration or deployment in this phase.
+
+### A formal result and B read-only conditions
+
+- A formal history `2026-10-25T06:27:34.371Z-20261025-a` is EXECUTED,
+  exact commit `96193ca1825389bf920ad93a5f11b0a77e73cde1`. All 36 normal
+  steps completed; three recovery-only steps remain unexecuted as expected.
+- Preflight completed in 6m44s, including 472/472 and 51/51 test groups.
+  Backend gate reused candidate-keyed BuildKit COPY/package cache. Retained
+  Surefire reports: 1896 tests, 0 failures, 0 errors, 91 skipped. This run
+  did not freshly execute Maven tests. No publisher executable changed.
+- Both gateways staged and HTTP-verified 1411 assets. Backup, pre-deploy
+  CheckList, rollout, PRD2, browser delivery (six probes), relations and
+  tradepool runtime checks passed. Formal job owns and completed its cleanup.
+- Existing Meelok marker belongs to another release. Before this job, web
+  desired=1/running=0 while the other four services were running. Pause and
+  restore emitted ownership warnings and preserved the marker/snapshot.
+  No recovery of that unrelated maintenance state is claimed or attempted.
+- Read-only live JAR inspection verifies prepared A callbacks and exact JAR
+  SHA-256 `53e69d23289ac32b5604395fbfc30b0ca6cbc0117e2f60680aa77dc2b19aa4dc`.
+  Initial rollout completed, replica=1 healthy, every older task terminal.
+- Accepted digest pin submitted after formal completion. Service Spec
+  comparison proves Image was the only changed field; start-first/pause and
+  720-second monitor retained. Original five final runtime commands are bound
+  by hashes and executed once against the pinned reference. All five passed.
+- B plan now fails closed (HTTP 400): assessment contains 25 excess paths
+  already released in A; actual A-to-B runtime/migration diff has 16 paths.
+  A fresh B assessment and candidate are required before formal B gates.
+- B scheduler read-only guard FAIL: jobs 18 and 20 have job_status=0 and
+  deleted=0. Tasks=0, batches=0, active workflow references=0. Archival is
+  outstanding. No scheduler records were modified.
+- Actual B image equals the local inspected artifact. B JAR contract PASS;
+  delivered migration matches commit 931bad01, SHA-256
+  `46e90290d49473bb5a4f152673a7836f043c6e91199a428a82cdbfdb987f4d2b`.
+- B offline writer stop, fresh full backup, migration and deployment are
+  unexecuted. Condition validation is BLOCKED with explicit evidence, not
+  release approval. Receipts: `a-formal-release-result.json`,
+  `a-immutable-pin.json`, `b-plan-after-a.json`,
+  `b-scheduler-prerequisites.json`, `b-image-contract.json`,
+  `b-readiness-after-a.json` in the existing evidence directory.
+
+### Authorized follow-up final acceptance
+
+- Immutable A rollout completed at 2026-10-25T06:41:21.491042987Z.
+  One replica is healthy; all prior tasks are terminal. Live JAR callback
+  verification passes and its SHA-256 matches the accepted pre-pin artifact.
+- Original final-runtime, PRD2, static delivery (six browser probes), relations
+  (two gateways) and tradepool checks all pass after digest pinning. Static
+  delivery reports zero asset/network/runtime failures after the existing
+  telemetry exclusions. Publisher policy identity remains unchanged.
+- A preparation, formal release and immutable runtime acceptance: PASS.
+  B condition investigation: COMPLETE; B release readiness: BLOCKED by the
+  fresh-baseline impact assessment and two unarchived scheduler jobs.
+- No B SQL, scheduler write, writer stop or B deployment was performed.
+  Existing Meelok maintenance ownership warning remains unresolved and
+  outside this change. Existing unrelated work is preserved.
+- This follow-up changes documentation/evidence only. No additional publisher
+  npm test run or UI layout validation is required for these documentation
+  updates. Formal A checks and cached Maven evidence boundaries are retained.
+- Final receipt: `docs/evidence/20261025-migration-workflow/`
+  `AUTHORIZED_A_RELEASE_ACCEPTANCE.md`; structured runtime receipt:
+  `a-immutable-runtime-result.json`; live evidence:
+  `a-live-immutable-final.json`.

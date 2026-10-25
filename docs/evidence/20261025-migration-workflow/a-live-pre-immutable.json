@@ -1,0 +1,19 @@
+{
+  "capturedAt": "2026-10-25T06:18:36.541Z",
+  "formalJob": "1792907441383-9e7b412f4d5cd8",
+  "phase": "healthy A, Swarm monitor still updating",
+  "serviceImage": "hospital-backend:20261025-a",
+  "immutable": false,
+  "replicas": 1,
+  "updateStartedAt": "2026-10-25T06:13:28.305538729Z",
+  "monitorSeconds": 720,
+  "containerId": "8d135deffb20162448d2ba88e510d3c1930c0f6809fab52cbfb90f86da968952",
+  "imageId": "sha256:2422d371f0c99aecab57fbaae49eb8a38bc5b89bd836809ad0d6a1a245a50aec",
+  "jarSha256": "53e69d23289ac32b5604395fbfc30b0ca6cbc0117e2f60680aa77dc2b19aa4dc",
+  "preparedA": "PASS",
+  "health": "healthy",
+  "allNonterminalTasks": [
+    "hospital-backend:20261025-a"
+  ],
+  "priorTasksTerminal": true
+}

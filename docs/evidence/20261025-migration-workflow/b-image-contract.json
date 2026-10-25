@@ -1,0 +1,12 @@
+{
+  "image": "hospital-backend:20261025",
+  "imageId": "sha256:6f24358bc9456266a855e6a321e49eba046bdfd3f085946df04bd9417f6b1528",
+  "productionImageId": "sha256:6f24358bc9456266a855e6a321e49eba046bdfd3f085946df04bd9417f6b1528",
+  "sameLocalAndProductionArtifact": true,
+  "BJarContract": "PASS",
+  "migrationSourceBinding": "PASS",
+  "migrationSha256": "46e90290d49473bb5a4f152673a7836f043c6e91199a428a82cdbfdb987f4d2b",
+  "candidate": "931bad014c1e9356e13652df608704cfda8ec514",
+  "runtimeMutation": false,
+  "productionMutation": false
+}
