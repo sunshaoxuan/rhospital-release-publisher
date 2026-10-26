@@ -118,7 +118,19 @@ function buildReleaseDiagnostics(result, scope = 'execution') {
   const nextAction = firstFailure ? `先查看「${firstFailure.title}」的原始日志。${actions[firstFailure.family] || '根据失败校验补充证据，再决定修复与重试。'}`
     : hasWarnings ? '逐项复核提示步骤；异常文本是否影响业务需要原始证据确认。'
       : outcome === 'SUCCESS' ? '本次计划检查已完成，按业务验收范围继续确认。' : summary;
-  return {version: 1, scope, outcome, title, summary, nextAction, firstFailure, observations,
+  const evidenceLines = steps.flatMap(step => outputLines(step.logs));
+  const startupFailure = evidenceLines.some(line => /^game_startup_contract=FAIL\b/.test(line));
+  const startupRejected = evidenceLines.some(line => /^game_startup_contract=FAIL\b.*reason=(candidate_signing_checker_failed|missing_or_duplicate|below_minimum)\b/.test(line));
+  const immutableFailure = evidenceLines.some(line => /ERROR: rollback requires an immutable compatible image/.test(line));
+  const rootCause = startupRejected ? {code:'LOGIN_CONFIGURATION', text:'候选拒绝了实际登录签名配置：请核对既有配置来源、长度和冲突。'}
+    : startupFailure ? {code:'LOGIN_PREFLIGHT_EVIDENCE',text:'候选登录签名预检未完成，或配置、镜像及策略身份发生变化。'} : null;
+  const recoveryAction = immutableFailure
+    ? '旧镜像引用未通过不可变身份检查。先运行 scripts/game-service-recovery.mjs 生成只读恢复计划，核对备份、digest、兼容性和服务版本后单独批准服务恢复；不要重放数据库恢复。'
+    : null;
+  return {version: 1, scope, outcome, title, summary: rootCause?.text || summary,
+    nextAction: startupRejected ? '核验并接入既有有效登录签名配置，再重新校验；不要临时生成新密钥或跳过校验。'
+      : startupFailure ? '核对候选配置绑定、验证任务调度与清理结果，重新取得同一候选的完整PASS证据；不要直接切换。' : recoveryAction || nextAction,
+    rootCause, recoveryAction, firstFailure, observations,
     rollback, cutoverCommitted, hasWarnings,
     semantic: {status: 'NOT_CONFIGURED', reason: '语义辅助诊断尚未配置。'}};
 }

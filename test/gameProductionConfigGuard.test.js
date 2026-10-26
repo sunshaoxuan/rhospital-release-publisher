@@ -28,7 +28,7 @@ function productionFixture() {
 }
 
 function runGuard(fixture) {
-  let script = pythonScript(gameProductionConfigGuardCommands()[0]);
+  let script = pythonScript(gameProductionConfigGuardCommands(false, fixture.signingApproval || null)[0]);
   if (fixture.approved_digest) script = script.replace('61529d8807e2a443383462e6c2a39eb2ef521c2c08399dfb6919e2f1933b22d0', fixture.approved_digest);
   const harness = [
     'import io, json, subprocess, sys, types',
@@ -61,6 +61,32 @@ function recoveryFixture() {
   fixture.transition = true;
   return fixture;
 }
+
+test('only the publisher-approved signing mapping can extend the candidate without weakening the baseline',()=>{
+  function signingFixture(){
+    const fixture=productionFixture();
+    fixture.signingApproval={secretName:'fixture-signing-v1',source:'signing',target:'auth.token.secret',uid:'0',gid:'0',mode:256};
+    fixture.compose.services['hospital-backend'].environment.AUTH_TOKEN_SECRET_FILE='/run/secrets/auth.token.secret';
+    fixture.compose.secrets.signing={external:true,name:'fixture-signing-v1'};
+    fixture.compose.services['hospital-backend'].secrets.push({source:'signing',target:'auth.token.secret',mode:256});
+    return fixture;
+  }
+  const good=runGuard(signingFixture());
+  assert.equal(good.status,0,good.stdout+good.stderr);
+  for(const mutate of [
+    f=>f.signingApproval=null,
+    f=>f.compose.secrets.signing.name='unapproved-reference',
+    f=>f.compose.services['hospital-backend'].environment.AUTH_TOKEN_SECRET_FILE='/run/secrets/unapproved-path',
+    f=>f.compose.services['hospital-backend'].secrets.push({source:'signing',target:'extra'}),
+    f=>f.compose.services['hospital-backend'].secrets[0].target='missing-stripe',
+    f=>f.compose.services['hospital-backend'].environment.SNAIL_JOB_ENABLED='false',
+    f=>f.compose.services['hospital-backend'].environment.AUTH_TOKEN_SECRET='private-credential-value'
+  ]) {
+    const fixture=signingFixture();mutate(fixture);
+    const result=runGuard(fixture);assert.notEqual(result.status,0);
+    assert.doesNotMatch(result.stdout+result.stderr,/private-credential-value/);
+  }
+});
 
 test('formal handoff accepts only the exact approved recovery source and a valid production target', () => {
   const fixture = recoveryFixture();

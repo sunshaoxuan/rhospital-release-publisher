@@ -11,6 +11,9 @@ const {gameFormalComposeCommands, gameServiceSnapshotCommands} = require('./game
 const {gameMeelokStatusCommands, gameMeelokPauseCommands, gameMeelokRestoreCommands} = require('./gameMeelokMaintenance');
 const {expectedTomcatVersion, tomcatJarCheckScript} = require('./tomcatSecurityCheck');
 const {gameProductionConfigGuardCommands, gameStripeAuthenticationCommands, gameProductionImageConfigCommands} = require('./gameProductionConfigGuard');
+const {resolveGameStartupContract, gameStartupContractCommands} = require('./gameStartupContract');
+const {gameRecoveryIdentityCommands} = require('./gameRecoveryIdentity');
+const {gameSigningValidationViewCommands}=require('./gameSigningBinding');
 const {PRIMARY, STANDBY, publicReceipt} = require('./gameStandbyCandidate');
 const codegraphCutover = require('./gameCodegraphCutover');
 const {requiresTechnologyCutover, technologyOfflineBackupCommands, technologyReceiptCommands,
@@ -48,6 +51,7 @@ const REQUIRED_RELEASE_CHECKS = {
 };
 const KNOWN_RELEASE_CHECKS = {
   game: new Set([
+    'validate-game-startup-contract',
     'validate-game-sso-source',
     'test-game-backend',
     'validate-game-static-delivery-prerequisites',
@@ -247,6 +251,13 @@ function createPlan(projectRoot, request, env = process.env) {
   const gitBranch = validateGitBranch(request.gitBranch || env.RELEASE_PUBLISHER_GIT_BRANCH || 'origin/master');
   const gitCommit = validateGitCommit(request.gitCommit || 'latest');
   const catalogSchemaVersion = resolveCatalogSchemaVersion(projectRoot, gitCommit);
+  const startupSource = file => gitCommit === 'latest'
+    ? (fs.existsSync(resolveInside(projectRoot, file)) ? fs.readFileSync(resolveInside(projectRoot, file), 'utf8') : '')
+    : gitFileOrEmpty(projectRoot, gitCommit, file);
+  const startupContract = resolveGameStartupContract(
+    startupSource('src/main/resources/application.properties') + '\n' + startupSource('src/main/resources/application-prod.properties'),
+    startupSource('src/main/java/com/zly/hospital/service/TokenService.java'),
+    startupSource('src/main/java/com/zly/hospital/HospitalBackendApplication.java'));
   const releaseMigrations = resolveReleaseMigrations(projectRoot, gitCommit, request.changeAnalysis);
   const technologyCutover = requiresTechnologyCutover(releaseMigrations);
   const codegraph = codegraphCutover.requiresCodegraphCutover(releaseMigrations);
@@ -883,6 +894,18 @@ function createPlan(projectRoot, request, env = process.env) {
       }));
     }
     steps.push(publishImageStep);
+    if (startupContract) steps.push(releaseStep({
+      key:'validate-game-startup-contract',title:'校验候选实际登录签名配置',
+      summary:'候选以 --check-login-signing-key 读取实际Spring配置，在业务/数据库启动前退出；只读取退出状态',
+      command:remoteSshCommand(remoteImageTarget,remoteBashScriptCommand([
+        'cd '+shellToken(remoteComposeDir),
+        'service_name='+shellToken(config.stackName+'_'+config.containerName),
+        'target_image='+shellToken(imageTag),
+        ...gameStartupCandidateCommands(formalComposeSource,imageTag,appTag,startupContract)
+      ])),
+      validation:'game_startup_contract=PASS；失败或证据不全时禁止切换，不生成新密钥',
+      actionType:'remote-check',executable:true,timeoutSeconds:240
+    }));
     steps.push(releaseStep({
       key: 'stage-game-static-assets',
       title: '预置双前置不可变静态资源',
@@ -974,7 +997,7 @@ function createPlan(projectRoot, request, env = process.env) {
       title: '发布前 CheckList 总验收',
       summary: '在切换生产编排前统一验证目标镜像、当前服务、备份校验和、数据库迁移回执和回滚入口',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-        gamePreDeployChecklistCommand(remoteComposeDir, config.stackName, config.containerName, imageTag, releaseMigrations)
+        gamePreDeployChecklistCommand(remoteComposeDir, config.stackName, config.containerName, imageTag, releaseMigrations, startupContract, formalComposeSource, appTag)
       )),
       validation: 'CheckList 所有项目必须输出 PASS，任一项目失败时禁止更新 Compose 和执行热滚',
       actionType: 'remote-check',
@@ -4046,6 +4069,7 @@ function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName, ex
     'docker service inspect "$service_name" > "$backup_dir/service.inspect.json"',
     'current_image=$(docker service inspect "$service_name" --format \'{{.Spec.TaskTemplate.ContainerSpec.Image}}\')',
     'docker image inspect "$current_image" > "$backup_dir/image.inspect.json"',
+    ...gameRecoveryIdentityCommands(releaseMigrations.length),
     'container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
     '[ -n "$container_id" ] || { echo "ERROR: no healthy game container is available for backup"; exit 1; }',
     ...gameDatabaseContainerResolutionCommands(),
@@ -4117,7 +4141,20 @@ function gameDesignImageSettingsRetirementCommand(remoteComposeDir, stackName, c
 
 
 
-function gamePreDeployChecklistCommand(remoteComposeDir, stackName, containerName, imageTag, releaseMigrations) {
+function gameStartupCandidateCommands(source,imageTag,appTag,contract,verify=false) {
+  if(!contract) return [];
+  return [
+    ...gameFormalComposeCommands(source,imageTag,appTag),
+    'candidate_startup_compose=$(mktemp)',
+    'trap \'rm -f "$candidate_startup_compose" "$compose_candidate"\' EXIT',
+    'docker compose -f "$compose_candidate" config --format json > "$candidate_startup_compose"',
+    ...gameStartupContractCommands(contract,verify),
+    'rm -f "$candidate_startup_compose" "$compose_candidate"',
+    'trap - EXIT'
+  ];
+}
+
+function gamePreDeployChecklistCommand(remoteComposeDir, stackName, containerName, imageTag, releaseMigrations, startupContract, formalComposeSource, appTag) {
   const serviceName = gameServiceName(stackName, containerName);
   const codegraph = codegraphCutover.requiresCodegraphCutover(releaseMigrations);
   const offline = codegraph || requiresTechnologyCutover(releaseMigrations);
@@ -4127,6 +4164,7 @@ function gamePreDeployChecklistCommand(remoteComposeDir, stackName, containerNam
     `target_image=${shellToken(imageTag)}`,
     'backup_dir=$(cat .last-game-release-backup)',
     'test -d "$backup_dir"',
+    ...gameStartupCandidateCommands(formalComposeSource,imageTag,appTag,startupContract,true),
     '(cd "$backup_dir" && sha256sum -c SHA256SUMS)',
     'test -s "$backup_dir/docker-compose.yml"',
     'test -s "$backup_dir/database/schema-status.txt"',
@@ -4595,9 +4633,11 @@ function gameComposeSsoContractCommands(stackName = DEFAULT_STACK_NAME, containe
   return [
     `service_name=${shellToken(gameServiceName(stackName, containerName))}`,
     'compose_contract_file=$(mktemp)',
-    'trap \'rm -f "$compose_contract_file" ${compose_candidate:+"$compose_candidate"}\' EXIT',
+    'compose_contract_view=$(mktemp)',
+    'trap \'rm -f "$compose_contract_file" "$compose_contract_view" ${compose_candidate:+"$compose_candidate"}\' EXIT',
     `docker compose -f ${composeFile === '$compose_candidate' ? '"$compose_candidate"' : shellToken(composeFile)} config --format json > "$compose_contract_file"`,
     `test "$(jq -r '.services["hospital-backend"].deploy.replicas // 0' "$compose_contract_file")" -eq 1 || { echo 'ERROR: hospital-backend deploy replicas must equal 1'; exit 1; }`,
+    ...gameSigningValidationViewCommands(),
     `jq -e '.services["hospital-backend"].deploy.update_config.failure_action == "pause" and .services["hospital-backend"].deploy.update_config.order == "start-first"' "$compose_contract_file" >/dev/null || { echo 'ERROR: update_config must use start-first and failure_action pause'; exit 1; }`,
     `jq -e '.services["hospital-backend"].deploy.rollback_config.failure_action == "pause" and .services["hospital-backend"].deploy.rollback_config.order == "start-first"' "$compose_contract_file" >/dev/null || { echo 'ERROR: rollback_config must use start-first and failure_action pause'; exit 1; }`,
     `jq -e '.services["hospital-backend"].stop_grace_period == "1m0s" and .services["hospital-backend"].healthcheck.test == ["CMD", "curl", "-f", "http://localhost:8090/"] and .services["hospital-backend"].healthcheck.start_period == "8m0s" and .services["hospital-backend"].healthcheck.interval == "30s" and .services["hospital-backend"].healthcheck.timeout == "15s" and .services["hospital-backend"].healthcheck.retries == 4' "$compose_contract_file" >/dev/null || { echo 'ERROR: graceful stop or healthcheck contract is invalid'; exit 1; }`,
@@ -4610,10 +4650,11 @@ function gameComposeSsoContractCommands(stackName = DEFAULT_STACK_NAME, containe
       `docker secret inspect ${shellToken(source)} >/dev/null`
     ]),
     ...gameProductionConfigGuardCommands(allowFormalTransition),
-    'rm -f "$compose_contract_file"',
+    'rm -f "$compose_contract_file" "$compose_contract_view"',
     'trap - EXIT',
     'echo game_compose_runtime_contract=PASS'
-  ];
+  ].map(command => /^(?:jq -e|test "\$\(jq)/.test(command) && !command.includes('deploy.replicas // 0')
+    ? command.replaceAll('$compose_contract_file','$compose_contract_view') : command);
 }
 
 function gameImageValidationCommand(dockerTarget, imageTag, appTag, expectedCatalogVersion) {

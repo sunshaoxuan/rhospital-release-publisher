@@ -1,3 +1,4 @@
+const {signingPrelude,readGameSigningApproval}=require('./gameSigningBinding');
 const PRODUCTION_CONFIG_GUARD_SCRIPT = String.raw`
 import hashlib, json, re, subprocess, sys
 
@@ -9,6 +10,12 @@ try:
                             capture_output=True, text=True, check=True, timeout=15)
     inspected = json.loads(result.stdout)[0]
     live = inspected["Spec"]["TaskTemplate"]["ContainerSpec"]
+    try:
+        root, live, _ = signing_normalized(root, live, APPROVED_SIGNING)
+    except ValueError:
+        print("game_compose_live_config=FAIL fields=environment,secrets signing_reference=unapproved_or_inconsistent")
+        sys.exit(1)
+    service = root["services"]["hospital-backend"]
     failures = set()
     environment = service.get("environment", {})
     live_environment = dict(item.split("=", 1) for item in live.get("Env", []))
@@ -90,8 +97,8 @@ function encodedPythonCommand(script, argumentsText) {
   return `printf %s "${encoded}" | base64 -d | python3 - ${argumentsText}`;
 }
 
-function gameProductionConfigGuardCommands(allowFormalTransition = false) {
-  return [encodedPythonCommand(PRODUCTION_CONFIG_GUARD_SCRIPT, '"$compose_contract_file" "$service_name" ' + (allowFormalTransition ? 'formal' : 'strict'))];
+function gameProductionConfigGuardCommands(allowFormalTransition = false, approval=readGameSigningApproval()) {
+  return [encodedPythonCommand(signingPrelude(approval)+PRODUCTION_CONFIG_GUARD_SCRIPT, '"$compose_contract_file" "$service_name" ' + (allowFormalTransition ? 'formal' : 'strict'))];
 }
 
 function gameStripeAuthenticationCommands() {

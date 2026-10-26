@@ -1,4 +1,4 @@
-import {spawnSync} from 'node:child_process';
+import {spawn, spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {resolve} from 'node:path';
 
@@ -62,6 +62,78 @@ export function runPowerShellCheck(check, options = {}) {
   };
 }
 
+export function runPowerShellCheckStreaming(check, onChunk, {launch = spawn} = {}) {
+  doubleCheckLocalChecks([check]);
+  if (check.key === TOILET_MARKET_CHECK.key) return runToiletMarketStreaming(check,onChunk,launch);
+  const encoded = Buffer.from(check.command, 'utf8').toString('base64');
+  const wrapper = "$ErrorActionPreference = 'Stop'\n[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()\n"
+    + "$global:LASTEXITCODE = 0\ntry {\n$commandText = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('" + encoded + "'))\n"
+    + "Invoke-Expression $commandText\nexit $LASTEXITCODE\n} catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }\n";
+  return streamChild('powershell', ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+    '-Command', '$scriptText = [Console]::In.ReadToEnd(); & ([scriptblock]::Create($scriptText))'], wrapper, check.timeoutSeconds * 1000, onChunk, launch);
+}
+
+async function runToiletMarketStreaming(check, onChunk, launch) {
+  const deadline = Date.now()+check.timeoutSeconds*1000;
+  let output='';
+  for(const command of check.command.split(' && ')) {
+    const remaining=deadline-Date.now();
+    if(remaining<=0) return {status:null,signal:null,error:'ETIMEDOUT',output};
+    const result=await streamChild(process.execPath,command.split(' ').slice(1),'',remaining,onChunk,launch);
+    output+=result.output;
+    if(result.status!==0 || result.error || result.signal) return {...result,output};
+  }
+  return {status:0,signal:null,error:'',output};
+}
+
+function streamChild(executable,args,input,timeoutMs,onChunk,launch) {
+  return new Promise(resolveResult => {
+    let output = '', bytes = 0, error = '', finished = false;
+    const child = launch(executable,args,{windowsHide:true});
+    const stop = () => {
+      if(process.platform==='win32' && child.pid) {
+        const killer=spawn('taskkill',['/pid',String(child.pid),'/T','/F'],{windowsHide:true,stdio:'ignore'});
+        killer.on('error',()=>child.kill());
+      } else child.kill();
+    };
+    const timeout = setTimeout(() => { error = 'ETIMEDOUT'; stop(); }, timeoutMs);
+    const finish = (status, signal) => {
+      if (finished) return;
+      finished = true; clearTimeout(timeout);
+      resolveResult({status, signal, error, output});
+    };
+    const chunk = text => {
+      bytes += Buffer.byteLength(text);
+      if (bytes > 64 * 1024 * 1024) { error = 'OUTPUT_LIMIT'; stop(); return; }
+      output += text; onChunk(text);
+    };
+    child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
+    child.stdout.on('data',chunk); child.stderr.on('data',chunk);
+    child.on('error', () => { error = 'PROCESS_UNAVAILABLE'; finish(null,null); });
+    child.on('close',finish);
+    child.stdin.on('error',()=>{});
+    child.stdin.end(input);
+  });
+}
+
+export async function runChecksStreaming(checks, {run = runPowerShellCheckStreaming, write = text => process.stdout.write(text)} = {}) {
+  doubleCheckLocalChecks(checks);
+  const failures = [];
+  for (const check of checks) {
+    write(`preflight_check_begin=${check.key}\n`);
+    const result = await run(check, write);
+    try {
+      assertLocalCheckResult(check,result);
+      write(`\npreflight_check=PASS key=${check.key}\n`);
+    } catch {
+      failures.push(check.key);
+      write(`\npreflight_check=FAIL key=${check.key} exit=${result.status ?? 'none'} signal=${result.signal || 'none'} error=${result.error || 'protocol_incomplete'}\n`);
+    }
+  }
+  write(`game_release_preflight=${failures.length ? 'FAIL' : 'PASS'} checks=${checks.length}${failures.length ? ' failures='+failures.length+' keys='+failures.join(',') : ''}\n`);
+  return {passed:failures.length===0,failures};
+}
+
 export function runToiletMarketCheck(check, {spawn = spawnSync, now = Date.now, cwd} = {}) {
   doubleCheckLocalChecks([check]);
   if (check.key !== TOILET_MARKET_CHECK.key) throw new Error('Expected toilet market check');
@@ -111,6 +183,6 @@ export function runChecks(checks, {run = runPowerShellCheck, write = text => pro
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const optionIndex = process.argv.indexOf('--checks-base64');
   if (optionIndex < 0 || !process.argv[optionIndex + 1]) throw new Error('缺少 --checks-base64');
-  const result = runChecks(decodeChecks(process.argv[optionIndex + 1]));
+  const result = await runChecksStreaming(decodeChecks(process.argv[optionIndex + 1]));
   if (!result.passed) process.exitCode = 1;
 }

@@ -1,4 +1,14 @@
 {
+  "gameStartup": {
+    "signingSecret": {
+      "source": "login_signing_key",
+      "secretName": "game_login_signing_key_20261026",
+      "target": "auth_token_signing_key",
+      "uid": "0",
+      "gid": "0",
+      "mode": 256
+    }
+  },
   "gameStaticDelivery": {
     "authTokenFile": "C:\\ProgramData\\RHospital\\secrets\\game-smoke-token.txt"
   },

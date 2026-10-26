@@ -1,5 +1,8 @@
 # RHospital Release Console
 
+Startup configuration checks and the separate service-only recovery CLI are
+documented in [the recovery workflow](docs/tasks/20261026-startup-and-service-recovery.md).
+
 RHospital 发布控制台使用仓库内受控配置生成游戏与论坛发布计划。
 
 正式游戏部署默认沿用A单节点发布，保留全部核心安全检查，B候选接口及配置尚未完成时可继续发布A。API请求显式设置 `requireStandbyCandidate: true` 时启用双节点发布：先向A/B分发同一不可变镜像，B待命配置及Secret版本通过后允许A切换，A全部验收后提交B接管标记。当前基础设施缺少版本化节点接口，双节点模式会在契约门禁停止。实现边界、跨仓库依赖和恢复规则见 [双节点候选协议](docs/GAME_DUAL_NODE_CANDIDATE.md)。本地协议测试与真实部署验收分别记录。

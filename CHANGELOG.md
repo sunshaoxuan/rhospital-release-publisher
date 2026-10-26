@@ -1,5 +1,11 @@
 # 变更记录
 
+## 2026-10-26
+
+- Run the candidate's fail-fast Spring login signing checker before cutover, then recheck its bound receipt without logging credentials.
+- Retain original image identities and add reviewed, version-checked service-only recovery plans for zero-migration releases, including verified legacy tag-only snapshots.
+- Stream local preflight progress and distinguish startup configuration failures, recovery planning and confirmed restoration.
+
 ## 2026-10-25
 
 本工程仅允许修改、验证和发布发布器自身，禁止修改游戏及生产数据、启动游戏生产发布。发布器交付合并 master 上已有的前置提交方向安全校验，保留现行配置读取与全部本地检查预算；通过发布器完整测试后推送 master 并更新控制台服务。

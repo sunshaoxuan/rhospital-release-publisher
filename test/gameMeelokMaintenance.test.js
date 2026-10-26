@@ -80,7 +80,11 @@ function fixture(t) {
     fs.rmSync(root, {recursive: true, force: true});
   });
   const run = (commands, env = {}) => spawnSync(bash, ['-c', harness + '\n' + commands.join('\n')], {
-    cwd: root, env: {...process.env, ...env}, encoding: 'utf8', windowsHide: true, timeout: 10000
+    // Git Bash starts external coreutils for each simulated service. Windows
+    // cold process startup can exceed ten seconds for the five-service fixture;
+    // this is a harness bound, not a production health/restore timeout.
+    cwd: root, env: {...process.env, ...env}, encoding: 'utf8', windowsHide: true,
+    timeout: process.platform === 'win32' ? 30000 : 10000
   });
   const calls = () => fs.existsSync(path.join(root, 'calls')) ? fs.readFileSync(path.join(root, 'calls'), 'utf8') : '';
   const resetCalls = () => fs.writeFileSync(path.join(root, 'calls'), '');
