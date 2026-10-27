@@ -25,11 +25,16 @@
     </div>
   </header>
 
+  <section class="flow-panel release-outcome" aria-labelledby="release-outcome-title">
+    <h2 id="release-outcome-title">部署与验收状态</h2>
+    <div id="release-outcome" aria-live="polite">正在读取状态；尚未确认部署健康。</div>
+  </section>
+
   <section class="flow-panel">
     <div class="flow-head">
       <div>
         <span class="kicker">release flow</span>
-        <h2>总进度流程</h2>
+        <h2 id="flow-title">下一份发布计划（未执行）</h2>
       </div>
       <div class="plan-image-summary">
         <div class="image-summary-row">
@@ -197,6 +202,7 @@
     <div id="history" class="history-list"></div>
   </section>
 </main>
+<script src="/static/release-status.js"></script>
 <script src="/static/app.js"></script>
 </body>
 </html>

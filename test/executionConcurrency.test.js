@@ -17,6 +17,7 @@ function ui(requestJson) {
   const button = {disabled: false};
   const rendered = [];
   const timers = [];
+  const statusRefreshes=[];
   const context = vm.createContext({
     requestJson, document: {getElementById: () => button},
     activeJobId: '', activeJobTimer: null, activeJobCutoverRefreshed: false,
@@ -24,11 +25,12 @@ function ui(requestJson) {
     setStatus() {}, renderLogs() {}, payload: () => ({}),
     renderJob: job => rendered.push(job.id), isActiveJobStatus,
     refreshProductionImageOnly: async () => {}, loadHistory: async () => {},
+    loadReleaseStatus:async()=>{statusRefreshes.push('read');},
     terminalStatusKind: () => '', setTimeout: fn => { timers.push(fn); return timers.length; }
   });
   vm.runInContext(source.slice(source.indexOf('  async function execute()'),
     source.indexOf('  function renderJob(job)')), context);
-  return {context, button, rendered, timers};
+  return {context, button, rendered, timers, statusRefreshes};
 }
 
 test('double submission sends one POST and keeps execution locked while polling', async () => {
@@ -110,6 +112,7 @@ test('transient poll failure retains the task and retries successfully', async (
   assert.deepEqual(h.rendered, ['one']);
   assert.equal(h.context.activeJobId, '');
   assert.equal(h.button.disabled, false);
+  assert.deepEqual(h.statusRefreshes,['read']);
 });
 
 test('terminal history failure still releases the execution lock', async () => {

@@ -2,6 +2,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const {registeredLocalCheckContracts} = require('./src/localCheckPolicy');
+const {createOutcomeReader}=require('./src/releaseOutcomeStatus');
 const {
   DEFAULT_REMOTE_COMPOSE_DIR,
   DEFAULT_FORUM_REMOTE_COMPOSE_DIR,
@@ -53,6 +54,7 @@ const {
 
 const projectRoot = defaultProjectRoot();
 const publisherRepositoryRoot = __dirname;
+const readOutcomeStatus=createOutcomeReader(publisherRepositoryRoot);
 const publisherRuntimeVersion = capturePublisherRuntimeVersion(publisherRepositoryRoot);
 const publicRoot = path.join(__dirname, 'public');
 const port = Number(process.env.RELEASE_PUBLISHER_PORT || 8787);
@@ -162,6 +164,12 @@ const server = http.createServer(async (req, res) => {
         page: requestUrl.searchParams.get('page') || 1,
         limit: requestUrl.searchParams.get('limit') || 10
       }));
+    }
+    if (pathname === '/api/release-status' && req.method === 'GET') {
+      const result=await readOutcomeStatus(readReleaseHistory(projectRoot,100),publisherActivity(jobs.values(),jobControllers.size));
+      const activity=publisherActivity(jobs.values(),jobControllers.size);
+      result.activity={busy:Boolean(activity.busy),jobId:activity.job?.id||null};
+      return sendJson(res,200,result);
     }
     if (pathname.startsWith('/api/history/') && pathname.endsWith('/diagnose') && req.method === 'POST') {
       if (hasActivePublisherJobs() || jobControllers.size || pendingDiagnoses.size) {

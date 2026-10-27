@@ -11,3 +11,4 @@ screenshots/
 .release-worktrees/
 .qa/
 .supplemental-verifications/
+.runtime-status/

@@ -1017,3 +1017,12 @@ button.danger {
 .release-diagnostic li { margin: 8px 0; }
 .semantic-diagnostic { margin-top: 14px; padding-top: 12px; border-top: 1px solid #a49b89; }
 .diagnostic-note, .diagnostic-scores { font-size: 14px; color: #49443b; }
+.release-outcome { margin-bottom: 20px; }
+.release-outcome h2 { margin-top: 0; }
+.activity-summary { font-weight: 600; }
+.outcome-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 18px; }
+.outcome-grid article { min-width: 0; border: 1px solid var(--border, #d9e1e8); border-radius: 10px; padding: 16px; }
+.outcome-grid strong, .outcome-grid small, .supplemental-result small { overflow-wrap: anywhere; }
+.supplemental-result { margin-top: 14px; padding-top: 12px; border-top: 1px solid #d9e1e8; }
+.supplemental-result ul { padding-left: 20px; line-height: 1.7; }
+.pending-approval { color: #9a5c08; }

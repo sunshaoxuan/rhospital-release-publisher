@@ -6,6 +6,7 @@ const root = path.resolve(__dirname, '../../public');
 const {buildReleaseDiagnostics} = require('../../src/releaseDiagnostics');
 const diagnosticsMode = process.env.DIAGNOSTICS_FIXTURE === '1';
 const standbyMode = process.env.STANDBY_CANDIDATE_FIXTURE === '1';
+const outcomeMode=process.env.OUTCOME_FIXTURE==='1';
 const diagnosticCases = [
   ['warning', 'EXECUTED', [{key: 'cleanup-game-release-containers', title: '清理历史容器', status: 'done', logs: ['WARNING: cleanup failed']}]],
   ['held', 'RECOVERY_REQUIRED', [{key: 'commit-game-cutover', title: '新版本健康接管', status: 'done'},
@@ -66,10 +67,19 @@ const server = http.createServer((req, res) => {
     return json({job: executions > 0 && !finished ? job() : null});
   }
   if (url.pathname === '/api/jobs/browser-test') { polls++; return json(job()); }
+  if(url.pathname==='/api/release-status') {
+    const sampledAt=new Date().toISOString();
+    return json({activity:{busy:executions>0&&!finished},deployment:outcomeMode?{
+      freshness:'CURRENT',sampledAt,image:'hospital-backend:ui-test@sha256:'+'a'.repeat(64),healthy:true,healthyCount:1,replicas:1,updateState:'completed'
+    }:{freshness:'UNKNOWN'},latestHistory:outcomeMode?{id:'held',appTag:'ui-test',status:'RECOVERY_REQUIRED'}:null,
+    supplemental:{invalidCount:0,records:outcomeMode?[{historyId:'held',result:'PARTIAL',applicability:'MATCHED',finishedAt:sampledAt,receiptFile:'fixture-only.json',
+      checks:[{label:'运行合同',result:'PASS'},{label:'双前置登录与静态资源',result:'PASS'},{label:'关系图',result:'PASS'}],
+      deferred:[{label:'交易池',reason:'独立临时目录编译只读数据库审计程序'}]}]:[]}});
+  }
   if (url.pathname === '/api/config') return json(config);
   if (url.pathname === '/api/plan') return json(plan());
   if (url.pathname === '/api/changes') return json({});
-  if (url.pathname === '/api/history') return json({items: diagnosticsMode ? diagnosticCases : [], total: diagnosticsMode ? diagnosticCases.length : 0, page: 1, pageCount: 1});
+  if (url.pathname === '/api/history') return json({items: outcomeMode?[diagnosticCases[1]]:diagnosticsMode ? diagnosticCases : [], total: outcomeMode?1:diagnosticsMode ? diagnosticCases.length : 0, page: 1, pageCount: 1});
   if (url.pathname.startsWith('/api/history/') && url.pathname.endsWith('/diagnose') && req.method === 'POST') {
     const entry = diagnosticCases.find(item => url.pathname === `/api/history/${item.id}/diagnose`);
     if (!entry) return json({message: 'Missing fixture'}, 404);
@@ -82,7 +92,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/api/version') return json({status: 'UP_TO_DATE', runtimeVersion: 'UI regression fixture', statusLabel: '隔离测试环境'});
   if (url.pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
   const files = {'/': ['index.html', 'text/html'], '/static/app.js': ['app.js', 'application/javascript'],
-    '/static/styles.css': ['styles.css', 'text/css']};
+    '/static/styles.css': ['styles.css', 'text/css'], '/static/release-status.js':['release-status.js','application/javascript']};
   const file = files[url.pathname];
   if (!file) return json({message: 'Not found'}, 404);
   res.writeHead(200, {'Content-Type': file[1]});

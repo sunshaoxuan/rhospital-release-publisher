@@ -20,6 +20,38 @@
   const steps = document.getElementById('steps');
   const logs = document.getElementById('logs');
   const history = document.getElementById('history');
+  const outcomePanel=document.getElementById('release-outcome');
+  let outcomeData=null;
+  let outcomeRequestId=0;
+  setInterval(()=>{if(outcomeData){outcomePanel.innerHTML=window.ReleaseStatusView.markup(outcomeData);linkSupplementalHistory();}},30000);
+
+  async function loadReleaseStatus() {
+    const requestId=++outcomeRequestId;
+    if(releaseTarget.value!=='game') {
+      outcomeData=null;outcomePanel.textContent='当前为论坛计划；此处游戏部署与补验收状态未加载。';return;
+    }
+    try {
+      const data=await requestJson('/api/release-status');
+      if(requestId!==outcomeRequestId)return;
+      if(activeJobId)data.activity={busy:true,jobId:activeJobId};
+      outcomeData=data;outcomePanel.innerHTML=window.ReleaseStatusView.markup(data);linkSupplementalHistory();
+    } catch {
+      if(requestId!==outcomeRequestId)return;
+      outcomeData=null;outcomePanel.textContent='状态读取失败；当前部署健康和补验收关联未确认。请刷新后复核。';linkSupplementalHistory();
+    }
+  }
+
+  function linkSupplementalHistory() {
+    for(const card of history.querySelectorAll('[data-history-id]')) {
+      card.querySelector('.supplemental-result')?.remove();
+      const receipt=outcomeData?.supplemental?.records?.find(r=>r.historyId===card.dataset.historyId);
+      if(receipt){
+        const deployment=outcomeData.deployment;
+        const unconfirmed=deployment.freshness!=='CURRENT'||Date.now()-Date.parse(deployment.sampledAt)>120000;
+        card.insertAdjacentHTML('beforeend',window.ReleaseStatusView.supplemental(unconfirmed&&receipt.applicability==='MATCHED'?{...receipt,applicability:'UNKNOWN'}:receipt));
+      }
+    }
+  }
   const historyCount = document.getElementById('history-count');
   const historyPrev = document.getElementById('history-prev');
   const historyNext = document.getElementById('history-next');
@@ -294,6 +326,7 @@
   }
 
   function renderPlan(plan) {
+    document.getElementById('flow-title').textContent=activeJobId?'本次执行流程':'下一份发布计划（未执行）';
     const logScrollState = new Map();
     for (const existing of steps.querySelectorAll('.step[data-step-key]')) {
       const key = existing.dataset.stepKey;
@@ -695,6 +728,7 @@
     for (const item of entries) {
       const card = document.createElement('article');
       card.className = `history-card ${String(item.status || '').toLowerCase()}`;
+      card.dataset.historyId=item.id;
       const codeSource = item.forumImageMode === 'reuse'
         ? '复用已有镜像，不读取源码'
         : item.gitCommit && item.gitCommit !== 'latest'
@@ -770,6 +804,7 @@
   }
 
   async function loadConfig(resetTargetValues = false, allowAutomaticTarget = true) {
+    void loadReleaseStatus();
     const requestId = ++configLoadRequestId;
     ++planRequestId;
     setStatus('读取配置中', '');
@@ -970,6 +1005,7 @@
   async function loadHistory() {
     const result = await requestJson(`/api/history?page=${historyPage}&limit=10`);
     renderHistory(result);
+    linkSupplementalHistory();
   }
 
   async function plan() {
@@ -1081,11 +1117,17 @@
       setStatus(`执行状态: ${job.status}`, terminalStatusKind(job.status));
     } finally {
       activeJobId = '';
+      document.getElementById('flow-title').textContent='本次执行流程（已结束）';
+      void loadReleaseStatus();
       document.getElementById('execute-btn').disabled = false;
     }
   }
 
   function renderJob(job) {
+    if(outcomeData){
+      outcomeData={...outcomeData,activity:{busy:isActiveJobStatus(job.status),jobId:isActiveJobStatus(job.status)?job.id:null}};
+      outcomePanel.innerHTML=window.ReleaseStatusView.markup(outcomeData);
+    }
     const pageScroll = capturePageScroll();
     if (job.plan) {
       renderPlan(job.plan);
