@@ -423,12 +423,12 @@ test('creates dry run command plan without production execution enabled', () => 
     && decodedRemoteScript(step.command).includes('--filter health=healthy')
     && decodedRemoteScript(step.command).includes('SPRING_PROFILE=//p')
     && decodedRemoteScript(step.command).includes('NEW_RELIC_LICENSE_KEY_FILE=//p')
-    && decodedRemoteScript(step.command).includes('service_secret_count')
+    && decodedScriptTree(step.command).includes('secret_mapping_count_mismatch')
     && decodedRemoteScript(step.command).includes('Spec.RollbackConfig.Order')
     && decodedRemoteScript(step.command).includes('Spec.TaskTemplate.ContainerSpec.StopGracePeriod')
-    && decodedRemoteScript(step.command).includes('{{.SecretName}}|{{.File.Name}}{{println}}')
-    && decodedRemoteScript(step.command).includes('game_failback_spring_datasource_password|spring.datasource.password')
-    && decodedRemoteScript(step.command).includes('game_new_relic_license_key|newrelic.license.key')
+    && decodedScriptTree(step.command).includes('secret_identity_mismatch')
+    && decodedScriptTree(step.command).includes('game_failback_spring_datasource_password')
+    && decodedScriptTree(step.command).includes('game_new_relic_license_key')
     && decodedRemoteScript(step.command).includes('NEW_RELIC_LICENSE_KEY=')));
   const deployIndex = plan.steps.findIndex(step => step.key === 'deploy-stack');
   const cutoverCommitIndex = plan.steps.findIndex(step => step.key === 'commit-game-cutover');

@@ -10,3 +10,4 @@ screenshots/
 .release-jobs.json
 .release-worktrees/
 .qa/
+.supplemental-verifications/

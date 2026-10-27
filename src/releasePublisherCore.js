@@ -15,6 +15,7 @@ const {resolveGameStartupContract, gameStartupContractCommands} = require('./gam
 const {gameRecoveryIdentityCommands} = require('./gameRecoveryIdentity');
 const {gameRetryBaselineCommand} = require('./gameRetryBaseline');
 const {gameSigningValidationViewCommands}=require('./gameSigningBinding');
+const {GAME_PRODUCTION_SECRET_MAPPINGS, gameRuntimeSecretCommands}=require('./gameRuntimeSecrets');
 const {PRIMARY, STANDBY, publicReceipt} = require('./gameStandbyCandidate');
 const codegraphCutover = require('./gameCodegraphCutover');
 const {requiresTechnologyCutover, technologyOfflineBackupCommands, technologyReceiptCommands,
@@ -113,22 +114,6 @@ const KNOWN_RELEASE_CHECKS = {
   ])
 };
 const GAME_DATABASE_NAME = GAME_DATABASE.name;
-const GAME_PRODUCTION_SECRET_MAPPINGS = [
-  ['game_failback_firebase_service_account', 'firebase_service_account'],
-  ['forum_sso_secret', 'forum_sso_secret'],
-  ['game_new_relic_license_key', 'newrelic.license.key'],
-  ['game_paddle_api_key', 'paddle.api.key'],
-  ['game_paddle_client_token', 'paddle.client.token'],
-  ['game_paddle_webhook_secret', 'paddle.webhook.secret'],
-  ['game_snailjob_recovery_properties_20261003', 'snail-job.properties'],
-  ['game_failback_spring_datasource_password', 'spring.datasource.password'],
-  ['game_failback_steam_auth', 'steam-auth.properties'],
-  ['game_steam_microtxn_publisher_key', 'steam.microtxn.publisher.key'],
-  ['game_stripe_api_key', 'stripe.api.key'],
-  ['game_stripe_webhook_secret', 'stripe.webhook.secret'],
-  ['support_mail_password', 'spring.mail.password'],
-  ['support_mail_password', 'support_mail_password']
-];
 const RELEASE_MIGRATION_PATTERN = /^scripts\/migration\/[0-9A-Za-z][0-9A-Za-z._/-]*\.sql$/;
 const CATALOG_UPGRADE_SOURCE_PATH = 'src/main/java/com/zly/hospital/service/catalog/CatalogDatabaseUpgradeService.java';
 const TRADE_POOL_REQUIRED_COLUMNS = ['listing_source', 'admin_source_email', 'admin_batch_id'];
@@ -1149,42 +1134,9 @@ function createPlan(projectRoot, request, env = process.env) {
         key: 'game-prd2-runtime-contract',
         title: '验证 Prd2 登录、支付、调度与监控合同',
         summary: '确认 Firebase 初始化、论坛 SSO 开关、未签名支付回调拒绝、SnailJob 和 New Relic 运行状态',
-        command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
-          `service_name=${shellToken(`${config.stackName}_${config.containerName}`)}`,
-          `runtime_container=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy)`,
-          `[ -n "$runtime_container" ] && [ "$(printf '%s\\n' "$runtime_container" | wc -l)" -eq 1 ] || { echo 'ERROR: expected one healthy runtime container'; exit 1; }`,
-          `runtime_log_file=$(mktemp)`,
-          `trap 'rm -f "$runtime_log_file"' EXIT`,
-          `timeout 20 docker logs --tail 500 "$runtime_container" > "$runtime_log_file" 2>&1`,
-          `grep -Fq 'FirebaseApp initialized' "$runtime_log_file"`,
-          `rm -f "$runtime_log_file"; trap - EXIT`,
-          `service_env=$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}')`,
-          `test "$(docker service inspect "$service_name" --format '{{.Spec.UpdateConfig.Order}}')" = start-first`,
-          `test "$(docker service inspect "$service_name" --format '{{.Spec.UpdateConfig.FailureAction}}')" = pause`,
-          `test "$(docker service inspect "$service_name" --format '{{.Spec.RollbackConfig.Order}}')" = start-first`,
-          `test "$(docker service inspect "$service_name" --format '{{.Spec.RollbackConfig.FailureAction}}')" = pause`,
-          `test "$(docker service inspect "$service_name" --format '{{.Spec.TaskTemplate.ContainerSpec.StopGracePeriod}}')" = 1m0s`,
-          `test "$(printf '%s\n' "$service_env" | sed -n 's/^FORUM_SSO_ENABLED=//p')" = true`,
-          `test "$(printf '%s\n' "$service_env" | sed -n 's/^SPRING_PROFILE=//p')" = prod`,
-          ...gameDatabaseContainerResolutionCommands(),
-          "test \"$(printf '%s\\n' \"$service_env\" | sed -n 's/^SNAIL_JOB_ENABLED=//p')\" = true",
-          "test \"$(printf '%s\\n' \"$service_env\" | sed -n 's/^STEAM_MICROTXN_SANDBOX=//p')\" = false",
-          `test "$(printf '%s\n' "$service_env" | sed -n 's/^NEW_RELIC_LICENSE_KEY_FILE=//p')" = /run/secrets/newrelic.license.key`,
-          `test "$(printf '%s\n' "$service_env" | sed -n 's/^FIREBASE_SERVICE_ACCOUNT_FILE=//p')" = /run/secrets/firebase_service_account`,
-          `! printf '%s\n' "$service_env" | grep -q '^NEW_RELIC_LICENSE_KEY='`,
-          `service_secret_count=$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Secrets}}{{.SecretName}}|{{.File.Name}}{{println}}{{end}}' | sed '/^$/d' | wc -l)`,
-          `[ "$service_secret_count" -eq ${GAME_PRODUCTION_SECRET_MAPPINGS.length} ] || { echo "ERROR: runtime Secret mapping count expected ${GAME_PRODUCTION_SECRET_MAPPINGS.length}, actual $service_secret_count"; exit 1; }`,
-          ...GAME_PRODUCTION_SECRET_MAPPINGS.map(([source, target]) =>
-            `docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Secrets}}{{.SecretName}}|{{.File.Name}}{{println}}{{end}}' | grep -Fxq ${shellToken(`${source}|${target}`)}`),
-          ...gameStripeAuthenticationCommands(),
-          `stripe_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8190/api/payment/webhook -H 'Content-Type: application/json' --data '{}')`,
-          `paddle_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8190/api/paddle/webhook -H 'Content-Type: application/json' --data '{}')`,
-          `echo "$stripe_code" | grep -Eq '^(400|401|403)$'`,
-          `echo "$paddle_code" | grep -Eq '^(400|401|403)$'`,
-          `docker ps --format '{{.Names}}' | grep -Fxq snail-job`,
-          `docker ps --format '{{.Names}}' | grep -Eq 'newrelic|new-relic'`,
-          `echo game_prd2_runtime_contract=PASS stripe_unsigned=$stripe_code paddle_unsigned=$paddle_code`
-        ])),
+        command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+          gamePrd2RuntimeContractCommands(remoteComposeDir, config.stackName, config.containerName, startupContract)
+        )),
         validation: 'Firebase、论坛 SSO、Stripe 与 Paddle 拒绝门禁、SnailJob 和 New Relic 必须全部通过；平台签名测试事件在迁移证据门禁中另行执行',
         actionType: 'remote-check',
         executable: true,
@@ -1425,6 +1377,43 @@ function createPlan(projectRoot, request, env = process.env) {
       '旧代码回滚前必须暂停所有 ACTIVE 的 ADMIN 挂单，避免旧版交易逻辑继续处理系统库存'
     ]
   };
+}
+
+function gamePrd2RuntimeContractCommands(remoteComposeDir, stackName, containerName, startupContract) {
+  return [
+          `service_name=${shellToken(`${stackName}_${containerName}`)}`,
+          `runtime_container=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy)`,
+          `[ -n "$runtime_container" ] && [ "$(printf '%s\\n' "$runtime_container" | wc -l)" -eq 1 ] || { echo 'ERROR: expected one healthy runtime container'; exit 1; }`,
+          `runtime_log_file=$(mktemp)`,
+          `trap 'rm -f "$runtime_log_file"' EXIT`,
+          `timeout 20 docker logs --tail 500 "$runtime_container" > "$runtime_log_file" 2>&1`,
+          `grep -Fq 'FirebaseApp initialized' "$runtime_log_file"`,
+          `rm -f "$runtime_log_file"; trap - EXIT`,
+          `service_env=$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}')`,
+          `test "$(docker service inspect "$service_name" --format '{{.Spec.UpdateConfig.Order}}')" = start-first`,
+          `test "$(docker service inspect "$service_name" --format '{{.Spec.UpdateConfig.FailureAction}}')" = pause`,
+          `test "$(docker service inspect "$service_name" --format '{{.Spec.RollbackConfig.Order}}')" = start-first`,
+          `test "$(docker service inspect "$service_name" --format '{{.Spec.RollbackConfig.FailureAction}}')" = pause`,
+          `test "$(docker service inspect "$service_name" --format '{{.Spec.TaskTemplate.ContainerSpec.StopGracePeriod}}')" = 1m0s`,
+          `test "$(printf '%s\n' "$service_env" | sed -n 's/^FORUM_SSO_ENABLED=//p')" = true`,
+          `test "$(printf '%s\n' "$service_env" | sed -n 's/^SPRING_PROFILE=//p')" = prod`,
+          ...gameDatabaseContainerResolutionCommands(),
+          "test \"$(printf '%s\\n' \"$service_env\" | sed -n 's/^SNAIL_JOB_ENABLED=//p')\" = true",
+          "test \"$(printf '%s\\n' \"$service_env\" | sed -n 's/^STEAM_MICROTXN_SANDBOX=//p')\" = false",
+          `test "$(printf '%s\n' "$service_env" | sed -n 's/^NEW_RELIC_LICENSE_KEY_FILE=//p')" = /run/secrets/newrelic.license.key`,
+          `test "$(printf '%s\n' "$service_env" | sed -n 's/^FIREBASE_SERVICE_ACCOUNT_FILE=//p')" = /run/secrets/firebase_service_account`,
+          `! printf '%s\n' "$service_env" | grep -q '^NEW_RELIC_LICENSE_KEY='`,
+          `cd ${shellToken(remoteComposeDir)}`,
+          ...gameRuntimeSecretCommands(startupContract),
+          ...gameStripeAuthenticationCommands(),
+          `stripe_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8190/api/payment/webhook -H 'Content-Type: application/json' --data '{}')`,
+          `paddle_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8190/api/paddle/webhook -H 'Content-Type: application/json' --data '{}')`,
+          `echo "$stripe_code" | grep -Eq '^(400|401|403)$'`,
+          `echo "$paddle_code" | grep -Eq '^(400|401|403)$'`,
+          `docker ps --format '{{.Names}}' | grep -Fxq snail-job`,
+          `docker ps --format '{{.Names}}' | grep -Eq 'newrelic|new-relic'`,
+          `echo game_prd2_runtime_contract=PASS stripe_unsigned=$stripe_code paddle_unsigned=$paddle_code`
+  ];
 }
 
 function gameStaticDeliveryCheckCommand(appTag, env = process.env) {
@@ -5460,6 +5449,7 @@ function escapeRegExp(value) {
 }
 
 module.exports = {
+  gamePrd2RuntimeContractCommands, gameStaticDeliveryCheckCommand, relationsReleaseCheckCommand, tradePoolPostDeployCheckCommand, remoteSshCommand, remoteBashScriptCommand, runPowerShell,
   DEFAULT_REMOTE_COMPOSE_DIR,
   DEFAULT_FORUM_REMOTE_COMPOSE_DIR,
   defaultProjectRoot,
