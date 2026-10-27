@@ -68,13 +68,14 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === '/api/jobs/browser-test') { polls++; return json(job()); }
   if(url.pathname==='/api/release-status') {
-    const sampledAt=new Date().toISOString();
-    return json({activity:{busy:executions>0&&!finished},deployment:outcomeMode?{
-      freshness:'CURRENT',sampledAt,image:'hospital-backend:ui-test@sha256:'+'a'.repeat(64),healthy:true,healthyCount:1,replicas:1,updateState:'completed'
-    }:{freshness:'UNKNOWN'},latestHistory:outcomeMode?{id:'held',appTag:'ui-test',status:'RECOVERY_REQUIRED'}:null,
-    supplemental:{invalidCount:0,records:outcomeMode?[{historyId:'held',result:'PARTIAL',applicability:'MATCHED',finishedAt:sampledAt,receiptFile:'fixture-only.json',
+    const scenario=new URL(req.headers.referer||'http://127.0.0.1').searchParams.get('outcome');
+    const sampledAt=new Date(Date.now()-(scenario==='stale'?121000:0)).toISOString();
+    return json({activity:{busy:scenario==='busy'||executions>0&&!finished},deployment:outcomeMode&&scenario!=='empty'?{
+      freshness:scenario==='unavailable'?'UNAVAILABLE':'CURRENT',sampledAt,image:'hospital-backend:ui-test@sha256:'+'a'.repeat(64),healthy:scenario!=='unhealthy',healthyCount:scenario==='unhealthy'?0:1,replicas:1,updateState:scenario==='unhealthy'?'paused':'completed'
+    }:{freshness:'UNKNOWN'},latestHistory:outcomeMode&&scenario!=='empty'?{id:'held',appTag:'ui-test',status:scenario==='pass'?'EXECUTED':'RECOVERY_REQUIRED'}:null,
+    supplemental:{invalidCount:scenario==='invalid'?1:0,records:outcomeMode&&scenario!=='empty'?[{historyId:'held',result:scenario==='pass'?'PASS':'PARTIAL',applicability:scenario==='changed'?'DEPLOYMENT_CHANGED':'MATCHED',finishedAt:sampledAt,receiptFile:'1793070703606-4b3d272f6f1bf-1793076913039-fixture-only.json',
       checks:[{label:'运行合同',result:'PASS'},{label:'双前置登录与静态资源',result:'PASS'},{label:'关系图',result:'PASS'}],
-      deferred:[{label:'交易池',reason:'独立临时目录编译只读数据库审计程序'}]}]:[]}});
+      deferred:scenario==='pass'?[]:[{label:'交易池',reason:'独立临时目录编译只读数据库审计程序'}]}]:[]}});
   }
   if (url.pathname === '/api/config') return json(config);
   if (url.pathname === '/api/plan') return json(plan());

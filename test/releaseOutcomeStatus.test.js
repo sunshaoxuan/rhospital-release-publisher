@@ -70,6 +70,34 @@ test('UI separates idle plan history deployment and partial acceptance and escap
  assert.match(view.supplemental(r,now+86400001),/验收证据已超过24小时/);
 });
 
+test('compact UI keeps full identities copyable and warnings visible with closed details',()=>{
+ const r={historyId:'history-long',result:'PARTIAL',applicability:'MATCHED',finishedAt:new Date(now).toISOString(),checks:[{label:'运行合同',result:'PASS'}],deferred:[{label:'交易池',reason:'独立临时目录编译 <img src=x onerror=bad>'}],receiptFile:'receipt-'+ 'a'.repeat(180)+'.json'};
+ const deployment={...validateSnapshot(snapshot(),now),freshness:'CURRENT'};
+ const data={activity:{busy:false},deployment,latestHistory:{id:r.historyId,appTag:'fixture',status:'RECOVERY_REQUIRED'},supplemental:{records:[r]}};
+ const html=view.markup(data,now);
+ assert.match(html,/value="hospital-backend:fixture@sha256:a{64}"/);
+ assert.match(html,/value="receipt-a{180}\.json"/);
+ assert.match(html,/aria-label="完整镜像，可选中复制"/);
+ assert.match(html,/RECOVERY_REQUIRED/);assert.match(html,/PARTIAL · 验收尚未闭合/);
+ assert.match(html,/交易池：待批准，未执行/);assert.match(html,/独立临时目录编译 &lt;img/);
+ assert.doesNotMatch(html,/<details[^>]*\sopen\b|<img/);
+ assert.match(view.markup({...data,deployment:{...deployment,healthy:false}},now),/健康快照未达标/);
+ assert.match(view.markup({...data,deployment:{...deployment,freshness:'UNAVAILABLE'}},now),/本次采样失败/);
+ assert.match(view.markup({...data,latestHistory:null,supplemental:{records:[],invalidCount:1}},now),/暂无游戏执行历史/);
+ assert.match(view.markup({...data,latestHistory:null,supplemental:{records:[],invalidCount:1}},now),/有无法验证的补验收文件/);
+ for(const applicability of ['STALE','DEPLOYMENT_CHANGED','UNKNOWN'])assert.match(view.supplemental({...r,applicability},now),/PASS（历史结果）/);
+});
+
+test('status repaint preserves only disclosures for the same evidence identity',()=>{
+ const detail=key=>({open:false,getAttribute:()=>key});
+ const old=detail('acceptance:history:receipt');old.open=true;
+ const same=detail('acceptance:history:receipt'),changed=detail('acceptance:history:other');
+ const container={innerHTML:'',querySelectorAll:selector=>selector.endsWith('[open]')?[old]:[same,changed]};
+ view.render(container,{activity:{busy:false},deployment:{freshness:'UNKNOWN'}},now);
+ assert.equal(same.open,true);assert.equal(changed.open,false);
+ assert.match(container.innerHTML,/尚无已验证健康快照/);
+});
+
 test('actual runtime sampler reads only selected Docker metadata and rejects concurrent changes',()=>{
  const source=fs.readFileSync(require.resolve('../scripts/read-game-runtime-status.py'),'utf8');
  function run(changed){

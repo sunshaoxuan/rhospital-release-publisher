@@ -23,7 +23,7 @@
   const outcomePanel=document.getElementById('release-outcome');
   let outcomeData=null;
   let outcomeRequestId=0;
-  setInterval(()=>{if(outcomeData){outcomePanel.innerHTML=window.ReleaseStatusView.markup(outcomeData);linkSupplementalHistory();}},30000);
+  setInterval(()=>{if(outcomeData){window.ReleaseStatusView.render(outcomePanel,outcomeData);linkSupplementalHistory();}},30000);
 
   async function loadReleaseStatus() {
     const requestId=++outcomeRequestId;
@@ -34,7 +34,7 @@
       const data=await requestJson('/api/release-status');
       if(requestId!==outcomeRequestId)return;
       if(activeJobId)data.activity={busy:true,jobId:activeJobId};
-      outcomeData=data;outcomePanel.innerHTML=window.ReleaseStatusView.markup(data);linkSupplementalHistory();
+      outcomeData=data;window.ReleaseStatusView.render(outcomePanel,data);linkSupplementalHistory();
     } catch {
       if(requestId!==outcomeRequestId)return;
       outcomeData=null;outcomePanel.textContent='状态读取失败；当前部署健康和补验收关联未确认。请刷新后复核。';linkSupplementalHistory();
@@ -43,12 +43,14 @@
 
   function linkSupplementalHistory() {
     for(const card of history.querySelectorAll('[data-history-id]')) {
+      const open=window.ReleaseStatusView.rememberDetails(card);
       card.querySelector('.supplemental-result')?.remove();
       const receipt=outcomeData?.supplemental?.records?.find(r=>r.historyId===card.dataset.historyId);
       if(receipt){
         const deployment=outcomeData.deployment;
         const unconfirmed=deployment.freshness!=='CURRENT'||Date.now()-Date.parse(deployment.sampledAt)>120000;
         card.insertAdjacentHTML('beforeend',window.ReleaseStatusView.supplemental(unconfirmed&&receipt.applicability==='MATCHED'?{...receipt,applicability:'UNKNOWN'}:receipt));
+        window.ReleaseStatusView.restoreDetails(card,open);
       }
     }
   }
