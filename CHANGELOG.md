@@ -1,5 +1,11 @@
 # 变更记录
 
+## 2026-10-27
+
+- Permit a guarded user-started retry from a paused failed rollout using the exact healthy old task as the recovery/database baseline, without a preliminary service rollback or history reset.
+- Keep failed observed and healthy recovery specifications distinct; bind retry and recovery submissions to image identities and service versions with compare-and-swap.
+- Compare the candidate's full supported runtime policy and normalize Compose's exact octal signing permission without accepting broader permissions.
+
 ## 2026-10-26
 
 - Run the candidate's fail-fast Spring login signing checker before cutover, then recheck its bound receipt without logging credentials.

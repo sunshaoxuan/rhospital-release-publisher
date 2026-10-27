@@ -4,7 +4,7 @@ const test = require('node:test');
 const {gameServiceSnapshotCommands, gameFormalComposeCommands} = require('../src/gameFormalProductionTransition');
 
 function snapshotResult(mode, change) {
-  const command = gameServiceSnapshotCommands(mode)[0];
+  const command = gameServiceSnapshotCommands(mode).find(value => value.startsWith('printf %s') && value.includes('"$backup_dir/service.inspect.json"'));
   const script = Buffer.from(command.match(/printf %s "([^"]+)"/)[1], 'base64').toString();
   const spec = {TaskTemplate: {ContainerSpec: {Image: 'hospital-backend:recovered',
     Env: ['SNAIL_JOB_ENABLED=true', 'SPRING_DATASOURCE_URL=current-db'], Secrets: [{SecretID: 'restored'}]}}};
@@ -45,4 +45,16 @@ test('formal Compose generation uses the target source and pins both version fie
   assert.match(commands, /APP_TAG='next' HOST_IP=92\.113\.124\.185/);
   assert.match(commands, /--arg image 'hospital-backend:next' --arg version 'next'/);
   assert.doesNotMatch(commands, /stack deploy|service update|cp .*docker-compose.yml/);
+});
+
+test('paused snapshot branches retain distinct observed and healthy recovery evidence',()=>{
+  const current=gameServiceSnapshotCommands('current').join('\n');
+  const rollback=gameServiceSnapshotCommands('rollback').join('\n');
+  const restored=gameServiceSnapshotCommands('restored').join('\n');
+  assert.match(current,/paused-retry-baseline.json/);
+  assert.match(current,/python3 - verify/);
+  assert.match(rollback,/service.observed.inspect.json/);
+  assert.match(rollback,/service.inspect.json/);
+  assert.doesNotMatch(restored,/service.observed.inspect.json/);
+  assert.match(restored,/service.inspect.json/);
 });

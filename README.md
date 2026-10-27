@@ -91,6 +91,13 @@ npm test
 http://192.168.20.218:8787
 ```
 
+Paused game retries that retain a healthy old container use the guarded healthy-task
+baseline described in [the retry runbook](docs/tasks/20261027-paused-retry-healthy-baseline.md).
+Installing the publisher does not restart that container or start a game release.
+Use a fresh candidate tag and explicitly start a new formal plan; the old
+RECOVERY_REQUIRED history stays intact. Failed-image cleanup is optional and must
+wait until no container or current/previous service specification depends on it.
+
 如果 `hospital-backend` 在其他位置，启动前指定：
 
 ```powershell

@@ -613,9 +613,10 @@ test('deploy guard blocks stack deploy when rendered compose requests zero repli
       'jq() { if [ "$1" = -r ]; then printf \'0\\n\'; else return 0; fi; }',
       deployScript
     ].join('\n');
-    const result = spawnSync(testBashExecutable(), ['-s'], {
+    const harnessPath = path.join(isolatedRoot, 'guard.sh');
+    fs.writeFileSync(harnessPath, harness);
+    const result = spawnSync(testBashExecutable(), [harnessPath.replace(/\\/g, '/')], {
       cwd: isolatedRoot,
-      input: harness,
       encoding: 'utf8'
     });
     assert.equal(result.error, undefined, 'fixture must reach the generated guard, not a Windows argv limit');

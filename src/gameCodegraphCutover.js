@@ -108,6 +108,7 @@ function rollbackCommands() {
     'case "$codegraph_floor" in 0|1) ;; *) echo "ERROR: unknown guild format floor"; exit 1;; esac',
     'if [ -f .codegraph-format-floor-v1 ] || [ "$codegraph_floor" = 1 ]; then',
     '  rollback_reference=$(docker service inspect "$service_name" --format \'{{if .PreviousSpec}}{{.PreviousSpec.TaskTemplate.ContainerSpec.Image}}{{end}}\')',
+    '  if [ -n "${backup_dir:-}" ] && [ -f "$backup_dir/paused-retry-baseline.json" ]; then rollback_reference=$(jq -r \'.[0].Spec.TaskTemplate.ContainerSpec.Image\' "$backup_dir/service.inspect.json"); fi',
     '  case "$rollback_reference" in *@sha256:*) ;; *) echo "ERROR: immutable A rollback required"; exit 1;; esac',
     ...imageCommands('"$rollback_reference"', 'compatible').map(row => '  ' + row),
     '  echo codegraph_rollback_compatibility=PASS', 'fi'

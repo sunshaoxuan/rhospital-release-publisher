@@ -13,6 +13,7 @@ const {expectedTomcatVersion, tomcatJarCheckScript} = require('./tomcatSecurityC
 const {gameProductionConfigGuardCommands, gameStripeAuthenticationCommands, gameProductionImageConfigCommands} = require('./gameProductionConfigGuard');
 const {resolveGameStartupContract, gameStartupContractCommands} = require('./gameStartupContract');
 const {gameRecoveryIdentityCommands} = require('./gameRecoveryIdentity');
+const {gameRetryBaselineCommand} = require('./gameRetryBaseline');
 const {gameSigningValidationViewCommands}=require('./gameSigningBinding');
 const {PRIMARY, STANDBY, publicReceipt} = require('./gameStandbyCandidate');
 const codegraphCutover = require('./gameCodegraphCutover');
@@ -1064,7 +1065,18 @@ function createPlan(projectRoot, request, env = process.env) {
         ]),
         'available_kb=$(awk "/^MemAvailable:/ {print \\$2}" /proc/meminfo)',
         '[ "$available_kb" -ge 2097152 ] || { echo "ERROR: memory headroom changed before game cutover: ${available_kb}kB"; exit 1; }',
+        'if [ -f "$backup_dir/paused-retry-baseline.json" ]; then',
+        `target_image=${shellToken(imageTag)}`,
+        'candidate_startup_compose=$(mktemp)',
+        'trap \'rm -f "$candidate_startup_compose"\' EXIT',
+        'docker compose -p "$service_name" -f docker-compose.yml config --format json > "$candidate_startup_compose"',
+        ...(startupContract ? gameStartupContractCommands(startupContract, true) : ['echo "ERROR: paused retry requires candidate startup contract"; exit 1']),
+        gameRetryBaselineCommand('deploy', '"$candidate_startup_compose"'),
+        'rm -f "$candidate_startup_compose"',
+        'trap - EXIT',
+        'else',
         `docker stack deploy -c docker-compose.yml ${shellToken(config.stackName)}`,
+        'fi',
         `replicas_after_submit=$(docker service inspect "$service_name" --format '{{.Spec.Mode.Replicated.Replicas}}')`,
         `[ "$replicas_after_submit" -eq 1 ] || { echo "ERROR: deploy submitted an invalid replica count: $replicas_after_submit"; exit 1; }`,
         ...(offlineCutover ? ['echo game_stack_deploy_guard=PASS offline_cutover=true replicas=$replicas_after_submit'] : [
@@ -4066,17 +4078,16 @@ function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName, ex
     'mkdir -p "$backup_dir/database"',
     'cp docker-compose.yml "$backup_dir/docker-compose.yml"',
     '[ ! -f .env ] || cp .env "$backup_dir/.env"',
-    'docker service inspect "$service_name" > "$backup_dir/service.inspect.json"',
-    'current_image=$(docker service inspect "$service_name" --format \'{{.Spec.TaskTemplate.ContainerSpec.Image}}\')',
-    'docker image inspect "$current_image" > "$backup_dir/image.inspect.json"',
+    'container_id=$(' + gameRetryBaselineCommand('capture', String(releaseMigrations.length)) + ')',
     ...gameRecoveryIdentityCommands(releaseMigrations.length),
-    'container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
     '[ -n "$container_id" ] || { echo "ERROR: no healthy game container is available for backup"; exit 1; }',
     ...gameDatabaseContainerResolutionCommands(),
     gameDatabaseAuditExecCommand('"$container_id"', 'backup', expectedVersion, '"$container_backup_dir"'),
     'docker cp "$container_id:$container_backup_dir/." "$backup_dir/database/"',
     'docker exec "$container_id" rm -rf "$container_backup_dir"'
   ];
+  commands.push('if [ -f "$backup_dir/paused-retry-baseline.json" ]; then',
+    gameRetryBaselineCommand('verify'), 'fi');
   commands.push(...bacteriaInventoryBackupCommands(releaseMigrations));
   if (releaseMigrations.some(item => item.filePath === DESIGN_IMAGE_SETTINGS_MIGRATION)) commands.push(
     'legacy_image_settings="$PWD/data/private/design-image.json"',
@@ -4147,7 +4158,7 @@ function gameStartupCandidateCommands(source,imageTag,appTag,contract,verify=fal
     ...gameFormalComposeCommands(source,imageTag,appTag),
     'candidate_startup_compose=$(mktemp)',
     'trap \'rm -f "$candidate_startup_compose" "$compose_candidate"\' EXIT',
-    'docker compose -f "$compose_candidate" config --format json > "$candidate_startup_compose"',
+    'docker compose -p "$service_name" -f "$compose_candidate" config --format json > "$candidate_startup_compose"',
     ...gameStartupContractCommands(contract,verify),
     'rm -f "$candidate_startup_compose" "$compose_candidate"',
     'trap - EXIT'
@@ -4557,7 +4568,11 @@ function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName
     `rollback_image=$(jq -r '.[0].Spec.TaskTemplate.ContainerSpec.Image' "$backup_dir/service.inspect.json")`,
     `rollback_version=$(jq -r '.[0].Spec.TaskTemplate.ContainerSpec.Env[] | select(startswith("IMAGE_TAG=")) | ltrimstr("IMAGE_TAG=")' "$backup_dir/service.inspect.json")`,
     '[ -n "$rollback_image" ] && [ -n "$rollback_version" ] || { echo "ERROR: rollback image or IMAGE_TAG is missing from live snapshot"; exit 1; }',
+    'if [ -f "$backup_dir/paused-retry-baseline.json" ]; then',
+    gameRetryBaselineCommand('rollback'),
+    'else',
     'docker service update --detach=true --rollback "$service_name"',
+    'fi',
 
     `rollback_timeout_seconds="${'${RELEASE_PUBLISHER_ROLLBACK_TIMEOUT_SECONDS:-1800}'}"`,
     'rollback_deadline=$(( $(date +%s) + rollback_timeout_seconds ))',
@@ -4582,7 +4597,11 @@ function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName
     '  sleep 5',
     'done',
     ...gameServiceSnapshotCommands('restored'),
+    'if [ -f "$backup_dir/paused-retry-baseline.json" ]; then',
+    'echo "WARNING: observed Compose retained for audit; restored service Spec is the verified healthy baseline"',
+    'else',
     'cp "$backup_dir/docker-compose.yml" docker-compose.yml',
+    'fi',
     'echo "game_rollback_completed_from=$backup_dir"',
     'echo "automatic_rollback_validation=PASS"'
   ];

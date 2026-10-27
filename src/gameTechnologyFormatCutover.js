@@ -107,6 +107,7 @@ function technologyRollbackGuardCommands() {
     'case "$room_database_floor" in 0|1) ;; *) echo "ERROR: unknown room database floor"; exit 1;; esac',
     'if [ -f .technology-format-floor-v1 ] || [ "$technology_database_floor" = 1 ] || [ -f .room-format-floor-v1 ] || [ "$room_database_floor" = 1 ]; then',
     '  rollback_reference=$(docker service inspect "$service_name" --format \'{{if .PreviousSpec}}{{.PreviousSpec.TaskTemplate.ContainerSpec.Image}}{{end}}\')',
+    '  if [ -n "${backup_dir:-}" ] && [ -f "$backup_dir/paused-retry-baseline.json" ]; then rollback_reference=$(jq -r \'.[0].Spec.TaskTemplate.ContainerSpec.Image\' "$backup_dir/service.inspect.json"); fi',
     '  case "$rollback_reference" in *@sha256:*) ;; *) echo "ERROR: rollback requires an immutable compatible image"; exit 1;; esac',
     '  target_image_id=$(docker image inspect "$rollback_reference" --format \'{{.Id}}\')',
     ...imageCapabilityCommands().map(row => '  ' + row),

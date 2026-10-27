@@ -12,6 +12,15 @@ function readGameSigningApproval(env=process.env) {
 const SIGNING_BINDING_SCRIPT=String.raw`
 import copy, json, re
 
+def signing_file_mode(value):
+    # Compose JSON uses an octal string; Engine JSON uses an integer.
+    # Decimal 400 is permission 0620 and must never alias octal 0400.
+    if type(value) is int:
+        return value
+    if isinstance(value,str) and re.fullmatch(r'0[0-7]{3}',value):
+        return int(value,8)
+    raise ValueError('invalid_signing_file_mode')
+
 def signing_normalized(root, live, approval):
     root, live = copy.deepcopy(root), copy.deepcopy(live)
     service = root['services']['hospital-backend']
@@ -39,8 +48,9 @@ def signing_normalized(root, live, approval):
     if len(matches)!=1 or matches[0].get('source')!=approval['source'] or matches[0].get('target')!=approval['target'] or name(matches[0])!=approval['secretName']:
         raise ValueError('signing_secret_mapping_missing_extra_or_duplicate')
     mapping=matches[0]
-    if root.get('secrets',{}).get(mapping['source'],{}).get('external') is not True or mapping.get('mode')!=approval['mode'] or str(mapping.get('uid','0'))!=approval['uid'] or str(mapping.get('gid','0'))!=approval['gid']:
+    if root.get('secrets',{}).get(mapping['source'],{}).get('external') is not True or signing_file_mode(mapping.get('mode'))!=approval['mode'] or str(mapping.get('uid','0'))!=approval['uid'] or str(mapping.get('gid','0'))!=approval['gid']:
         raise ValueError('signing_secret_must_be_existing_and_read_only')
+    mapping['mode']=approval['mode']
     live_matches=[item for item in live.get('Secrets',[]) if item.get('File',{}).get('Name')==approval['target'] or item.get('SecretName')==approval['secretName']]
     if live_file is not None:
         if len(live_matches)!=1 or live_matches[0].get('SecretName')!=approval['secretName'] or live_matches[0].get('File',{}).get('Name')!=approval['target']:

@@ -1,3 +1,4 @@
+const {gameRetryBaselineCommand}=require('./gameRetryBaseline');
 const SNAPSHOT_SCRIPT = String.raw`
 import json, subprocess, sys
 try:
@@ -20,7 +21,14 @@ function gameServiceSnapshotCommands(mode = 'current', snapshot = 'service.inspe
   if (!['current', 'rollback', 'restored'].includes(mode)) throw new Error('Invalid snapshot mode');
   if (!['service.inspect.json', 'technology-quiesced.inspect.json', 'codegraph-quiesced.inspect.json'].includes(snapshot)) throw new Error('Invalid service snapshot');
   const encoded = Buffer.from(SNAPSHOT_SCRIPT).toString('base64');
-  return [`printf %s "${encoded}" | base64 -d | python3 - "$backup_dir/${snapshot}" "$service_name" ${mode}`];
+  const normal=`printf %s "${encoded}" | base64 -d | python3 - "$backup_dir/${snapshot}" "$service_name" ${mode}`;
+  if(snapshot!=='service.inspect.json' || mode==='restored') return [normal];
+  if(mode==='current') return ['if [ -f "$backup_dir/paused-retry-baseline.json" ]; then', gameRetryBaselineCommand('verify'), 'else',normal,'fi'];
+  // The failed pre-retry desired Spec is PreviousSpec after the new submission;
+  // the recovery Spec is the distinct healthy baseline, never that failed Spec.
+  return ['if [ -f "$backup_dir/paused-retry-baseline.json" ]; then',
+    `printf %s "${encoded}" | base64 -d | python3 - "$backup_dir/service.observed.inspect.json" "$service_name" rollback`,
+    'else',normal,'fi'];
 }
 
 function gameFormalComposeCommands(source, imageTag, appTag) {
