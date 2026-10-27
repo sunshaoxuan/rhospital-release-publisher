@@ -52,6 +52,13 @@ run/history IDs, candidate tree, publisher commit, service identity, check
 durations, result and output hashes. Raw account/credential output is not stored.
 No deployment, rollback, container deletion or history mutation is selected.
 
+The entrypoint reads durable history, binding the run ID to the original
+recorded `.release-worktrees/<run-id>` path and requiring a unique matching
+record and exact captured candidate commit. It reads that immutable commit's
+Git objects from the configured application source repository. It does not
+depend on a terminal in-memory job or on the cleaned-up release worktree.
+The entire original history record is hashed and rechecked after verification.
+
 The runtime contract uses a temporary host log file and deletes that exact file;
 its existing validator handles the Stripe credential internally and performs a
 GET balance request, without exposing its value. The empty unsigned Stripe and
@@ -96,3 +103,8 @@ The metadata-only new checker also inspected the actual current candidate:
 binding `81ddedf9d6c67aeeb9455984343895704e34560bfb36ccfefa80648001ca2678`.
 This inspection created no service or file and does not replace the remaining
 login, dual-gateway, relations or deferred trade-pool verification.
+
+After correcting the retained-history/source-object lifecycle, the required
+complete gate passed **461/461**, zero failures/cancellations/skips, duration
+`843363.325 ms` (14m03s). Log `.task-tmp/final-retained-supplemental-tests.log`,
+SHA256 `78f5c2672de56fc84ccc93ed404edbfd9ec56f6003b8189a4d926ee26b86f329`.

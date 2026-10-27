@@ -1,4 +1,20 @@
 const core = require('./releasePublisherCore');
+const crypto = require('node:crypto');
+
+function retainedSupplementalJob(items, runId, settings, sourceRoot) {
+  const matches=items.filter(item=>String(item.projectRoot||'').replace(/\\/g,'/').split('/').at(-1)===runId);
+  if(matches.length!==1)throw new Error('Missing unique retained release evidence');
+  const h=matches[0], target=settings.dockerServers?.GAME_PRD2;
+  if(h.sshTarget!=='GAME_PRD2'||h.remoteComposeDir!=='/opt/1panel/docker/compose/hospital-stack'
+      || h.releaseCommit!==h.gitCommit || !sourceRoot || !target?.keyPath
+      || !Array.isArray(h.stepSummary) || new Set(h.stepSummary.map(s=>s.key)).size!==h.stepSummary.length)throw new Error('Retained release identity mismatch');
+  return {id:runId,status:h.status,historyEntryId:h.id,sourceProjectRoot:sourceRoot,
+    historyEvidenceHash:crypto.createHash('sha256').update(JSON.stringify(h)).digest('hex'),
+    completedStepKeys:h.stepSummary.filter(s=>s.status==='done').map(s=>s.key),
+    plan:{releaseTarget:h.releaseTarget,dryRun:h.dryRun,gitCommit:h.gitCommit,appTag:h.appTag,imageTag:h.imageTag,steps:h.stepSummary,
+      config:{remoteComposeDir:h.remoteComposeDir,stackName:'hospital_stack',containerName:'hospital-backend',catalogSchemaVersion:h.catalogSchemaVersion,
+        remoteImageTarget:{mode:'ssh',name:'GAME_PRD2',host:target.host,user:target.username,port:target.port,keyPath:target.keyPath,target:target.username+'@'+target.host}}}};
+}
 
 // A separate verification receipt never changes a release job/history outcome.
 // No persisted command is executed, and no deployment/cleanup/recovery step is selected.
@@ -28,4 +44,4 @@ function supplementalSteps(job, contract, env=process.env) {
       command:core.relationsReleaseCheckCommand(plan.appTag,env)}
   ]};
 }
-module.exports={supplementalSteps};
+module.exports={supplementalSteps,retainedSupplementalJob};

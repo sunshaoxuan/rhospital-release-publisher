@@ -3,7 +3,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const crypto=require('node:crypto');
 const {spawnSync}=require('node:child_process');
-const {supplementalSteps}=require('../src/gameSupplementalVerification');
+const {supplementalSteps,retainedSupplementalJob}=require('../src/gameSupplementalVerification');
 const {resolveGameStartupContract}=require('../src/gameStartupContract');
 const {runPowerShell,remoteSshCommand,remoteBashScriptCommand}=require('../src/releasePublisherCore');
 
@@ -11,10 +11,21 @@ async function verify(runId,{api='http://192.168.20.218:8787',env=process.env,ou
   if(!/^\d+-[a-f0-9]+$/.test(runId)) throw new Error('Invalid run ID');
   const get=async route=>{const r=await fetch(api+route,{signal:AbortSignal.timeout(15000)});if(!r.ok)throw new Error('Publisher state unavailable');return r.json();};
   const idle=async()=>{const a=await get('/api/jobs/active');if(a.busy||a.job)throw new Error('Publisher busy; verification refused');};
-  await idle(); const job=await get('/api/jobs/'+runId);
-  const source=job.executionProjectRoot;
+  await idle();
+  const settings=JSON.parse(fs.readFileSync(env.RELEASE_PUBLISHER_CONFIG||path.resolve(__dirname,'../release-publisher.config.json'),'utf8'));
+  const publisherConfig=await get('/api/config');
+  const retained=async()=>{
+    const items=[];
+    for(let page=1;page<=20;page++) {
+      const result=await get('/api/history?limit=50&page='+page);items.push(...result.items);
+      if(page>=result.pageCount)return retainedSupplementalJob(items,runId,settings,publisherConfig.projectRoot);
+    }
+    throw new Error('Retained history exceeds verification search bound');
+  };
+  const job=await retained();
+  const source=job.sourceProjectRoot;
   const git=(...args)=>{const r=spawnSync('git',['-C',source,...args],{encoding:'utf8',windowsHide:true});if(r.status!==0)throw new Error('Candidate source unavailable');return r.stdout;};
-  if(!source || git('rev-parse','HEAD').trim()!==job.plan.gitCommit || git('status','--porcelain','--untracked-files=no').trim()) throw new Error('Candidate source identity changed');
+  if(!source || git('rev-parse',job.plan.gitCommit+'^{commit}').trim()!==job.plan.gitCommit) throw new Error('Candidate source identity changed');
   const file=p=>git('show',job.plan.gitCommit+':'+p);
   const contract=resolveGameStartupContract(file('src/main/resources/application.properties')+'\n'+file('src/main/resources/application-prod.properties'),
     file('src/main/java/com/zly/hospital/service/TokenService.java'),file('src/main/java/com/zly/hospital/HospitalBackendApplication.java'));
@@ -39,7 +50,7 @@ print(json.dumps({'version':s['Version']['Index'],'image':s['Spec']['TaskTemplat
   };
   const baseline=await anchor();
   const receipt={schemaVersion:1,kind:'SUPPLEMENTAL_VERIFICATION',runId,originalHistoryId:job.historyEntryId,originalStatus:job.status,
-    candidateCommit:job.plan.gitCommit,candidateTree:git('rev-parse','HEAD^{tree}').trim(),imageId:prepared.imageId,baseline,
+    candidateCommit:job.plan.gitCommit,candidateTree:git('rev-parse',job.plan.gitCommit+'^{tree}').trim(),imageId:prepared.imageId,baseline,historyEvidenceHash:job.historyEvidenceHash,
     publisherCommit:spawnSync('git',['-C',path.resolve(__dirname,'..'),'rev-parse','HEAD'],{encoding:'utf8',windowsHide:true}).stdout.trim(),
     startedAt:new Date().toISOString(),result:'RUNNING',checks:[],deferredChecks:prepared.deferredChecks.map(({key,reason})=>({key,reason}))};
   fs.mkdirSync(outputRoot,{recursive:true});
@@ -64,8 +75,8 @@ print(json.dumps({'version':s['Version']['Index'],'image':s['Spec']['TaskTemplat
       save();console.log('supplemental_check=PASS key='+step.key);
     }
     if(JSON.stringify(await anchor())!==JSON.stringify(baseline))throw new Error('Concurrent runtime change');
-    const current=await get('/api/jobs/'+runId);
-    if(current.status!==job.status || current.historyEntryId!==job.historyEntryId)throw new Error('Original release record changed');
+    const current=await retained();
+    if(current.historyEvidenceHash!==job.historyEvidenceHash)throw new Error('Original release record changed');
     receipt.result=receipt.deferredChecks.length?'PARTIAL':'PASS';
   } catch(error) {receipt.result='FAIL';receipt.reason=error.message;throw error;}
   finally {receipt.finishedAt=new Date().toISOString();save();console.log('supplemental_receipt='+target);}
