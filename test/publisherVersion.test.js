@@ -30,6 +30,17 @@ test('reports an exact clean runtime and repository match', () => {
   assert.equal(result.runtime.contentHash, result.repository.contentHash);
 });
 
+test('publisher worktrees and canonical repository share the exact update lock', () => {
+  const root = tempPublisherRepository();
+  try {
+    const {installationOperationLock} = require('../src/publisherOperationLock');
+    const worktree = path.join(root, '.service', 'runtime');
+    runGit(root, ['worktree', 'add', '--detach', worktree, 'HEAD']);
+    assert.equal(installationOperationLock(root), path.join(root, '.service', 'publisher-operation.lock'));
+    assert.equal(installationOperationLock(worktree), installationOperationLock(root));
+  } finally { removeTempTree(root); }
+});
+
 test('reports uncommitted repository changes after the runtime snapshot', () => {
   const root = tempPublisherRepository();
   const runtime = capturePublisherRuntimeVersion(root);
@@ -222,6 +233,48 @@ function tempPublisherRepository() {
   runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'initial']);
   return root;
 }
+
+test('legacy b9 runtime barrier rejects an in-flight request without restarting or dispatching', {timeout: 120000}, async () => {
+  const root = tempPublisherServerRepository();
+  let child;
+  let request;
+  const {createLegacyBarrier, removeLegacyBarrier} = require('../src/publisherLegacyBarrier');
+  const token = '00000000-0000-0000-0000-000000000001';
+  try {
+    // Exact deployed old entrypoint, not the new locking implementation.
+    const old = spawnSync('git', ['show', 'b9b28cb1da7dc828d19c96c53c6c35034ab2b43a:server.js'], {cwd: path.join(__dirname, '..'), encoding: 'utf8', windowsHide: true});
+    assert.equal(old.status, 0, old.stderr);
+    fs.writeFileSync(path.join(root, 'server.js'), old.stdout);
+    runGit(root, ['add', 'server.js']);
+    runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'legacy entrypoint']);
+    child = spawn(process.execPath, ['server.js'], {cwd: root, env: {...process.env, GIT_OPTIONAL_LOCKS: '0', RELEASE_PUBLISHER_HOST: '127.0.0.1', RELEASE_PUBLISHER_PORT: '0', RELEASE_PUBLISHER_VERSION_CHECK_INTERVAL_MS: '100'}, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true});
+    const output = await waitForChildOutput(child, /http:\/\/127\.0\.0\.1:\d+/, 30000);
+    const port = Number(output.match(/127\.0\.0\.1:(\d+)/)[1]);
+    request = openSlowJsonPost(port, '/api/execute');
+    await request.connected;
+    createLegacyBarrier(root, token);
+    const base = `http://127.0.0.1:${port}`;
+    const version = await (await fetch(base + '/api/version')).json();
+    assert.equal(version.status, 'UNCOMMITTED_CHANGES');
+    request.finish();
+    const refused = await request.response;
+    assert.equal(refused.statusCode, 409);
+    assert.equal(JSON.parse(refused.body).code, 'PUBLISHER_RUNTIME_NOT_CURRENT');
+    const activity = await (await fetch(base + '/api/jobs/active')).json();
+    assert.equal(activity.busy, false);
+    assert.equal(child.exitCode, null, 'legacy runtime must stay running');
+    assert.throws(() => createLegacyBarrier(root, token), /clean/);
+    assert.throws(() => removeLegacyBarrier(root, '00000000-0000-0000-0000-000000000002'), /ENOENT/);
+    removeLegacyBarrier(root, token);
+    const restored = await (await fetch(base + '/api/version')).json();
+    assert.equal(restored.status, 'UP_TO_DATE');
+    assert.equal(child.exitCode, null);
+  } finally {
+    if (request) request.abort();
+    if (child && child.exitCode === null) child.kill();
+    removeTempTree(root);
+  }
+});
 
 function tempPublisherServerRepository() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'publisher-auto-restart-'));

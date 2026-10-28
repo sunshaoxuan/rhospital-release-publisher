@@ -67,6 +67,8 @@ if (!Object.keys(process.env).some(key => key.startsWith('RELEASE_PUBLISHER_JEV_
   Object.assign(process.env, loadProtectedDiagnosticConfig(__dirname));
 }
 const jobStorePath = path.resolve(process.env.RELEASE_PUBLISHER_JOBS_FILE || path.join(__dirname, '.release-jobs.json'));
+const {installationOperationLock, acquireOperationLock, assertNoPublisherUpdate} = require('./src/publisherOperationLock');
+const publisherOperationLock = installationOperationLock(publisherRepositoryRoot);
 let persistJobsTimer = null;
 let publisherRestartTimer = null;
 let publisherRestartPending = false;
@@ -100,7 +102,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {...getPublisherVersionStatus(
         publisherRepositoryRoot,
         publisherRuntimeVersion
-      ), localCheckContracts: registeredLocalCheckContracts()});
+      ), localCheckContracts: registeredLocalCheckContracts(), publisherUpdateProtocol: 1});
     }
     if (pathname === '/api/config' && req.method === 'GET') {
       const releaseTarget = validateReleaseTarget(requestUrl.searchParams.get('releaseTarget') || 'game');
@@ -286,10 +288,11 @@ function currentPublisherVersionStatus() {
 }
 
 function hasActivePublisherJobs() {
-  return [...jobs.values()].some(job => isActiveJobStatus(job.status));
+  return jobControllers.size > 0 || [...jobs.values()].some(job => isActiveJobStatus(job.status));
 }
 
 function assertPublisherActionReady() {
+  assertNoPublisherUpdate(publisherOperationLock);
   if (publisherRestartPending) {
     const error = new Error('发布器正在等待受控重启，发布计划和执行已锁定，请稍后重试。');
     error.code = 'PUBLISHER_RESTART_PENDING';
@@ -303,8 +306,10 @@ function assertPublisherActionReady() {
 
 function checkPublisherRepositoryVersion() {
   try {
+    assertNoPublisherUpdate(publisherOperationLock);
     schedulePublisherRestart(currentPublisherVersionStatus());
   } catch (error) {
+    if (error.code === 'PUBLISHER_UPDATE_PENDING') return;
     console.error(`Publisher version monitor failed: ${error.message}`);
   }
 }
@@ -392,7 +397,10 @@ function createExecutionJob(body) {
     error.statusCode = 409;
     throw error;
   }
-  const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const lease = acquireOperationLock(publisherOperationLock, 'job');
+  let id;
+  try {
+  id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   const createdAt = new Date().toISOString();
   const controller = new AbortController();
   const job = {
@@ -407,12 +415,19 @@ function createExecutionJob(body) {
   jobs.set(id, job);
   jobControllers.set(id, controller);
   persistJobs();
-  runExecutionJobInIsolatedWorktree(job, body, controller, createdAt);
   pruneJobs();
+  void runExecutionJobInIsolatedWorktree(job, body, controller, createdAt, lease).catch(error => {
+    console.error(`Publisher job finalization failed; inspect operation ownership: ${error.message}`);
+  });
   return job;
+  } catch (error) {
+    if (id) { jobs.delete(id); jobControllers.delete(id); }
+    lease.release();
+    throw error;
+  }
 }
 
-async function runExecutionJobInIsolatedWorktree(job, body, controller, createdAt) {
+async function runExecutionJobInIsolatedWorktree(job, body, controller, createdAt, lease) {
   let executionRoot = '';
   let sourceSetupLog = '';
   try {
@@ -468,6 +483,7 @@ async function runExecutionJobInIsolatedWorktree(job, body, controller, createdA
       logs: (job.logs || []).concat(`ERROR: ${error.message}`)
     });
   } finally {
+    try {
     if (executionRoot) {
       try {
         removeReleaseWorktree(projectRoot, publisherRepositoryRoot, job.id);
@@ -485,8 +501,10 @@ async function runExecutionJobInIsolatedWorktree(job, body, controller, createdA
       }
     }
     if (!job.diagnostics) job.diagnostics = buildReleaseDiagnostics(job);
-    jobControllers.delete(job.id);
-    persistJobs();
+    } finally {
+      jobControllers.delete(job.id);
+      try { persistJobs(); } finally { lease.release(); }
+    }
   }
 }
 
