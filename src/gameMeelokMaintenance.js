@@ -1,6 +1,5 @@
-const MEELOK_PAUSE_ORDER = [
-  'meelok_web', 'meelok_worker', 'meelok_api', 'meelok_redis', 'meelok_object_storage'
-];
+const {SERVICES,HEALTH_FORMAT,readyPattern}=require('./gameMaintenanceHealth');
+const MEELOK_PAUSE_ORDER = [...SERVICES];
 const MEELOK_RESTORE_ORDER = [...MEELOK_PAUSE_ORDER].reverse();
 
 function shellQuote(value) {
@@ -18,9 +17,9 @@ function gameMeelokStatusCommands(composeDir) {
     '  echo "meelok_status service=$service desired=$desired running=$count"',
     '  if [ "$desired" != 1 ] || [ "$count" -ne 1 ]; then echo "WARNING: Meelok $service is not a running singleton; notification only"; fi',
     '  for container in $containers; do',
-    '    if ! state=$(docker inspect "$container" --format "health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} started_at={{.State.StartedAt}} restart_count={{.RestartCount}}"); then echo "WARNING: meelok_status service=$service container=$container state=unknown reason=container_inspect_failed"; continue; fi',
+    `    if ! state=$(docker inspect "$container" --format ${shellQuote('health='+HEALTH_FORMAT+' started_at={{.State.StartedAt}} restart_count={{.RestartCount}}')}); then echo "WARNING: meelok_status service=$service container=$container state=unknown reason=container_inspect_failed"; continue; fi`,
     '    echo "meelok_status service=$service container=$container $state"',
-    '    case "${state%% *}" in health=healthy|health=none) ;; *) echo "WARNING: Meelok $service health is not ready; notification only" ;; esac',
+    `    case "$service:\${state%% *}" in ${readyPattern('health=')}) ;; *) echo "WARNING: Meelok $service health is not ready; notification only" ;; esac`,
     '  done',
     'done',
     'echo "meelok_status=OBSERVED services=5"'
@@ -38,8 +37,8 @@ function gameMeelokReadinessCommands(composeDir) {
     '  container=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service")',
     '  count=$(printf "%s\n" "$container" | sed "/^$/d" | wc -l)',
     '  [ "$count" -eq 1 ] || { echo "ERROR: $service is not a running singleton"; exit 1; }',
-    '  health=$(docker inspect "$container" --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}")',
-    '  [ "$health" = healthy ] || [ "$health" = none ] || { echo "ERROR: $service is unhealthy before pause"; exit 1; }',
+    `  health=$(docker inspect "$container" --format ${shellQuote(HEALTH_FORMAT)})`,
+    `  case "$service:$health" in ${readyPattern()}) ;; *) echo "ERROR: $service health contract is not ready before pause"; exit 1 ;; esac`,
     'done',
     'echo "meelok_readiness=PASS services=5"'
   ];
@@ -126,8 +125,8 @@ function gameMeelokRestoreCommands(composeDir, gameServiceName, maintenanceId) {
     '    container=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service")',
     '    count=$(printf "%s\n" "$container" | sed "/^$/d" | wc -l)',
     '    if [ "$count" -eq 1 ]; then',
-    '      health=$(docker inspect "$container" --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}")',
-    '      if [ "$health" = healthy ] || [ "$health" = none ]; then healthy=true; break; fi',
+    `      health=$(docker inspect "$container" --format ${shellQuote(HEALTH_FORMAT)})`,
+    `      case "$service:$health" in ${readyPattern()}) healthy=true; break ;; esac`,
     '    fi',
     '    sleep 2',
     '  done',

@@ -1,6 +1,8 @@
 """Fenced Compose-only transaction. The caller holds the shared flock on fd 9.
 
 This helper never starts/stops a container, changes a service, or runs SQL.
+The publisher renders this source with the shared maintenance-health prelude;
+the checked-in file is not a standalone remote installation entrypoint.
 """
 import argparse
 import hashlib
@@ -89,13 +91,15 @@ def resource_readiness(root):
     if available >= 2097152:
         return {'result': 'PASS', 'availableKiB': available, 'capacity': 'already_available'}
     require(not (root / '.meelok-release-pause').exists() and not (root / '.meelok-release-pause').is_symlink(), 'capacity_insufficient_foreign_maintenance_marker')
-    for name in ['meelok_web', 'meelok_worker', 'meelok_api', 'meelok_redis', 'meelok_object_storage']:
+    readiness = {}
+    for name in MEELOK_SERVICES:
         replicas = docker('service', 'inspect', '--format', '{{.Spec.Mode.Replicated.Replicas}}', name)
         ids = docker('ps', '-q', '--filter', 'label=com.docker.swarm.service.name=' + name).split()
         require(replicas == '1' and len(ids) == 1, 'capacity_insufficient_safe_pause_unavailable')
-        health = docker('inspect', '--format', '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}', ids[0])
-        require(health in ['healthy', 'none'], 'capacity_insufficient_safe_pause_unavailable')
-    return {'result': 'PASS', 'availableKiB': available, 'capacity': 'requires_owned_pause_and_final_recheck'}
+        health = docker('inspect', '--format', MEELOK_HEALTH_FORMAT, ids[0])
+        require(health == 'healthy' or (health == 'none' and name in MEELOK_NO_HEALTHCHECK_SERVICES), 'capacity_insufficient_safe_pause_unavailable')
+        readiness[name] = 'MONITORED_HEALTHY' if health == 'healthy' else 'PROCESS_RUNNING_NO_HEALTHCHECK'
+    return {'result': 'PASS', 'availableKiB': available, 'capacity': 'requires_owned_pause_and_final_recheck', 'maintenanceReadiness': readiness}
 
 
 class Transaction:

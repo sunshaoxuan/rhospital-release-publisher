@@ -3,8 +3,8 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const {spawnSync}=require('node:child_process');
-const {transactionOutcome,transactionCommand,lockCommands}=require('../src/gameDeploymentTransaction');
-const script=fs.readFileSync(path.resolve(__dirname,'../scripts/game-deployment-transaction.py'),'utf8');
+const {transactionOutcome,transactionCommand,lockCommands,transactionSource}=require('../src/gameDeploymentTransaction');
+const script=transactionSource();
 function run(code){
   const result=spawnSync(process.platform==='win32'?'python':'python3',['-c','import json,sys\np=json.load(sys.stdin)\nn={"__name__":"fixture"}\nexec(p["script"],n)\nexec(p["code"],n)'],{input:JSON.stringify({script,code}),encoding:'utf8',timeout:30000,windowsHide:true});
   assert.equal(result.status,0,result.stdout+result.stderr);
@@ -123,6 +123,42 @@ try:
     assert all('update' not in args and 'scale' not in args for args in calls)
 finally:shutil.rmtree(work)
 `));
+test('maintenance admission distinguishes no-check roles from monitored, bad or unknown health',()=>run(fixture+String.raw`
+try:
+    selected={'service':None,'health':'healthy','current':None}
+    def probe(*args):
+        if args[0]=='ps':selected['current']=args[-1].split('=')[-1]
+        if args[0]=='inspect':
+            assert args[2]==MEELOK_HEALTH_FORMAT
+            return selected['health'] if selected['current']==selected['service'] else 'healthy'
+        return fake_docker(*args)
+    with patch.dict(globals(),{'docker':probe}), patch.object(Path,'read_text',return_value='MemAvailable: 1976780 kB\n'):
+        for service in MEELOK_SERVICES:
+            selected.update(service=service,health='healthy')
+            assert resource_readiness(root)['maintenanceReadiness'][service]=='MONITORED_HEALTHY'
+            selected['health']='none'
+            if service in MEELOK_NO_HEALTHCHECK_SERVICES:
+                assert resource_readiness(root)['maintenanceReadiness'][service]=='PROCESS_RUNNING_NO_HEALTHCHECK'
+            else:reject(lambda:resource_readiness(root),'capacity_insufficient_safe_pause_unavailable')
+            for health in ['unhealthy','starting','unknown','stopped','','null']:
+                selected['health']=health
+                reject(lambda:resource_readiness(root),'capacity_insufficient_safe_pause_unavailable')
+    assert not any('update' in args or 'scale' in args for args in calls)
+finally:shutil.rmtree(work)
+`));
+test('maintenance inspect errors never turn into no-check readiness or weaken the game baseline',()=>run(fixture+String.raw`
+try:
+    def unavailable(*args):
+        if args[0]=='inspect':raise subprocess.CalledProcessError(1,['docker','inspect'])
+        return fake_docker(*args)
+    with patch.dict(globals(),{'docker':unavailable}), patch.object(Path,'read_text',return_value='MemAvailable: 1976780 kB\n'):
+        try:resource_readiness(root);assert False
+        except subprocess.CalledProcessError:pass
+    for health in [None,'none','unknown','starting','unhealthy']:
+        container['health']=health
+        reject(lambda:healthy_identity(t.service,'sha256:old'),'baseline_container_changed_or_unhealthy')
+finally:shutil.rmtree(work)
+`));
 test('backup Compose must resolve to the healthy recovery identity before any write',()=>run(fixture+String.raw`
 try:
     (backup/'game-service-recovery.json').write_text(json.dumps({'imageId':'sha256:other'}))
@@ -153,4 +189,17 @@ test('submission protocol rejects missing, conflicting, wrong identity and unkno
 test('transaction regression binds the exact helper source under test',t=>{
   t.diagnostic('transaction_helper_sha256='+require('node:crypto').createHash('sha256').update(script).digest('hex'));
   assert.match(script,/submission_not_observed/);
+});
+test('all generated maintenance probes use one role-aware missing-field-safe health contract',()=>{
+  const {HEALTH_FORMAT,NO_HEALTHCHECK_SERVICES,readyPattern}=require('../src/gameMaintenanceHealth');
+  const {gameMeelokStatusCommands,gameMeelokReadinessCommands,gameMeelokRestoreCommands}=require('../src/gameMeelokMaintenance');
+  assert.deepEqual(NO_HEALTHCHECK_SERVICES,['meelok_worker','meelok_object_storage']);
+  assert.match(HEALTH_FORMAT,/index \.State "Health"/);assert.match(HEALTH_FORMAT,/index \.Config "Healthcheck"/);
+  assert.doesNotMatch(HEALTH_FORMAT,/\.State\.Health|Env|Output|Log/);
+  assert.ok(script.includes('MEELOK_HEALTH_FORMAT = '+JSON.stringify(HEALTH_FORMAT)));
+  for(const commands of [gameMeelokStatusCommands('.'),gameMeelokReadinessCommands('.'),gameMeelokRestoreCommands('.','game','01234567-89ab-cdef-0123-456789abcdef')]){
+    const text=commands.join('\n');assert.ok(text.includes(HEALTH_FORMAT));
+    assert.doesNotMatch(text,/\*:none|\*:health=none/);
+  }
+  assert.equal(readyPattern(),'*:healthy|meelok_worker:none|meelok_object_storage:none');
 });

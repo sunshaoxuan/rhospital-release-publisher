@@ -57,14 +57,14 @@ docker() {
       elif [ "$count" = 2 ]; then printf '%s\\n%s\\n' "$service-container" "$service-other"; fi ;;
     inspect*)
       [ "$2" != "\${CONTAINER_INSPECT_FAIL:-}-container" ] || return 1
+      local health=healthy
+      if [ "\${NO_HEALTH_ROLES:-}" = true ]; then case "$2" in meelok_worker-container|meelok_object_storage-container) health=none ;; esac; fi
+      if [ "$2" = "\${BAD_SERVICE:-}-container" ]; then health="\${BAD_HEALTH:-healthy}"; fi
       if [[ "$4" = *started_at* ]]; then
-        local health=healthy
-        if [ "$2" = "\${BAD_SERVICE:-}-container" ]; then health="\${BAD_HEALTH:-healthy}"; fi
         echo "health=$health started_at=2026-10-16T00:00:00Z restart_count=\${RESTART_COUNT:-0}"
         return 0
       fi
-      if [ "$2" = "\${BAD_SERVICE:-}-container" ]; then echo "\${BAD_HEALTH:-healthy}"
-      else echo healthy; fi ;;
+      echo "$health" ;;
     *) echo "unexpected docker call" >&2; return 1 ;;
   esac
 }
@@ -120,10 +120,10 @@ test('missing unhealthy or unavailable Meelok and old markers produce notificati
   }
 });
 
-test('readiness accepts five healthy or healthcheck-free singletons without writes', t => {
+test('readiness accepts monitored health and only designated healthcheck-free roles without writes', t => {
   const f = fixture(t);
-  for (const health of ['healthy', 'none']) {
-    const result = f.run(gameMeelokReadinessCommands('.'), {BAD_SERVICE: 'meelok_web', BAD_HEALTH: health});
+  for (const [service,health] of [['meelok_web','healthy'],['meelok_worker','none'],['meelok_object_storage','none']]) {
+    const result = f.run(gameMeelokReadinessCommands('.'), {BAD_SERVICE: service, BAD_HEALTH: health});
     assert.equal(result.status, 0, result.stdout + result.stderr);
     assert.match(result.stdout, /meelok_readiness=PASS services=5/);
     assert.doesNotMatch(f.calls(), /service scale|service update|stack deploy/);
@@ -146,7 +146,7 @@ test('readiness fails closed on wrong desired replicas, absent/extra tasks, unhe
   const f = fixture(t);
   for (const env of [
     {BAD_DESIRED: '0'}, {BAD_DESIRED: '2'}, {BAD_COUNT: '0'},
-    {BAD_COUNT: '2'}, {BAD_HEALTH: 'unhealthy'}, {INSPECT_FAIL: 'meelok_web'}
+    {BAD_COUNT: '2'}, {BAD_HEALTH: 'unhealthy'}, {BAD_HEALTH:'none'}, {BAD_HEALTH:'unknown'}, {BAD_HEALTH:'starting'}, {BAD_HEALTH:'stopped'}, {INSPECT_FAIL: 'meelok_web'}, {CONTAINER_INSPECT_FAIL:'meelok_web'}
   ]) {
     const result = f.run(gameMeelokReadinessCommands('.'), {BAD_SERVICE: 'meelok_web', ...env});
     assert.notEqual(result.status, 0, JSON.stringify(env));
@@ -171,6 +171,16 @@ test('owned pause and restore preserve five services and clear only the owned ma
   for (const service of MEELOK_PAUSE_ORDER) assert.equal(fs.readFileSync(path.join(f.root, `${service}.replicas`), 'utf8').trim(), '1');
   assert.equal(fs.existsSync(marker), false);
   assert.equal(f.calls().match(/service scale/g).length, 10);
+});
+
+test('owned maintenance accepts designated unmonitored processes without labelling them healthy',t=>{
+  const f=fixture(t),env={NO_HEALTH_ROLES:'true'};
+  const pause=f.run(gameMeelokPauseCommands('.',identity),env);
+  assert.equal(pause.status,0,pause.stdout+pause.stderr);
+  const restore=f.run(gameMeelokRestoreCommands('.','game',identity),env);
+  assert.equal(restore.status,0,restore.stdout+restore.stderr);
+  for(const service of ['meelok_worker','meelok_object_storage'])assert.match(restore.stdout,new RegExp(`meelok_restore_status service=${service} .*health=none`));
+  assert.equal(fs.existsSync(path.join(f.root,'.meelok-release-pause')),false);
 });
 
 test('pause rechecks drift after readiness and never overwrites an older marker', t => {
@@ -206,7 +216,9 @@ test('restore retains marker when game, memory, image or web readiness fails', t
   for (const env of [
     {BAD_GAME: 'true'}, {MEMORY_KB: '1000000'},
     {BAD_SERVICE: 'meelok_object_storage', BAD_IMAGE: 'true'},
-    {BAD_SERVICE: 'meelok_web', BAD_COUNT: '0'}
+    {BAD_SERVICE: 'meelok_web', BAD_COUNT: '0'},
+    {BAD_SERVICE:'meelok_web',BAD_HEALTH:'none'},
+    {BAD_SERVICE:'meelok_worker',BAD_HEALTH:'unknown'}
   ]) {
     f.resetCalls();
     const restore = f.run(gameMeelokRestoreCommands('.', 'game', identity), env);
@@ -214,6 +226,7 @@ test('restore retains marker when game, memory, image or web readiness fails', t
     assert.equal(fs.existsSync(path.join(f.root, '.meelok-release-pause')), true);
     assert.doesNotMatch(f.calls(), /service update|stack deploy/);
     if (env.BAD_COUNT) assert.match(restore.stdout, /meelok_web did not become healthy desired=1 running=0 health=absent/);
+    else if(env.BAD_HEALTH)assert.ok(restore.stdout.includes(`${env.BAD_SERVICE} did not become healthy desired=1 running=1 health=${env.BAD_HEALTH}`));
     else assert.doesNotMatch(f.calls(), /service scale/);
   }
 });

@@ -98,7 +98,10 @@ function runShell(script, environment = {}) {
   const file = path.join(shellFixture, 'guard.sh');
   fs.writeFileSync(file, 'set -eu\n' + shellMock + '\n' + script + '\n');
   return spawnSync(bash, [file.split(path.sep).join('/')], {cwd: shellFixture,
-    env: {...process.env, ...environment}, encoding: 'utf8', timeout: 15000});
+    // Git Bash on Windows spends 13-15s starting the short-lived utilities in
+    // the complete mocked program (117 measured stages, none blocking >0.8s).
+    // This fixture budget is separate from unchanged production deadlines.
+    env: {...process.env, ...environment}, encoding: 'utf8', timeout: process.platform === 'win32' ? 30000 : 15000});
 }
 function resetShell() {
   for (const name of fs.readdirSync(shellFixture)) fs.rmSync(path.join(shellFixture, name), {recursive: true, force: true});
