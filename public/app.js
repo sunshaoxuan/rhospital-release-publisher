@@ -413,7 +413,7 @@
     const phaseDefinitions = [
       { key: 'source', title: '准备发布源', members: [
         'git-status-before-update', 'validate-release-input', 'validate-game-static-delivery-prerequisites',
-        'game-meelok-readiness',
+        'game-meelok-readiness', 'validate-game-release-resources',
         'git-fetch', 'git-update', 'capture-release-commit', 'validate-release-impact-checklist',
         'validate-game-sso-source', 'validate-forum-source'
       ] },
@@ -450,7 +450,7 @@
         'accept-game-standby-candidate'
       ] },
       { key: 'recovery', title: '致命故障恢复', members: [
-        'game-rollback-decision', 'game-fatal-rollback-decision', 'game-rollback-command',
+        'game-config-compensation', 'game-rollback-decision', 'game-fatal-rollback-decision', 'game-rollback-command',
         'forum-rollback-command'
       ] }
     ];

@@ -369,7 +369,7 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.command.includes('base64 -d | bash')
     && decodedRemoteScript(step.command).includes("export APP_TAG='2026070702'")
     && decodedRemoteScript(step.command).includes("--arg image 'hospital-backend:2026070702' --arg version '2026070702'")
-    && decodedRemoteScript(step.command).includes('cp "$compose_candidate" docker-compose.yml')
+    && decodedRemoteScript(step.command).includes('python3 - prepare --root')
     && decodedRemoteScript(step.command).includes('game_compose_runtime_contract=PASS')
     && decodedRemoteScript(step.command).includes('docker stack config -c docker-compose.yml')));
   assert.ok(plan.steps.some(step => step.key === 'deploy-stack'
@@ -605,6 +605,7 @@ test('deploy guard blocks stack deploy when rendered compose requests zero repli
   const isolatedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'publisher-zero-replica-guard-'));
   try {
     const harness = [
+      'flock() { return 0; }',
       'docker() {',
       '  if [ "$1" = compose ]; then printf \'%s\\n\' \'{"services":{"hospital-backend":{"deploy":{"replicas":0}}}}\'; return 0; fi',
       '  if [ "$1" = stack ] && [ "$2" = deploy ]; then touch deploy-called; return 0; fi',
@@ -2705,6 +2706,9 @@ test('cancellation after Meelok pause restores it without deploying the game', a
     commands.push(command);
     const script = decodedScriptTree(command);
     if (script.includes('meelok_pause=PASS')) controller.abort();
+    if(script.includes('python3 - compensate --root')){
+      return `game_deploy_transaction=NOT_SUBMITTED_RESTORED id=${script.match(/--transaction '([a-f0-9-]{36})'/)[1]}\n`;
+    }
     if (onChunk) onChunk('test_command=PASS\n');
     return 'test_command=PASS\n';
   };
@@ -4050,6 +4054,48 @@ test('build engine preflight runs in the build environment and failure blocks bu
   assert.equal(result.completedStepKeys.includes('test-game-backend'), false);
 });
 
+test('resource admission precedes expensive work and preserves final cutover safety guards',()=>{
+  const root=tempProject(sampleXml);
+  const plan=createPlan(root,{appTag:'2026102801',dryRun:false,includeStackDeploy:true},{RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE:'true',RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE:'true',RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE:'true'});
+  const index=plan.steps.findIndex(s=>s.key==='validate-game-release-resources');
+  assert.ok(index>=0&&index<plan.steps.findIndex(s=>s.key==='git-fetch'));
+  const step=plan.steps[index];assert.equal(step.notificationOnly,false);assert.equal(step.productionAction,false);
+  const deploy=decodedScriptTree(plan.steps.find(s=>s.key==='deploy-stack').command);
+  assert.match(deploy,/memory headroom changed before game cutover/);
+  assert.ok(deploy.indexOf('python3 - attempt --root')<deploy.indexOf('docker stack deploy'));
+  for(const key of ['update-remote-compose','deploy-stack','game-config-compensation'])assert.match(decodedScriptTree(plan.steps.find(s=>s.key===key).command),/flock -n 9/);
+});
+
+test('proven pre-submit failure compensates config without service rollback or SQL; unknown fails closed',async()=>{
+  for(const scenario of ['memory','update-failure','lost-output','compensation-failure','attempted']){
+    const root=tempProject(sampleXml),base=testCommandRunner(),commands=[];
+    const result=await executePlan(root,{appTag:'2026102801',dryRun:false,includeStackDeploy:true},{RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE:'true',RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE:'true',RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE:'true',RELEASE_PUBLISHER_HISTORY_FILE:path.join(root,'history.json')},{runCommand:async(...args)=>{
+      const script=decodedScriptTree(args[1]);commands.push(script);
+      if(scenario==='update-failure'&&script.includes('python3 - prepare --root'))throw Error('fixture prepare transport lost after write');
+      if(script.includes('memory headroom changed before game cutover'))throw Error('fixture deploy rejected');
+      if(script.includes('python3 - compensate --root')){
+        if(scenario==='compensation-failure')throw Error('fixture compensation write denied');
+        if(scenario==='lost-output')return '';
+        const id=script.match(/--transaction '([a-f0-9-]{36})'/)[1];
+        return `game_deploy_transaction=${scenario==='attempted'?'ATTEMPTED':'NOT_SUBMITTED_RESTORED'} id=${id}\n`;
+      }
+      if(script.includes('automatic_rollback_evidence'))return 'automatic_rollback_decision=ROLLBACK_NOT_CONFIRMED\n';
+      return base(...args);
+    }});
+    assert.equal(commands.some(s=>s.includes('automatic_rollback_validation=PASS')),false,scenario);
+    assert.equal(commands.some(s=>/UPDATE t_toilet_market_listing/.test(s)),false,scenario);
+    if(['memory','update-failure'].includes(scenario)){
+      assert.equal(result.status,'ERROR',scenario);assert.equal(result.configurationCompensated,true);
+      assert.equal(commands.some(s=>s.includes('automatic_rollback_evidence')),false);
+      assert.ok(result.plan.steps.some(s=>s.status==='failed'&&s.key!=='game-config-compensation'));
+    }else{
+      assert.equal(result.status,'RECOVERY_REQUIRED',scenario);
+      assert.equal(result.configurationCompensated,undefined);
+      assert.equal(commands.some(s=>s.includes('automatic_rollback_evidence')),scenario==='attempted');
+    }
+  }
+});
+
 function tempProject(_xml) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-'));
   fs.writeFileSync(path.join(root, 'mvnw.cmd'), '@echo off\r\nexit /b 0\r\n', 'utf8');
@@ -4078,6 +4124,7 @@ function tempGitProject() {
 
 function testCommandRunner(options = {}) {
   const commands = [];
+  let attempted=false;
   const runner = async (cwd, command, env, onChunk) => {
     commands.push(command);
     if (options.failOnCommand === true) {
@@ -4085,6 +4132,13 @@ function testCommandRunner(options = {}) {
     }
     if (options.failOnIncludes && decodedScriptTree(command).includes(options.failOnIncludes)) {
       throw new Error('simulated preflight failure');
+    }
+    const script=decodedScriptTree(command);
+    if(script.includes('python3 - attempt --root'))attempted=true;
+    if(script.includes('python3 - compensate --root')){
+      const id=script.match(/--transaction '([a-f0-9-]{36})'/)[1];
+      const output=`game_deploy_transaction=${attempted?'ATTEMPTED':'NOT_SUBMITTED_RESTORED'} id=${id}\n`;
+      onChunk?.(output);return output;
     }
     if (onChunk) {
       if (command.includes('git rev-parse HEAD')) {
@@ -4101,9 +4155,16 @@ function testCommandRunner(options = {}) {
 
 function recoveryDecisionTestRunner(decision, options = {}) {
   const commands = [];
+  let attempted=false;
   const runner = async (cwd, command, env, onChunk) => {
     commands.push(command);
     const script = decodedScriptTree(command);
+    if(script.includes('python3 - attempt --root'))attempted=true;
+    if(script.includes('python3 - compensate --root')){
+      const id=script.match(/--transaction '([a-f0-9-]{36})'/)[1];
+      const output=`game_deploy_transaction=${attempted?'ATTEMPTED':'NOT_SUBMITTED_RESTORED'} id=${id}\n`;
+      onChunk?.(output);return output;
+    }
     if (options.failAt === 'cutover' && script.includes('game_cutover_observation=PASS')) {
       throw new Error('simulated failure before cutover commit');
     }
@@ -4668,7 +4729,7 @@ test('Steam release pairs ticket tests and runtime DNS validation with a guarded
   assert.match(preflight, /python3 -c/);
   assert.match(preflight, /runtime_container/);
   const update = decodedRemoteScript(step('update-remote-compose').command);
-  assert.ok(update.indexOf('python3 -') < update.indexOf('cp "$compose_candidate" docker-compose.yml'));
+  assert.ok(update.indexOf('python3 -') < update.indexOf('python3 - prepare --root'));
   assert.match(update, /docker stack config -c -/);
   assert.match(decodedScriptTree(step('update-remote-compose').command), /game_service_snapshot=PASS/);
   assert.equal(update.includes('daemon.json'), false);

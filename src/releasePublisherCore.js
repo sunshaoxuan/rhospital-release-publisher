@@ -14,6 +14,7 @@ const {gameProductionConfigGuardCommands, gameStripeAuthenticationCommands, game
 const {resolveGameStartupContract, gameStartupContractCommands} = require('./gameStartupContract');
 const {gameRecoveryIdentityCommands} = require('./gameRecoveryIdentity');
 const {gameRetryBaselineCommand} = require('./gameRetryBaseline');
+const deploymentTransaction=require('./gameDeploymentTransaction');
 const {gameSigningValidationViewCommands}=require('./gameSigningBinding');
 const {GAME_PRODUCTION_SECRET_MAPPINGS, gameRuntimeSecretCommands}=require('./gameRuntimeSecrets');
 const {PRIMARY, STANDBY, publicReceipt} = require('./gameStandbyCandidate');
@@ -472,6 +473,16 @@ function createPlan(projectRoot, request, env = process.env) {
       )),
       validation: 'Meelok 状态、遗留标记和采集失败均只记录通知，不影响游戏发版结果',
       actionType: 'remote-check', executable: true, timeoutSeconds: 60
+    })] : []),
+    ...(includeStackDeploy&&!offlineCutover ? [releaseStep({
+      key:'validate-game-release-resources',title:'校验游戏切换资源准入',
+      summary:'耗时构建前只读确认2GiB可用内存，或确认后续可安全申请本次维护；不暂停服务、不接管遗留标记',
+      command:remoteSshCommand(remoteImageTarget,remoteBashScriptCommand([
+        `cd ${shellToken(remoteComposeDir)}`,
+        deploymentTransaction.transactionCommand('resource',remoteComposeDir,gameServiceName(config.stackName,config.containerName),imageTag,meelokMaintenanceId)
+      ])),
+      validation:'必须输出 game_release_resources=PASS；最终切换仍再次核2GiB，容量不足且无法安全释放时提前阻断',
+      actionType:'remote-check',executable:true,timeoutSeconds:60
     })] : []),
     releaseStep({
       key: 'git-fetch',
@@ -996,12 +1007,13 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '备份 docker-compose.yml，同时替换服务镜像和前端运行版本，并校验编排文件',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
+        ...(!offlineCutover?deploymentTransaction.lockCommands():[]),
         `service_name=${shellToken(gameServiceName(config.stackName, config.containerName))}`,
         'backup_dir=$(cat .last-game-release-backup)',
         ...(codegraph ? codegraphCutover.quiescedCommands() : technologyCutover ? technologyQuiescedSnapshotCommands() : gameServiceSnapshotCommands()),
         ...gameFormalComposeCommands(formalComposeSource, imageTag, appTag),
         ...gameComposeSsoContractCommands(config.stackName, config.containerName, '$compose_candidate', true),
-        'cp "$compose_candidate" docker-compose.yml',
+        ...(!offlineCutover?[deploymentTransaction.transactionCommand('prepare',remoteComposeDir,gameServiceName(config.stackName,config.containerName),imageTag,meelokMaintenanceId)]:['cp "$compose_candidate" docker-compose.yml']),
         'rm -f "$compose_candidate"',
         `docker stack config -c docker-compose.yml >/dev/null`
 
@@ -1040,6 +1052,7 @@ function createPlan(projectRoot, request, env = process.env) {
       summary: '在同一远程脚本内复核完整生产合同和旧健康副本，再执行 stack deploy 并确认服务没有缩容',
       command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `cd ${shellToken(remoteComposeDir)}`,
+        ...(!offlineCutover?deploymentTransaction.lockCommands():[]),
         ...gameComposeSsoContractCommands(config.stackName, config.containerName, 'docker-compose.yml', true),
         `service_name=${shellToken(`${config.stackName}_${config.containerName}`)}`,
         'backup_dir=$(cat .last-game-release-backup)',
@@ -1050,6 +1063,7 @@ function createPlan(projectRoot, request, env = process.env) {
         ]),
         'available_kb=$(awk "/^MemAvailable:/ {print \\$2}" /proc/meminfo)',
         '[ "$available_kb" -ge 2097152 ] || { echo "ERROR: memory headroom changed before game cutover: ${available_kb}kB"; exit 1; }',
+        ...(!offlineCutover?[deploymentTransaction.transactionCommand('attempt',remoteComposeDir,gameServiceName(config.stackName,config.containerName),imageTag,meelokMaintenanceId)]:[]),
         'if [ -f "$backup_dir/paused-retry-baseline.json" ]; then',
         `target_image=${shellToken(imageTag)}`,
         'candidate_startup_compose=$(mktemp)',
@@ -1243,6 +1257,18 @@ function createPlan(projectRoot, request, env = process.env) {
       timeoutSeconds: 120
     }));
     steps.push(releaseStep({
+      key:'game-config-compensation',title:'复核提交边界并补偿候选编排',
+      summary:'仅在本次事务证明未尝试服务提交且服务、健康旧容器和文件CAS一致时恢复编排；未知结果禁止推断未提交',
+      command:remoteSshCommand(remoteImageTarget,remoteBashScriptCommand([
+        `cd ${shellToken(remoteComposeDir)}`,
+        ...deploymentTransaction.lockCommands(),
+        'backup_dir=$(cat .last-game-release-backup)',
+        deploymentTransaction.transactionCommand('compensate',remoteComposeDir,gameServiceName(config.stackName,config.containerName),imageTag,meelokMaintenanceId)
+      ])),
+      validation:'NOT_SUBMITTED_RESTORED才证明配置已补偿；ATTEMPTED保留原服务恢复门禁；UNKNOWN保留现场，不改服务或数据库',
+      actionType:'production',productionAction:true,executable:true,recoveryOnly:true,timeoutSeconds:60
+    }));
+    steps.push(releaseStep({
       key: 'game-rollback-decision',
       title: '记录自动回滚最小触发复核',
       summary: '自动回滚前只读确认目标版本确实不健康、版本不符或仍与旧版本并行运行；证据不足时保留目标版本和现场',
@@ -1343,6 +1369,7 @@ function createPlan(projectRoot, request, env = process.env) {
       remoteSshTarget,
       remoteComposeDir,
       meelokMaintenanceId,
+      deploymentTransactionId:includeStackDeploy&&!offlineCutover?meelokMaintenanceId:'',
       sshResolution,
       dockerContextResolution,
       ideaDockerServerResolution,
@@ -1859,9 +1886,17 @@ function isMeelokNotificationStep(key) {
 async function executePlan(projectRoot, request, env = process.env, options = {}) {
   const result = await executePlanSteps(projectRoot, request, env, options);
   await restoreMeelokAfterControlledExit(projectRoot, result, env, options);
+  if(!result.submissionOutcome&&result.plan?.config?.deploymentTransactionId
+      &&result.logs.some(line=>String(line).includes('game_deploy_transaction=ATTEMPTED id='+result.plan.config.deploymentTransactionId))){
+    result.submissionOutcome='ATTEMPTED';
+  }
   result.diagnostics = buildReleaseDiagnostics(result);
   if (result.status === 'DRY_RUN') return result;
   const entry = buildHistoryEntry(result.status, result.plan, result.logs, result.completedStepKeys);
+  if(['NOT_SUBMITTED','ATTEMPTED','UNKNOWN'].includes(result.submissionOutcome)){
+    entry.submissionOutcome=result.submissionOutcome;
+    entry.configurationCompensated=result.configurationCompensated===true;
+  }
   entry.diagnostics = result.diagnostics;
   // Persist the authoritative outcome before the optional network operation.
   appendReleaseHistory(projectRoot, entry, env);
@@ -2143,6 +2178,35 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
     pushStepLog(failedStepKey, `${error.name === 'CancellationError' ? 'CANCELLED' : 'ERROR'}: ${error.message}`);
     runtimePlan = markStepStatus(runtimePlan, completedStepKeys, failedStepKey,
       error.name === 'CancellationError' ? 'cancelled' : 'failed', stepLogs, stepTiming);
+    if(plan.releaseTarget==='game'&&!recoveryBoundaryEntered&&!cutoverCommitted&&plan.config.deploymentTransactionId
+        &&(failedStepKey==='update-remote-compose'||completedStepKeys.includes('update-remote-compose'))){
+      const compensation=plan.steps.find(s=>s.key==='game-config-compensation');
+      currentStepKey=compensation.key;startStepTimer(compensation.key,stepTiming);updateStep(compensation.key,'running');
+      let output='';
+      try{
+        const returned=await runCommand(projectRoot,compensation.command,env,chunk=>{
+          output+=chunk;pushStepLog(compensation.key,chunk.trim());updateStep(compensation.key,'running');
+        },null,null,compensation.timeoutSeconds);
+        const outcome=deploymentTransaction.transactionOutcome(output+'\n'+(returned||''),plan.config.deploymentTransactionId);
+        finishStepTimer(compensation.key,stepTiming);
+        if(outcome==='NOT_SUBMITTED_RESTORED'){
+          completedStepKeys.push(compensation.key);updateStep(compensation.key,'done');
+          pushStepLog(compensation.key,'[CONFIG_COMPENSATED] 本次服务提交未发生，编排已按原身份恢复；未执行服务回滚或SQL');
+          runtimePlan=markStepStatus(runtimePlan,completedStepKeys,compensation.key,'done',stepLogs,stepTiming);
+          return {status:error.name==='CancellationError'?'CANCELLED':'ERROR',plan:runtimePlan,logs:logs.slice(),completedStepKeys,
+            submissionOutcome:'NOT_SUBMITTED',configurationCompensated:true,cutoverCommitted:false,recoveryBoundaryEntered:false};
+        }
+        if(outcome!=='ATTEMPTED')throw Error('提交结果未知；补偿未得到完整成功协议');
+        completedStepKeys.push(compensation.key);updateStep(compensation.key,'done');
+        runtimePlan=markStepStatus(runtimePlan,completedStepKeys,compensation.key,'done',stepLogs,stepTiming);
+        cutoverStarted=true;
+      }catch(compensationError){
+        finishStepTimer(compensation.key,stepTiming);
+        pushStepLog(compensation.key,'RECOVERY_REQUIRED: '+compensationError.message+'；禁止推断未提交或执行服务回滚/SQL');
+        runtimePlan=markStepStatus(runtimePlan,completedStepKeys,compensation.key,'failed',stepLogs,stepTiming);
+        return {status:'RECOVERY_REQUIRED',plan:runtimePlan,logs:logs.slice(),completedStepKeys,submissionOutcome:'UNKNOWN',cutoverCommitted,cutoverCommittedAt};
+      }
+    }
     if (plan.releaseTarget === 'game' && recoveryBoundaryEntered) {
       pushStepLog(failedStepKey, 'RECOVERY_REQUIRED: 科技格式停写边界已进入，保留备份与现场，禁止自动恢复旧写入者');
       return {status: 'RECOVERY_REQUIRED', plan: runtimePlan, logs: logs.slice(), completedStepKeys,
