@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {spawnSync} = require('node:child_process');
-const test = require('node:test');
+const {test, temporaryDirectory} = require('./helpers/ownedFixtures').fixtureLifecycle(require('node:test'));
 const vm = require('node:vm');
 
 process.env.RELEASE_PUBLISHER_TEST_MODE = 'true';
@@ -2129,7 +2129,7 @@ test('rejects request-level production target and compose path overrides', () =>
 });
 
 test('fails closed when a production target is missing or references an unregistered server', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-invalid-target-'));
+  const root = temporaryDirectory('release-publisher-invalid-target-');
   const missingTargetConfig = path.join(root, 'missing-target.json');
   const unregisteredTargetConfig = path.join(root, 'unregistered-target.json');
   const wrongHostConfig = path.join(root, 'wrong-host.json');
@@ -3580,11 +3580,6 @@ test('allows a dry-run pre-push plan for a proposed fast-forward commit', () => 
 
 test('all selected local checks fit the preflight payload and retain their individual timeout budgets', async t => {
   const root = releaseImpactGitProject();
-  t.after(() => {
-    assert.equal(path.dirname(root), path.resolve(os.tmpdir()));
-    assert(path.basename(root).startsWith('release-publisher-'));
-    fs.rmSync(root, {recursive: true, force: true});
-  });
   const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
   const runtimePath = 'src/main/resources/release-impact-demo.txt';
   fs.writeFileSync(path.join(root, runtimePath), 'combined candidate\n');
@@ -4038,7 +4033,6 @@ test('release console exposes game and forum targets with target-aware API paylo
 
 test('build engine preflight runs in the build environment and failure blocks build and production', async t => {
   const root = tempProject(sampleXml);
-  t.after(() => fs.rmSync(root, {recursive: true, force: true}));
   const env = {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
@@ -4114,7 +4108,7 @@ test('proven pre-submit failure compensates config without service rollback or S
 });
 
 function tempProject(_xml) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-'));
+  const root = temporaryDirectory('release-publisher-');
   fs.writeFileSync(path.join(root, 'mvnw.cmd'), '@echo off\r\nexit /b 0\r\n', 'utf8');
   fs.writeFileSync(path.join(root, 'docker-compose.yml'), 'services:\n  hospital-backend:\n    image: hospital-backend:${APP_TAG}\n', 'utf8');
   const catalogSource = path.join(root, 'src', 'main', 'java', 'com', 'zly', 'hospital', 'service', 'catalog');
@@ -4130,7 +4124,7 @@ function tempProject(_xml) {
 }
 
 function tempGitProject() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-git-'));
+  const root = temporaryDirectory('release-publisher-git-');
   runGit(root, ['init']);
   fs.writeFileSync(path.join(root, 'README.md'), 'demo\n', 'utf8');
   fs.writeFileSync(path.join(root, 'docker-compose.yml'), 'services:\n  hospital-backend:\n    image: hospital-backend:${APP_TAG}\n', 'utf8');
@@ -4316,7 +4310,7 @@ function assertStepType(plan, key, actionType, productionAction) {
 }
 
 function tempJetBrainsOptions() {
-  const optionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-jetbrains-'));
+  const optionsDir = temporaryDirectory('release-publisher-jetbrains-');
   fs.writeFileSync(path.join(optionsDir, 'remote-servers.xml'), `<application>
   <component name="RemoteServers">
     <remote-server name="GAME_PRD2" type="docker">
@@ -4340,7 +4334,7 @@ function tempJetBrainsOptions() {
 }
 
 function tempPublisherConfig() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'release-publisher-config-'));
+  const root = temporaryDirectory('release-publisher-config-');
   const configPath = path.join(root, 'release-publisher.config.json');
   fs.writeFileSync(configPath, JSON.stringify({
     gameStaticDelivery: {
