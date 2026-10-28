@@ -15,6 +15,15 @@ function Get-PublisherFileHash([string]$LiteralPath,[string]$Algorithm='SHA256')
  try { @{Hash=([BitConverter]::ToString($hasher.ComputeHash($stream))).Replace('-','')} }
  finally { $stream.Dispose(); $hasher.Dispose() }
 }
+function Get-PublisherServiceCommandIdentity([string]$Command) {
+ # Accept whole quoted or unquoted arguments; never erase grouping or escapes.
+ # The service host emits this bounded grammar, not shell command expressions.
+ if([string]::IsNullOrWhiteSpace($Command) -or $Command -cne $Command.Trim() -or $Command -match '[\r\n]|\\"') { throw 'Unsupported publisher service command quoting' }
+ $parts=[regex]::Matches($Command,'(?:^|[ \t]+)(?:"([^"]*)"|([^ \t"]+))(?=[ \t]|$)')
+ if(($parts.Value -join '') -cne $Command) { throw 'Unsupported publisher service command quoting' }
+ $arguments=@($parts | ForEach-Object { if($_.Groups[1].Success) { $_.Groups[1].Value } else { $_.Groups[2].Value } })
+ return ConvertTo-Json -InputObject $arguments -Compress
+}
 function Invoke-Guard([string]$Action) {
  & node $guard $Action $publisherRoot $oldRoot $updateToken
  if($LASTEXITCODE -ne 0) { throw "Publisher guard $Action failed; do not bypass or remove another owner's lock" }
@@ -27,10 +36,12 @@ if($CandidateCommit -notmatch '^[a-f0-9]{40}$') { throw 'Invalid publisher candi
 $currentService=Get-CimInstance Win32_Service -Filter "Name='RHospitalReleaseConsole'"
 if(!$currentService -or $currentService.State -ne 'Running') { throw 'Expected running publisher service missing' }
 $oldBinaryPath=$currentService.PathName
+$oldServiceIdentity=Get-PublisherServiceCommandIdentity $oldBinaryPath
 $oldProcessId=$currentService.ProcessId
-$match=[regex]::Match($oldBinaryPath,'--repository-root "([^"]+)"')
-if(!$match.Success) { throw 'Unknown publisher installation' }
-$oldRoot=$match.Groups[1].Value
+$oldServiceArguments=ConvertFrom-Json $oldServiceIdentity
+$rootIndexes=@(for($argumentIndex=0;$argumentIndex -lt $oldServiceArguments.Count;$argumentIndex++) { if($oldServiceArguments[$argumentIndex] -ceq '--repository-root') { $argumentIndex } })
+if($rootIndexes.Count -ne 1 -or $rootIndexes[0]+1 -ge $oldServiceArguments.Count) { throw 'Unknown or ambiguous publisher installation' }
+$oldRoot=$oldServiceArguments[$rootIndexes[0]+1]
 $newRoot=Join-Path $publisherRoot ('.service\releases\'+$CandidateCommit.Substring(0,12))
 if(!($oldRoot.StartsWith($publisherRoot+'\.service\releases\',[StringComparison]::OrdinalIgnoreCase))) { throw 'Publisher runtime outside installation boundary' }
 $versionBefore=Invoke-RestMethod -Uri "$uri/api/version" -TimeoutSec 10
@@ -69,13 +80,18 @@ try {
    $resolved=(Resolve-Path -LiteralPath $source).Path
    if(!$resolved.StartsWith($publisherRoot+'\',[StringComparison]::OrdinalIgnoreCase)) { throw 'Evidence outside publisher boundary' }
    if($name -eq '.supplemental-verifications') { Get-ChildItem -LiteralPath $source -File | ForEach-Object { $evidenceBefore[$_.FullName]=(Get-PublisherFileHash -LiteralPath $_.FullName).Hash } }
-   New-Item -ItemType SymbolicLink -Path (Join-Path $newRoot $name) -Target $source | Out-Null
+   # Git treats a directory symlink as a file, defeating the existing dir-only
+   # ignore rules. A same-target junction retains the directory contract.
+   New-Item -ItemType Junction -Path (Join-Path $newRoot $name) -Target $source | Out-Null
   }
  }
+ $candidateDrift=@(& git -C $newRoot status --porcelain --untracked-files=all)
+ if($LASTEXITCODE -ne 0 -or $candidateDrift.Count) { throw 'Prepared publisher runtime is not clean; original service preserved' }
  Assert-Idle
  $serviceNow=Get-CimInstance Win32_Service -Filter "Name='RHospitalReleaseConsole'"
- if($serviceNow.PathName -ne $oldBinaryPath -or $serviceNow.ProcessId -ne $oldProcessId -or $serviceNow.State -ne 'Running') { throw 'Concurrent publisher service change' }
+ if((Get-PublisherServiceCommandIdentity $serviceNow.PathName) -cne $oldServiceIdentity -or $serviceNow.ProcessId -ne $oldProcessId -or $serviceNow.State -ne 'Running') { throw 'Concurrent publisher service change' }
  $newBinaryPath=$oldBinaryPath.Replace($oldRoot,$newRoot)
+ $newServiceIdentity=Get-PublisherServiceCommandIdentity $newBinaryPath
  $stopped=$true
  Stop-Service -Name RHospitalReleaseConsole
  & sc.exe config RHospitalReleaseConsole binPath= $newBinaryPath | Out-Null
@@ -108,10 +124,13 @@ try {
   $storedJobs=Get-Content -LiteralPath (Join-Path $publisherRoot '.release-jobs.json') -Raw | ConvertFrom-Json
   if(@($storedJobs | Where-Object { $_.status -in @('RUNNING','CANCELLING','RECOVERING') }).Count -gt 0) { throw "Stored active job; preserve runtime and lock: $failure" }
   $rollbackService=Get-CimInstance Win32_Service -Filter "Name='RHospitalReleaseConsole'"
-  if($rollbackService.PathName -ne $newBinaryPath -and $rollbackService.PathName -ne $oldBinaryPath) { throw "Concurrent service change; preserve runtime and lock: $failure" }
+  $rollbackIdentity=Get-PublisherServiceCommandIdentity $rollbackService.PathName
+  if($rollbackIdentity -cne $newServiceIdentity -and $rollbackIdentity -cne $oldServiceIdentity) { throw "Concurrent service change; preserve runtime and lock: $failure" }
   Stop-Service -Name RHospitalReleaseConsole -ErrorAction SilentlyContinue
   & sc.exe config RHospitalReleaseConsole binPath= $oldBinaryPath | Out-Null
   if($LASTEXITCODE -ne 0) { throw "Rollback configuration failed; retain guard and lock for review: $failure" }
+  $restoredService=Get-CimInstance Win32_Service -Filter "Name='RHospitalReleaseConsole'"
+  if((Get-PublisherServiceCommandIdentity $restoredService.PathName) -cne $oldServiceIdentity) { throw "Rollback identity mismatch; retain guard and lock for review: $failure" }
   if($barrier) { Invoke-Guard unbarrier; $barrier=$false }
   if($locked) { Invoke-Guard release; $locked=$false }
   # Old server lacks the lock protocol: restoration is complete before reopening.
