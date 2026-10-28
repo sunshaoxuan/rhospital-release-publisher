@@ -2752,6 +2752,9 @@ test('Meelok restoration failure preserves successful game outcome and warns onc
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-restore-fail.json')
   }, {runCommand: runner});
   assert.equal(result.status, 'EXECUTED');
+  assert.equal(result.meelokRecoveryRequired,true);
+  assert.equal(result.plan.steps.find(step=>step.key==='restore-meelok-services').status,'failed');
+  assert.equal(result.plan.steps.find(step=>step.key==='restore-meelok-services').recoveryOutcome,'UNKNOWN');
   assert.equal(commands.filter(command => decodedScriptTree(command).includes('meelok_restore=PASS services=5')).length, 1);
   assert.equal(commands.some(command => decodedScriptTree(command).includes('automatic_rollback_validation=PASS')), false);
   assert.match(result.logs.join('\n'), /WARNING: Meelok 通知步骤未完成/);
@@ -2760,7 +2763,7 @@ test('Meelok restoration failure preserves successful game outcome and warns onc
 
 test('Meelok controlled-exit warning preserves every authoritative game outcome', async () => {
   for (const status of ['ERROR', 'CANCELLED', 'INTERRUPTED', 'ROLLED_BACK', 'RECOVERY_REQUIRED', 'EXECUTED']) {
-    const result = {status, logs: [], completedStepKeys: [], plan: {releaseTarget: 'game', steps: [
+    const result = {status, logs: [], completedStepKeys: [], plan: {releaseTarget: 'game', config:{meelokRecoveryProtocol:1}, steps: [
       {key: 'pause-meelok-services', status: 'done'},
       {key: 'restore-meelok-services', status: 'pending', command: 'restore fixture', timeoutSeconds: 60}
     ]}};
@@ -2772,7 +2775,21 @@ test('Meelok controlled-exit warning preserves every authoritative game outcome'
     assert.equal(runs, 1);
     assert.match(result.logs.join('\n'), /WARNING: Meelok 自动恢复未确认/);
     assert.doesNotMatch(result.logs.join('\n'), /\[DONE\]/);
+    assert.equal(result.meelokRecoveryRequired,true);
+    assert.equal(result.plan.steps[1].status,'failed');
+    assert.equal(result.plan.steps[1].recoveryOutcome,'UNKNOWN');
+    await restoreMeelokAfterControlledExit('fixture',result,{}, {runCommand:async()=>{runs++;}});
+    assert.equal(runs,1);
   }
+});
+
+test('legacy Meelok recovery cannot replay an unbounded saved command',async()=>{
+ const result={status:'INTERRUPTED',logs:[],completedStepKeys:[],plan:{releaseTarget:'game',steps:[{key:'pause-meelok-services',status:'done'},{key:'restore-meelok-services',status:'pending',command:'unbounded legacy fixture'}]}};
+ let runs=0;
+ await restoreMeelokAfterControlledExit('fixture',result,{}, {runCommand:async()=>{runs++;}});
+ assert.equal(runs,0);assert.equal(result.meelokRecoveryRequired,true);
+ assert.equal(result.plan.steps[1].recoveryOutcome,'UNKNOWN');
+ assert.match(result.logs.join('\n'),/operator reconciliation required/);
 });
 
 test('game safety checks remain blocking when unrelated Meelok observations fail', async () => {

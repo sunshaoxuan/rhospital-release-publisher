@@ -1369,6 +1369,7 @@ function createPlan(projectRoot, request, env = process.env) {
       remoteSshTarget,
       remoteComposeDir,
       meelokMaintenanceId,
+      meelokRecoveryProtocol: 1,
       deploymentTransactionId:includeStackDeploy&&!offlineCutover?meelokMaintenanceId:'',
       sshResolution,
       dockerContextResolution,
@@ -1885,6 +1886,8 @@ function isMeelokNotificationStep(key) {
 
 async function executePlan(projectRoot, request, env = process.env, options = {}) {
   const result = await executePlanSteps(projectRoot, request, env, options);
+  const unknownRestore=result.plan?.steps.find(step=>step.key==='restore-meelok-services' && step.logs?.some(line=>String(line).includes('meelok_recovery_outcome=UNKNOWN')));
+  if(unknownRestore) markMeelokRecoveryUnknown(result);
   await restoreMeelokAfterControlledExit(projectRoot, result, env, options);
   if(!result.submissionOutcome&&result.plan?.config?.deploymentTransactionId
       &&result.logs.some(line=>String(line).includes('game_deploy_transaction=ATTEMPTED id='+result.plan.config.deploymentTransactionId))){
@@ -1893,6 +1896,7 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
   result.diagnostics = buildReleaseDiagnostics(result);
   if (result.status === 'DRY_RUN') return result;
   const entry = buildHistoryEntry(result.status, result.plan, result.logs, result.completedStepKeys);
+  if(result.meelokRecoveryRequired) entry.meelokRecoveryRequired=true;
   if(['NOT_SUBMITTED','ATTEMPTED','UNKNOWN'].includes(result.submissionOutcome)){
     entry.submissionOutcome=result.submissionOutcome;
     entry.configurationCompensated=result.configurationCompensated===true;
@@ -1910,11 +1914,22 @@ async function executePlan(projectRoot, request, env = process.env, options = {}
   return result;
 }
 
+function markMeelokRecoveryUnknown(result) {
+  result.meelokRecoveryRequired=true;
+  result.completedStepKeys=result.completedStepKeys.filter(key=>key!=='restore-meelok-services');
+  result.plan={...result.plan,steps:result.plan.steps.map(step=>step.key==='restore-meelok-services'?{...step,status:'failed',recoveryOutcome:'UNKNOWN'}:step)};
+}
+
 async function restoreMeelokAfterControlledExit(projectRoot, result, env, options) {
   if (result.status === 'DRY_RUN' || result.plan.releaseTarget !== 'game') return;
   const pause = result.plan.steps.find(step => step.key === 'pause-meelok-services');
   const restore = result.plan.steps.find(step => step.key === 'restore-meelok-services');
-  if (!pause || !restore || pause.status === 'pending' || restore.status === 'done') return;
+  if (!pause || !restore || pause.status === 'pending' || restore.status === 'done' || restore.recoveryOutcome === 'UNKNOWN') return;
+  if(result.plan.config?.meelokRecoveryProtocol!==1) {
+    result.logs.push('WARNING: legacy Meelok recovery process outcome is unknown; operator reconciliation required; no command replay');
+    markMeelokRecoveryUnknown(result);
+    return;
+  }
   const runCommand = typeof options.runCommand === 'function' ? options.runCommand : runPowerShell;
   const stepLogs = [`[RECOVER] ${restore.title}`];
   result.logs.push(...stepLogs);
@@ -1945,9 +1960,11 @@ async function restoreMeelokAfterControlledExit(projectRoot, result, env, option
     const line = `WARNING: Meelok 自动恢复未确认，保留远端状态快照；游戏结果保持不变: ${error.message}`;
     stepLogs.push(line);
     result.logs.push(line);
-    if (!result.completedStepKeys.includes(restore.key)) result.completedStepKeys.push(restore.key);
+    stepLogs.push('meelok_recovery_outcome=UNKNOWN; preserve assets; do not replay');
+    result.logs.push(stepLogs.at(-1));
     result.plan = {...result.plan, steps: result.plan.steps.map(step => step.key === restore.key
-      ? {...step, status: 'done', logs: stepLogs} : step)};
+      ? {...step, status: 'failed', logs: stepLogs} : step)};
+    markMeelokRecoveryUnknown(result);
   }
 }
 
@@ -2108,6 +2125,7 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
         pushStepLog(step.key, `[RUN] ${step.command}`);
         updateStep(step.key, 'running');
         let capturedCommitOutput = '';
+        let maintenanceUnresolved = false;
         try {
           await runCommand(projectRoot, step.command, env, chunk => {
             if (step.key === 'capture-release-commit') {
@@ -2129,12 +2147,21 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
         } catch (error) {
           assertNotCancelled();
           if (!isMeelokNotificationStep(step.key) || error.name === 'CancellationError') throw error;
+          if(step.key==='restore-meelok-services') {
+            maintenanceUnresolved=true;
+            pushStepLog(step.key,'meelok_recovery_outcome=UNKNOWN; preserve assets; do not replay');
+          }
           pushStepLog(step.key, `WARNING: Meelok 通知步骤未完成，游戏发版继续；状态请查原始输出: ${error.message}`);
         } finally {
           if (capturedCommitOutput.trim()) {
             pushStepLog(step.key, capturedCommitOutput.trim());
             updateStep(step.key, 'running');
           }
+        }
+        if(maintenanceUnresolved) {
+          finishStepTimer(step.key,stepTiming);
+          updateStep(step.key,'failed');
+          continue;
         }
         if (step.validationCommand) {
           pushStepLog(step.key, `[VALIDATE] ${step.validationCommand}`);
@@ -2522,6 +2549,7 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
       key: step.key,
       title: step.title,
       status: step.status || 'pending',
+      recoveryOutcome: step.recoveryOutcome || '',
       durationMs: Number.isFinite(step.durationMs) ? step.durationMs : null,
       actionType: step.actionType,
       productionAction: Boolean(step.productionAction),

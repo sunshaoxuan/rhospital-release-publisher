@@ -45,7 +45,8 @@ docker() {
         else echo "image-$3"; fi
       else echo '[]'; fi ;;
     'service scale')
-      printf '%s\\n' "\${3#*=}" > "\${3%=*}.replicas" ;;
+      local target="$3"; if [ "$target" = --detach ]; then target="$4"; fi
+      printf '%s\\n' "\${target#*=}" > "\${target%=*}.replicas" ;;
     'ps -q')
       local service='' arg count=1
       for arg in "$@"; do case "$arg" in label=com.docker.swarm.service.name=*) service="\${arg#*=}"; service="\${service#*=}" ;; esac; done
@@ -68,6 +69,10 @@ docker() {
     *) echo "unexpected docker call" >&2; return 1 ;;
   esac
 }
+flock() { [ "\${LOCK_BUSY:-false}" != true ]; }
+sync() { :; }
+timeout() { if [ "\${RECOVERY_TIMEOUT:-false}" = true ]; then return 124; fi; command timeout "$@"; }
+export -f docker jq sleep seq awk flock timeout sync
 `;
 
 function fixture(t) {
@@ -79,16 +84,26 @@ function fixture(t) {
     assert.equal(path.dirname(root), qaRoot);
     fs.rmSync(root, {recursive: true, force: true});
   });
-  const run = (commands, env = {}) => spawnSync(bash, ['-c', harness + '\n' + commands.join('\n')], {
+  const run = (commands, env = {}) => {
+    const script=path.join(root,'fixture-command.sh');
+    fs.writeFileSync(script,harness+'\n'+commands.join('\n'));
+    return spawnSync(bash, [script], {
     // Git Bash starts external coreutils for each simulated service. Windows
     // cold process startup can exceed ten seconds for the five-service fixture;
     // this is a harness bound, not a production health/restore timeout.
     cwd: root, env: {...process.env, ...env}, encoding: 'utf8', windowsHide: true,
     timeout: process.platform === 'win32' ? 30000 : 10000
-  });
+    });
+  };
   const calls = () => fs.existsSync(path.join(root, 'calls')) ? fs.readFileSync(path.join(root, 'calls'), 'utf8') : '';
   const resetCalls = () => fs.writeFileSync(path.join(root, 'calls'), '');
-  return {root, run, calls, resetCalls};
+  const seed=()=>{
+    const snapshot=`backup/meelok-replicas-${identity}.json`;
+    fs.writeFileSync(path.join(root,snapshot),JSON.stringify(MEELOK_PAUSE_ORDER.map(name=>({name,replicas:1,image:`image-${name}`}))));
+    fs.writeFileSync(path.join(root,'.meelok-release-pause'),snapshot+'\n');
+    for(const name of MEELOK_PAUSE_ORDER)fs.writeFileSync(path.join(root,`${name}.replicas`),'0');
+  };
+  return {root, run, calls, resetCalls,seed};
 }
 
 test('status notification reports startup and restart facts without any writes', t => {
@@ -161,7 +176,7 @@ test('owned pause and restore preserve five services and clear only the owned ma
   assert.equal(pause.status, 0, pause.stdout + pause.stderr);
   assert.match(pause.stdout, /meelok_pause=PASS/);
   const marker = path.join(f.root, '.meelok-release-pause');
-  assert.equal(fs.readFileSync(marker, 'utf8').trim(), `backup/meelok-replicas-${identity}.json`);
+  assert.ok(fs.readFileSync(marker, 'utf8').trim().endsWith(`/.publisher-maintenance/${identity}/meelok-replicas-${identity}.json`));
   for (const service of MEELOK_PAUSE_ORDER) assert.equal(fs.readFileSync(path.join(f.root, `${service}.replicas`), 'utf8').trim(), '0');
   const restore = f.run(gameMeelokRestoreCommands('.', 'game', identity));
   assert.equal(restore.status, 0, restore.stdout + restore.stderr);
@@ -204,15 +219,13 @@ test('restore refuses a foreign plan or backup without touching any service or m
     fs.writeFileSync(marker, snapshot);
     const restore = f.run(gameMeelokRestoreCommands('.', 'game', otherIdentity));
     assert.notEqual(restore.status, 0);
-    assert.match(restore.stdout, /belongs to another release/);
+    assert.match(restore.stdout, /belongs to another release|automatic replay refused/);
     assert.equal(f.calls(), '');
     assert.equal(fs.readFileSync(marker, 'utf8'), snapshot);
   }
 });
 
 test('restore retains marker when game, memory, image or web readiness fails', t => {
-  const f = fixture(t);
-  assert.equal(f.run(gameMeelokPauseCommands('.', identity)).status, 0);
   for (const env of [
     {BAD_GAME: 'true'}, {MEMORY_KB: '1000000'},
     {BAD_SERVICE: 'meelok_object_storage', BAD_IMAGE: 'true'},
@@ -220,6 +233,7 @@ test('restore retains marker when game, memory, image or web readiness fails', t
     {BAD_SERVICE:'meelok_web',BAD_HEALTH:'none'},
     {BAD_SERVICE:'meelok_worker',BAD_HEALTH:'unknown'}
   ]) {
+    const f=fixture(t);f.seed();
     f.resetCalls();
     const restore = f.run(gameMeelokRestoreCommands('.', 'game', identity), env);
     assert.notEqual(restore.status, 0, JSON.stringify(env));
@@ -229,6 +243,46 @@ test('restore retains marker when game, memory, image or web readiness fails', t
     else if(env.BAD_HEALTH)assert.ok(restore.stdout.includes(`${env.BAD_SERVICE} did not become healthy desired=1 running=1 health=${env.BAD_HEALTH}`));
     else assert.doesNotMatch(f.calls(), /service scale/);
   }
+});
+
+test('restore timeout is observable and unknown outcomes cannot automatically replay',t=>{
+ const f=fixture(t);f.seed();
+ const first=f.run(gameMeelokRestoreCommands('.','game',identity),{RECOVERY_TIMEOUT:'true'});
+ assert.equal(first.status,124,first.stdout+first.stderr);
+ assert.match(first.stdout,/meelok_recovery=UNKNOWN exit_code=124 assets=RETAINED/);
+ const state=path.join(f.root,'.publisher-maintenance',identity,'restore.state');
+ assert.equal(fs.readFileSync(state,'utf8').trim(),'UNKNOWN');
+ const calls=f.calls();
+ const second=f.run(gameMeelokRestoreCommands('.','game',identity));
+ assert.equal(second.status,75);
+ assert.match(second.stdout,/automatic replay refused/);
+ assert.equal(f.calls(),calls);
+ assert.ok(fs.existsSync(path.join(f.root,'.meelok-release-pause')));
+ assert.ok(fs.existsSync(path.join(f.root,'backup',`meelok-replicas-${identity}.json`)));
+});
+
+test('concurrent maintenance refuses before recovery commands and preserves assets',t=>{
+ const f=fixture(t);f.seed();
+ const r=f.run(gameMeelokRestoreCommands('.','game',identity),{LOCK_BUSY:'true'});
+ assert.equal(r.status,75,r.stdout+r.stderr);
+ assert.equal(f.calls(),'');
+ assert.ok(fs.existsSync(path.join(f.root,'.meelok-release-pause')));
+ assert.equal(fs.existsSync(path.join(f.root,'.publisher-maintenance',identity,'restore.state')),false);
+});
+
+test('dedicated snapshot survives ordinary backup removal and terminal archive is idempotent',t=>{
+ const f=fixture(t);
+ const p=f.run(gameMeelokPauseCommands('.',identity));assert.equal(p.status,0,p.stdout+p.stderr);
+ const retained=path.join(f.root,'.publisher-maintenance',identity);
+ assert.ok(fs.existsSync(path.join(f.root,'backup',`.publisher-maintenance-pin-${identity}`)));
+ fs.renameSync(path.join(f.root,'backup'),path.join(f.root,'backup-retained-fixture'));
+ const r=f.run(gameMeelokRestoreCommands('.','game',identity));assert.equal(r.status,0,r.stdout+r.stderr);
+ assert.ok(fs.existsSync(path.join(retained,`meelok-replicas-${identity}.json`)));
+ assert.ok(fs.existsSync(path.join(retained,'marker.completed')));
+ assert.equal(fs.readFileSync(path.join(retained,'restore.state'),'utf8').trim(),'VERIFIED');
+ const calls=f.calls();
+ const again=f.run(gameMeelokRestoreCommands('.','game',identity));assert.equal(again.status,0,again.stdout+again.stderr);
+ assert.match(again.stdout,/ALREADY_VERIFIED/);assert.equal(f.calls(),calls);
 });
 
 test('ownership drift during recovery blocks scaling and marker deletion', t => {
