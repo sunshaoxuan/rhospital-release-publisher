@@ -174,6 +174,7 @@ test('real toilet runner accepts synthetic evidence and rejects failed tests evi
       run: check => (execution = runPowerShellCheck(check, {cwd: root, spawn(executable, args, options) {
         const env = {...process.env};
         delete env.NODE_TEST_CONTEXT;
+        delete env.NODE_OPTIONS;
         return spawnSync(executable, args, {...options, env});
       }})), write: text => output.push(text)
     });

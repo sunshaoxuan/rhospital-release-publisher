@@ -1,4 +1,4 @@
-const {TOILET_MARKET_CHECK, doubleCheckLocalChecks} = require('./localCheckPolicy');
+const {TOILET_MARKET_CHECK, BACTERIA_AUTHORITATIVE_CHECK, doubleCheckLocalChecks} = require('./localCheckPolicy');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -359,11 +359,8 @@ function createPlan(projectRoot, request, env = process.env) {
     title: '核验洗手间独立证据'
   },
   {
-    key: 'verify-bacteria-authoritative-challenges',
+    ...BACTERIA_AUTHORITATIVE_CHECK,
     title: '核验菌落实验室权威挑战',
-    tests: 'src/test/js/bacteriaAuthoritativeChallenge.test.mjs src/test/js/bacteriaCoverReveal.test.mjs src/test/js/bacteriaConcurrentSelection.test.mjs src/test/js/bacteriaSpeed.test.mjs src/test/js/bacteriaSettlementTiming.test.mjs src/test/js/bacteriaChallengeEvidence.test.mjs',
-    validator: 'scripts/bacteria-lab/validate-authoritative-challenge-evidence.mjs',
-    vm: false
   },
   {
     "key": "verify-bacteria-gates",
@@ -404,7 +401,7 @@ function createPlan(projectRoot, request, env = process.env) {
     .map(check => ({...check, command: check.command || chainPowerShellCommands([
       'node '+(check.vm ? '--experimental-vm-modules ' : '')+'--test '+check.tests,
       'node '+check.validator
-    ]), timeoutSeconds: 180}));
+    ]), timeoutSeconds: check.timeoutSeconds ?? 180}));
   const localEvidenceChecks = [
     ...independentChecks.map(({key,command,timeoutSeconds}) => ({key,command,timeoutSeconds})),
     ...(requiresEpidemicFlow ? [{ key: 'verify-game-epidemic-flow', command: chainPowerShellCommands([

@@ -29,6 +29,7 @@ export function decodeChecks(encoded) {
 
 export function runPowerShellCheck(check, options = {}) {
   if (check.key === TOILET_MARKET_CHECK.key) return runToiletMarketCheck(check, options);
+  const {spawn: launch = spawnSync, cwd} = options;
   const commandBase64 = Buffer.from(check.command, 'utf8').toString('base64');
   const wrapper = [
     "$ErrorActionPreference = 'Stop'",
@@ -44,11 +45,12 @@ export function runPowerShellCheck(check, options = {}) {
     '  exit 1',
     '}'
   ].join('\n');
-  const result = spawnSync('powershell', [
+  const result = launch('powershell', [
     '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
     '-Command', '$scriptText = [Console]::In.ReadToEnd(); & ([scriptblock]::Create($scriptText))'
   ], {
     input: `${wrapper}\n`,
+    cwd,
     encoding: 'utf8',
     windowsHide: true,
     timeout: check.timeoutSeconds * 1000,

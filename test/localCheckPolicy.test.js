@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {TOILET_MARKET_CHECK, doubleCheckLocalChecks, assertLocalCheckResult, registeredLocalCheckContracts} = require('../src/localCheckPolicy');
+const {TOILET_MARKET_CHECK, BACTERIA_AUTHORITATIVE_CHECK, doubleCheckLocalChecks, assertLocalCheckResult, registeredLocalCheckContracts} = require('../src/localCheckPolicy');
 const toiletSpec = require('./fixtures/toilet-market-node-spec.json');
 const steam = {key: 'verify-game-steam-auth', command: 'node --test src/test/js/steamLogin.test.cjs', timeoutSeconds: 120};
 const good = {status: 0, output: '# tests 1\n# pass 1\n# fail 0\n# skipped 0\n# cancelled 0\n# todo 0\n'};
@@ -55,7 +55,8 @@ test('independent loading HUD and fault protocols reject cross-feature additions
     ['verify-game-fault-reports', 'src/test/js/bacteriaDiagnostics.test.mjs src/test/js/bacteriaFaultReportEvidence.test.mjs', 'scripts/bacteria-lab/validate-fault-report-evidence.mjs', 'PASS bounded fault reports, privacy, real persistence, authorization, four-view geometry and final source bindings']
   ];
   for (const [key, tests, validator, marker] of specs) {
-    const check = {key, command: 'node --test '+tests+'; node '+validator, timeoutSeconds:180};
+    const check = key === BACTERIA_AUTHORITATIVE_CHECK.key ? BACTERIA_AUTHORITATIVE_CHECK
+      : {key, command: 'node --test '+tests+'; node '+validator, timeoutSeconds:180};
     assert(doubleCheckLocalChecks([check]));
     assert(assertLocalCheckResult(check, {...good, output:good.output+marker}));
     assert.throws(() => assertLocalCheckResult(check, good));

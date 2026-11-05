@@ -1252,6 +1252,7 @@ test('toilet loading HUD and fault checks are independently selected with matchi
     for (const check of checks) {
       const step = plan.steps.find(step => step.key === check.key);
       assert.equal(step.timeoutSeconds,check.timeoutSeconds);
+      assert.equal(check.timeoutSeconds, check.key === 'verify-bacteria-authoritative-challenges' ? 300 : 180);
       assert.equal(step.command,check.command);
     }
     for (const key of keys.filter(key => !selected.includes(key))) assert(!plan.steps.some(step => step.key === key));

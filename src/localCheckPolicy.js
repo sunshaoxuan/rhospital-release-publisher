@@ -6,6 +6,24 @@ const TOILET_MARKET_CHECK = Object.freeze({
   timeoutSeconds: 180
 });
 
+const BACTERIA_AUTHORITATIVE_INPUTS = Object.freeze([
+  'src/test/js/bacteriaAuthoritativeChallenge.test.mjs',
+  'src/test/js/bacteriaCoverReveal.test.mjs',
+  'src/test/js/bacteriaConcurrentSelection.test.mjs',
+  'src/test/js/bacteriaSpeed.test.mjs',
+  'src/test/js/bacteriaSettlementTiming.test.mjs',
+  'src/test/js/bacteriaChallengeEvidence.test.mjs',
+  'scripts/bacteria-lab/validate-authoritative-challenge-evidence.mjs'
+]);
+const BACTERIA_AUTHORITATIVE_CHECK = Object.freeze({
+  key: 'verify-bacteria-authoritative-challenges',
+  command: 'node --test ' + BACTERIA_AUTHORITATIVE_INPUTS.slice(0, -1).join(' ')
+    + '; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; node ' + BACTERIA_AUTHORITATIVE_INPUTS.at(-1),
+  // Observed 156.023s tests + 60.072s evidence. One bounded combined budget,
+  // rounded above 25% headroom; do not skip evidence or restart its deadline.
+  timeoutSeconds: 300
+});
+
 // Reviewed entrypoints, not arbitrary npm aggregates. Shared library calls stay
 // inside the owning validator; another feature's acceptance is selected separately.
 const policies = {
@@ -15,7 +33,7 @@ const policies = {
     marker: 'PASS toilet market barter, hourly positions, legacy-safe migration, runtime visuals and final source binding',
     exactMarker: true
   },
-  'verify-bacteria-authoritative-challenges': {inputs:['src/test/js/bacteriaAuthoritativeChallenge.test.mjs','src/test/js/bacteriaCoverReveal.test.mjs','src/test/js/bacteriaConcurrentSelection.test.mjs','src/test/js/bacteriaSpeed.test.mjs','src/test/js/bacteriaSettlementTiming.test.mjs','src/test/js/bacteriaChallengeEvidence.test.mjs','scripts/bacteria-lab/validate-authoritative-challenge-evidence.mjs'],marker:'PASS bacteria authoritative challenge paths, privacy, lifecycle and final source binding'},
+  [BACTERIA_AUTHORITATIVE_CHECK.key]: {...BACTERIA_AUTHORITATIVE_CHECK, inputs: BACTERIA_AUTHORITATIVE_INPUTS, marker:'PASS bacteria authoritative challenge paths, privacy, lifecycle and final source binding'},
   "verify-bacteria-gates": {inputs:["src/test/js/bacteriaGateAnimation.test.mjs","src/test/js/bacteriaVisibilityMechanics.test.mjs","src/test/js/bacteriaGateEvidence.test.mjs","scripts/bacteria-lab/validate-gate-evidence.mjs"],marker:"PASS bacteria gates all-depth toggle, privacy, promotion and final source binding"},
   "verify-game-loading": {"inputs":["scripts/tests/game-loading-recovery.test.mjs","scripts/tests/emergency-fetch.test.mjs","scripts/ui/validate-game-loading-evidence.mjs"],"marker":"PASS bounded loading recovery evidence, actual runtime and final source binding"},
   "verify-hospital-hud": {"inputs":["src/test/js/hospitalHudGeometry.test.mjs","scripts/ui/validate-hospital-hud.mjs"],"marker":"PASS hospital HUD geometry, runtime evidence and final source binding"},
@@ -113,4 +131,4 @@ function registeredLocalCheckContracts() {
     });
 }
 
-module.exports = {TOILET_MARKET_CHECK, doubleCheckLocalChecks, assertLocalCheckResult, registeredLocalCheckContracts};
+module.exports = {TOILET_MARKET_CHECK, BACTERIA_AUTHORITATIVE_CHECK, doubleCheckLocalChecks, assertLocalCheckResult, registeredLocalCheckContracts};
