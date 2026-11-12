@@ -135,6 +135,7 @@
     "mvnw",
     "mvnw.cmd",
     "pom.xml",
+    "scripts/migration/20261021_room_catalog.sql",
     "scripts/migration/20261113_add_skin_reward_policies.sql",
     "scripts/validation/skins/migration-check.py",
     "src/main/java/com/zly/hospital/HospitalBackendApplication.java",

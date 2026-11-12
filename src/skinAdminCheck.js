@@ -41,7 +41,7 @@ function runSkin(root,classes,seconds=1200){
   const details=fs.existsSync(folder)?fs.readdirSync(folder).filter(f=>f.startsWith('TEST-')&&f.endsWith('.xml')).flatMap(f=>{
    const text=fs.readFileSync(path.join(folder,f),'utf8');return [...text.matchAll(/<(?:failure|error)\b[^>]*message="([^"]*)"[^>]*>/g)].map(m=>f+': '+m[1]);
   }):[];
-  throw new Error(error.message+'\n'+details.join('\n').slice(0,14000));
+  throw new Error(error.message+'\n'+[...new Set(details)].join('\n').slice(0,14000));
  }
  const tests=reports(root,classes,started);
  run(process.execPath,['--check','src/main/resources/static/js/adminSkins.mjs'],{cwd:root,env,timeout:30000});
