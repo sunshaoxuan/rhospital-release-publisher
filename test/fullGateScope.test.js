@@ -41,6 +41,19 @@ test('actual forum reuse plan retains database admission backup and runtime safe
  const keys=plan.steps.map(s=>s.key);for(const key of ['validate-existing-forum-image','forum-preflight','backup-forum-release','deploy-forum-compose','final-runtime-check','forum-rollback-command'])assert(keys.includes(key),key);
  assert(!keys.includes('validate-game-release-preflight'));
 }));
+test('actual R34-shaped plan carries all five current contracts without historical validators',()=>fixture(root=>{
+ project(root);const file='src/main/resources/static/js/design/probe.mjs';put(root,file,'// controlled candidate');
+ const keys=['verify-toilet-market','verify-bacteria-authoritative-challenges','verify-bacteria-gates','verify-game-steam-auth','verify-design-level-packages'];
+ const mandatory=['test-game-backend','verify-game-static-assets-predeploy','pre-deploy-checklist','final-runtime-check','verify-game-static-delivery'];
+ const target=(coveredRuntimePaths,checks)=>({checklistDecision:'existing-checks-sufficient',riskLevel:'low',codeImpact:'Controlled fixture validates current check ownership and production boundaries',databaseImpact:'none',coveredRuntimePaths,requiredChecks:checks.map(stepKey=>({stepKey,reason:'Controlled current candidate coverage for '+stepKey}))});
+ put(root,'release/release-impact.json',JSON.stringify({schemaVersion:1,assessmentId:'20261112-current-checks',summary:'Controlled current behavior selection',targets:{game:target([file],[...mandatory,...keys,'verify-game-steam-runtime']),forum:target([],['validate-forum-source','forum-preflight','final-runtime-check'])}}));
+ const plan=createPlan(root,{appTag:'20261112',dryRun:true,includeStackDeploy:true,changeAnalysis:{targets:{game:{changed:true,changedPaths:[file],ignoredPaths:['release/release-impact.json']}}}},{...env,RELEASE_PUBLISHER_CONFIG:process.env.RELEASE_PUBLISHER_CONFIG});
+ const preflight=plan.steps.find(s=>s.key==='validate-game-release-preflight');
+ const checks=JSON.parse(Buffer.from(preflight.command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/)[1],'base64').toString()).checks;
+ assert.deepEqual(checks.map(c=>c.key).sort(),keys.sort());doubleCheckLocalChecks(checks);
+ for(const check of checks){const step=plan.steps.find(s=>s.key===check.key);assert.equal(step.command,check.command);assert.equal(step.coveredByPreflight,preflight.key);assert(!/validate-.+evidence|Evidence\.test/.test(step.command));}
+ assert(!plan.steps.some(s=>s.key==='verify-relations-release'||s.key==='verify-tradepool-release'));
+}));
 test('archive guard rejects actual sync async and subprocess history reads while current fixtures work',()=>fixture(root=>{
  const guard=path.resolve(__dirname,'../src/currentBehaviorGuard.cjs'),script=path.join(root,'probe.cjs');
  put(root,'current.json','{}');put(root,'docs/evidence/old.json','corrupt old bytes');

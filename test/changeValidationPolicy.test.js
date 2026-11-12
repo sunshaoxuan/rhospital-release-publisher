@@ -24,7 +24,21 @@ test('attribute validation has no archived receipt or predecessor inputs',()=>{
 });
 test('current test split selects actual affected behavior without archives or global evidence closure',()=>{
  const plan=planChanges('game',['src/test/js/toiletMarket.test.mjs']);
- assert.deepEqual(plan.checks.map(c=>c.key),['current-behavior']);
+ assert.deepEqual(plan.checks.map(c=>c.key),['current-toilet-market']);
  assert(plan.checks[0].inputs.every(p=>!p.startsWith('docs/evidence/')));
  assert(plan.checks[0].inputs.length<250);
+});
+test('optional CI identity configuration uses static checks without product suites',()=>{
+ assert.deepEqual(planChanges('game',['.github/workflows/final-release-preflight.yml']).checks.map(c=>c.key),['documents']);
+});
+test('manual archive metadata is not required by normal publisher code checks',()=>{
+ const archived=['src/manualArchiveChecks.json','src/designValidationLeaves.json','src/designEvidenceInputs.json'];
+ const checks=planChanges('publisher',['src/releasePublisherCore.js']).checks;
+ for(const check of checks)for(const file of archived)assert(!check.inputs.includes(file),file);
+ for(const file of archived)assert.deepEqual(planChanges('publisher',[file]).checks.map(c=>c.key),['documents']);
+});
+
+test('each changed behavior selects its own consumers without unrelated game features',()=>{
+ const one=planChanges('game',['src/test/js/toiletMarket.test.mjs']);assert.equal(one.checks.length,1);assert.deepEqual(one.checks[0].tests,['src/test/js/toiletMarket.test.mjs']);
+ const design=planChanges('game',['src/test/resources/design/user-60x60-32color-request.json']);assert(design.checks.length>0);assert(design.checks.every(c=>c.key.startsWith('current-design-')));
 });

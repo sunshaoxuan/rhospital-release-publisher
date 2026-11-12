@@ -66,7 +66,7 @@ print('recovery_fixture=PASS')
 
 test('streaming preflight exposes progress before completion and retains exact protocols',async()=>{
   const {runChecksStreaming}=await import('../scripts/run-game-release-preflight.mjs');
-  const check={key:'verify-game-medical-contest-entry',command:'node --test src/test/js/medicalContestEntry.test.mjs',timeoutSeconds:120};
+  const check=require('../src/localCheckPolicy').currentLocalCheck('verify-game-medical-contest-entry');
   let text='',during=false;
   const result=await runChecksStreaming([check],{write:chunk=>text+=chunk,run:async(_check,write)=>{
     write('feature_stage=testing\n');

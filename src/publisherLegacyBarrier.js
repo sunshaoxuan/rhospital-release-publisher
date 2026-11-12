@@ -1,6 +1,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {spawnSync} = require('node:child_process');
+const {RUNTIME_STATUS_PATHS} = require('./publisherVersion');
+const statusArgs = ['status', '--porcelain', '--untracked-files=all', '--', ...RUNTIME_STATUS_PATHS];
 
 function git(root, args) {
   const r = spawnSync('git', args, {cwd: root, encoding: 'utf8', windowsHide: true});
@@ -10,13 +12,13 @@ function git(root, args) {
 
 function createLegacyBarrier(root, token) {
   if (!/^[a-f0-9-]{36}$/.test(token)) throw new Error('Invalid publisher barrier identity');
-  if (git(root, ['status', '--porcelain', '--untracked-files=all'])) throw new Error('Old publisher runtime must be clean before update');
+  if (git(root, statusArgs)) throw new Error('Publisher runtime files must be clean before update');
   const name = `publisher-update-${token}.guard`;
   const file = path.join(root, name);
   fs.writeFileSync(file, token, {flag: 'wx'});
   try {
     // Old server's synchronous action-version gate reads this exact Git status.
-    if (git(root, ['status', '--porcelain', '--untracked-files=all']) !== `?? ${name}`) throw new Error('Legacy action barrier is not exclusively visible to Git');
+    if (git(root, statusArgs) !== `?? ${name}`) throw new Error('Update action barrier is not exclusively visible to Git');
   } catch (error) { removeLegacyBarrier(root, token); throw error; }
   return file;
 }

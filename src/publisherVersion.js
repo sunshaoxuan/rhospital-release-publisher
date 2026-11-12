@@ -3,7 +3,13 @@ const fs = require('fs');
 const path = require('path');
 const {spawnSync} = require('child_process');
 
-const RUNTIME_PATHS = ['package.json', 'server.js', 'src', 'public'];
+const RUNTIME_PATHS = ['package.json', 'package-lock.json', 'server.js', 'src', 'public', 'scripts', 'service'];
+// Explicit manual archive tooling is not loaded by a normal release operation.
+const ARCHIVE_ONLY_PATHS = ['src/manualArchiveChecks.json', 'src/designValidationLeaves.json',
+  'src/designEvidenceInputs.json', 'scripts/audit-historical-evidence.mjs', 'scripts/verify-potion-lab-release.mjs'];
+// The updater intentionally uses this marker to block in-flight actions.
+const RUNTIME_STATUS_PATHS = [...RUNTIME_PATHS, 'publisher-update-*.guard',
+  ...ARCHIVE_ONLY_PATHS.map(file => ':(exclude)' + file)];
 
 function capturePublisherRuntimeVersion(repositoryRoot, options = {}) {
   const repository = readPublisherRepositoryVersion(repositoryRoot, options);
@@ -73,24 +79,27 @@ function readPublisherRepositoryVersion(repositoryRoot, options = {}) {
   const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
   const gitRunner = options.gitRunner || spawnSync;
   const commit = runGit(root, ['rev-parse', 'HEAD'], gitRunner);
-  const dirtyOutput = runGit(root, ['status', '--porcelain', '--untracked-files=all'], gitRunner);
+  const dirtyOutput = runGit(root, ['status', '--porcelain', '--untracked-files=all', '--', ...RUNTIME_STATUS_PATHS], gitRunner);
   return {
     packageVersion: String(packageJson.version || '0.0.0'),
     commit,
     shortCommit: commit ? commit.slice(0, 8) : 'unknown',
-    dirty: Boolean(dirtyOutput.trim()),
+    dirty: Boolean(dirtyOutput && dirtyOutput.trim()),
+    gitVerified: commit !== null && dirtyOutput !== null,
     contentHash: publisherContentHash(root)
   };
 }
 
 function comparePublisherVersions(runtime, repository) {
-  if (!runtime.commit || !repository.commit) {
+  if (!runtime.commit || !repository.commit || runtime.gitVerified === false || repository.gitVerified === false
+      || !/^[a-f0-9]{64}$/.test(runtime.contentHash || '')
+      || !/^[a-f0-9]{64}$/.test(repository.contentHash || '')) {
     return 'UNKNOWN';
   }
   if (runtime.dirty || repository.dirty) {
     return 'UNCOMMITTED_CHANGES';
   }
-  if (runtime.commit !== repository.commit || runtime.contentHash !== repository.contentHash) {
+  if (runtime.contentHash !== repository.contentHash) {
     return 'RESTART_REQUIRED';
   }
   return 'UP_TO_DATE';
@@ -112,6 +121,7 @@ function formatPublisherVersion(packageVersion, shortCommit, dirty) {
 function publisherContentHash(repositoryRoot) {
   const hash = crypto.createHash('sha256');
   const files = RUNTIME_PATHS.flatMap(relativePath => listFiles(repositoryRoot, relativePath))
+    .filter(file => !ARCHIVE_ONLY_PATHS.includes(file.replaceAll('\\', '/')))
     .sort((left, right) => left.localeCompare(right));
   for (const relativePath of files) {
     hash.update(relativePath.replace(/\\/g, '/'));
@@ -143,14 +153,15 @@ function runGit(repositoryRoot, args, gitRunner) {
     encoding: 'utf8',
     windowsHide: true
   });
-  if (result.status !== 0) {
-    return '';
+  if (result.status !== 0 || result.error || result.signal) {
+    return null;
   }
   return String(result.stdout || '').trim();
 }
 
 module.exports = {
   RUNTIME_PATHS,
+  RUNTIME_STATUS_PATHS,
   capturePublisherRuntimeVersion,
   getPublisherVersionStatus,
   assertPublisherActionVersion,

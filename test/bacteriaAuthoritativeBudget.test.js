@@ -1,87 +1,23 @@
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const {spawnSync} = require('node:child_process');
-const {test, temporaryDirectory} = require('./helpers/ownedFixtures').fixtureLifecycle(require('node:test'));
-const {BACTERIA_AUTHORITATIVE_CHECK: check, doubleCheckLocalChecks,
-  assertLocalCheckResult, registeredLocalCheckContracts} = require('../src/localCheckPolicy');
-const marker = 'PASS bacteria authoritative challenge paths, privacy, lifecycle and final source binding';
-const tap = '# tests 125\n# pass 125\n# fail 0\n# skipped 0\n# cancelled 0\n# todo 0\n';
-
-test('authoritative budget is exact, independently exported and rejects drift before execution', async () => {
-  const {decodeChecks, runChecks} = await import('../scripts/run-game-release-preflight.mjs');
-  const contract = registeredLocalCheckContracts().find(item => item.key === check.key);
-  assert.equal(check.timeoutSeconds, 300);
-  assert.equal(contract.timeoutSeconds, 300);
-  assert.equal(contract.inputs.length, 7);
-  contract.inputs.pop();
-  assert.equal(registeredLocalCheckContracts().find(item => item.key === check.key).inputs.length, 7);
-  assert(doubleCheckLocalChecks([check]));
-  assert.throws(() => doubleCheckLocalChecks([check], []));
-  assert.throws(() => doubleCheckLocalChecks([check, check]));
-  for (const changed of [
-    ...[undefined, 180, 299, 301, 3600, '300'].map(timeoutSeconds => ({...check, timeoutSeconds})),
-    {...check, command: check.command.replace('src/test/js/bacteriaSpeed.test.mjs ', '')},
-    {...check, command: check.command + '; node scripts/bacteria-lab/validate-authoritative-challenge-evidence.mjs'},
-    {...check, command: check.command + '; node scripts/bacteria-lab/validate-ranking-evidence.mjs'},
-    {...check, command: check.command.replace('if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; ', '')}
-  ]) {
-    assert.throws(() => doubleCheckLocalChecks([changed], [changed]));
-    assert.throws(() => decodeChecks(Buffer.from(JSON.stringify({version: 1, checks: [changed]})).toString('base64')));
-    assert.throws(() => runChecks([changed], {run() { assert.fail('invalid contract executed'); }}));
-  }
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
+const {spawnSync}=require('node:child_process');
+const {BACTERIA_AUTHORITATIVE_CHECK:check,registeredLocalCheckContracts,doubleCheckLocalChecks}=require('../src/localCheckPolicy');
+const {runLeaves}=require('../src/localCheckLeaves');
+test('authoritative current budget is exact and contains five behavior files without archive validators',()=>{
+ const c=registeredLocalCheckContracts().find(c=>c.key===check.key);assert.equal(c.timeoutSeconds,300);assert.equal(c.inputs.length,5);
+ for(const timeoutSeconds of [undefined,180,299,301,3600,'300'])assert.throws(()=>doubleCheckLocalChecks([{...check,timeoutSeconds}]));
+ assert.throws(()=>doubleCheckLocalChecks([{...check,command:check.command+' && node scripts/bacteria-lab/validate-authoritative-challenge-evidence.mjs'}]));
 });
-
-test('authoritative budget reaches the native executor once and never accepts timeout as PASS', async () => {
-  const {runPowerShellCheck, runChecks} = await import('../scripts/run-game-release-preflight.mjs');
-  for (const failure of [null, {status: null, error: new Error('ETIMEDOUT'), signal: 'SIGTERM'}, {status: 7}]) {
-    let calls = 0;
-    const output = [];
-    const outcome = runChecks([check], {write: text => output.push(text), run: candidate => runPowerShellCheck(candidate, {
-      spawn(executable, args, options) {
-        calls++;
-        assert.equal(options.timeout, 300000);
-        assert.equal(executable, 'powershell');
-        assert(options.input.includes(Buffer.from(check.command).toString('base64')));
-        return {status: 0, stdout: tap + marker, ...failure};
-      }
-    })});
-    assert.equal(calls, 1);
-    assert.equal(outcome.passed, !failure);
-    assert.match(output.join(''), failure ? /game_release_preflight=FAIL/ : /game_release_preflight=PASS/);
-  }
-  for (const result of [
-    {status: 0, output: tap},
-    {status: 0, output: tap.replace('# pass 125', '# pass 124') + marker},
-    {status: 0, output: tap.replace('# skipped 0', '# skipped 1') + marker},
-    {status: 0, output: tap + marker, signal: 'SIGTERM'}
-  ]) assert.throws(() => assertLocalCheckResult(check, result));
+test('one parent deadline bounds all five leaves and incomplete output blocks the owner',async()=>{
+ let calls=0;const output='# tests 1\n# pass 1\n# fail 0\n# skipped 0\n# cancelled 0\n# todo 0\n';
+ await runLeaves([check],{run:async leaf=>{calls++;assert(leaf.timeoutSeconds>0&&leaf.timeoutSeconds<=300);return {status:0,output};}});assert.equal(calls,5);
+ await assert.rejects(runLeaves([check],{run:async()=>({status:null,error:'ETIMEDOUT',output})}));
 });
-
-test('authoritative native contract retains all seven inputs and stops on test or evidence failure', async () => {
-  const {runChecks, runPowerShellCheck} = await import('../scripts/run-game-release-preflight.mjs');
-  const inputs = registeredLocalCheckContracts().find(item => item.key === check.key).inputs;
-  for (const scenario of ['pass', 'tests-fail', 'evidence-fail', 'marker-missing']) {
-    const root = temporaryDirectory('release-publisher-authoritative-contract-');
-    for (const [index, input] of inputs.entries()) {
-      const filename = path.join(root, input);
-      fs.mkdirSync(path.dirname(filename), {recursive: true});
-      fs.writeFileSync(filename, index < 6
-        ? `import {test} from 'node:test'; test('isolated fixture ${index}',()=>{${scenario === 'tests-fail' && index === 0 ? "throw Error('expected test failure')" : ''}});`
-        : `import fs from 'node:fs'; fs.writeFileSync('validator-ran','yes'); ${scenario === 'evidence-fail' ? 'process.exitCode=9;' : scenario === 'marker-missing' ? "console.log('incomplete');" : `console.log(${JSON.stringify(marker)});`}`);
-    }
-    let captured;
-    const result = runChecks([check], {write() {}, run: candidate => (captured = runPowerShellCheck(candidate, {
-      cwd: root, spawn(executable, args, options) {
-        const env = {...process.env}; delete env.NODE_TEST_CONTEXT; delete env.NODE_OPTIONS;
-        return spawnSync(executable, args, {...options, env});
-      }
-    }))});
-    assert.equal(result.passed, scenario === 'pass', `${scenario}\n${captured.output}`);
-    assert.equal(fs.existsSync(path.join(root, 'validator-ran')), scenario !== 'tests-fail');
-    if (scenario === 'pass') {
-      assert.match(captured.output, /(?:#|ℹ) tests 6/);
-      assert.match(captured.output, /isolated fixture 0/);
-    }
-  }
+test('actual authoritative CLI works without history and rejects current failures',()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'current-authority-'));try{
+  const inputs=registeredLocalCheckContracts().find(c=>c.key===check.key).inputs;
+  for(const file of inputs){fs.mkdirSync(path.dirname(path.join(root,file)),{recursive:true});fs.writeFileSync(path.join(root,file),"import test from 'node:test';test('current controlled behavior',()=>{});");}
+  const args=[path.resolve(__dirname,'../scripts/run-game-release-preflight.mjs'),'--checks-base64',Buffer.from(JSON.stringify({version:1,checks:[check]})).toString('base64')];const env={...process.env};delete env.NODE_TEST_CONTEXT;
+  let r=spawnSync(process.execPath,args,{cwd:root,env,encoding:'utf8',windowsHide:true,timeout:15000});assert.equal(r.status,0,r.stdout+r.stderr);assert(r.stdout.includes('game_release_preflight=PASS'));
+  fs.writeFileSync(path.join(root,inputs[0]),"import test from 'node:test';test('current fault',()=>{throw Error('controlled');});");r=spawnSync(process.execPath,args,{cwd:root,env,encoding:'utf8',windowsHide:true,timeout:15000});assert.notEqual(r.status,0);assert(!r.stdout.includes('game_release_preflight=PASS'));
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
 });

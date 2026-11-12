@@ -294,7 +294,7 @@ test('creates dry run command plan without production execution enabled', () => 
   assert.ok(plan.steps.some(step => step.key === 'validate-game-sso-source'
     && !step.command.includes('merge-base --is-ancestor')
     && !step.command.includes('git cat-file -e')
-    && step.command.includes('ForumSsoDatabaseUpgradeService.java')));
+    && step.command.includes('CatalogDatabaseUpgradeService.java')));
   assert.ok(plan.steps.some(step => step.key === 'test-game-backend'
     && step.command.includes('docker build --target build')
     && !step.command.includes('-H')

@@ -10,7 +10,6 @@
     "src/changeValidationRunner.js",
     "src/codegraphPrerequisites.py",
     "src/currentBehaviorChecks.json",
-    "src/designEvidenceInputs.json",
     "src/gameCodegraphCutover.js",
     "src/gameDeploymentTransaction.js",
     "src/gameFormalProductionTransition.js",

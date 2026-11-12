@@ -1,0 +1,146 @@
+{
+  "scope": "A3 final publisher source and independent current-behavior ownership",
+  "result": "PASS",
+  "checks": {
+    "publisher-contract": {
+      "result": "PASS",
+      "completedAt": "2026-11-12T13:48:17.161Z",
+      "tests": 4
+    },
+    "publisher-plan": {
+      "result": "PASS",
+      "completedAt": "2026-11-12T13:48:21.430Z",
+      "tests": 8
+    },
+    "publisher-policy": {
+      "result": "PASS",
+      "completedAt": "2026-11-12T13:48:01.473Z",
+      "tests": 9
+    },
+    "publisher-leaves": {
+      "result": "PASS",
+      "completedAt": "2026-11-12T13:48:17.679Z",
+      "tests": 3
+    },
+    "publisher-runner": {
+      "result": "PASS",
+      "completedAt": "2026-11-12T13:48:16.645Z",
+      "tests": 7
+    },
+    "publisher-version": {
+      "result": "PASS",
+      "completedAt": "2026-11-12T13:48:00.974Z",
+      "tests": 8
+    },
+    "publisher-preflight": {
+      "result": "PASS",
+      "completedAt": "2026-11-12T13:47:36.179Z",
+      "tests": 12
+    }
+  },
+  "totalPublisherTests": 51,
+  "sourceSha256": {
+    "scripts/audit-historical-evidence.mjs": "e2dcb7b168f06f22e85c16c2ac08761434a47628b0f9b70da4b3022ca41d40f3",
+    "src/changeValidationPolicy.js": "8d9070853aca60bffa6177305376916d52555a8cd0cca1e8161c4e39f5217280",
+    "src/currentBehaviorInputs.json": "4bedfa57624c26c7a0c6d166b0d2c5d5d4a53e9199621dd9a6a45e4e80e91279",
+    "src/publisherGateInputs.json": "3a6ba96650c05542460644df89b4f44313bfd493433dbe93e73655efd27e3cfe",
+    "src/publisherLegacyBarrier.js": "69a7c4a7ce86dbbddf2ace77641348c795fda79b3701f1dba8e252aa87d0aa16",
+    "src/publisherVersion.js": "eeca24f38df6d21efc9c452d8cbd7422799c5696a1f8c57ad0c9b323ce2854e2",
+    "test/bacteriaAuthoritativeBudget.test.js": "6ef078ba058ffda84278a95e58ebf00467f9cde005e93bd09e75e2c5d1a2ad1b",
+    "test/changeValidationPolicy.test.js": "9ad89674c1a5000ff022dae57ea0bfd2bf179916d332b1bf914335a6bab33955",
+    "test/fullGateScope.test.js": "e20149b3d9c07893bd3730509cfa8a3ee5aa9a87e71ce6f1bc55d424b7981f02",
+    "test/gameRecoverySafety.test.js": "a5b043722e56a011c2607af68c7e8ec4f7d40be3092135e4429121470c967291",
+    "test/gameReleasePreflight.test.js": "49ac7008bf3770c66c40bb4775ba3cfeb761445e79550fffc3556179ca7f58c0",
+    "test/publisherVersionScope.test.js": "12bab42a6d363f2d64e02310a757be819dd4abf5fdd2e3e0abf2d1f1152670cf",
+    "test/releasePublisherCore.test.js": "ee09306adb95f513a38154d29ab7463c92a950eef9566b4a13b906e69a5dde24"
+  },
+  "isolatedBehaviorAcceptance": {
+    "commit": "24824287632f7a9a7e15d0fd6df1d10d3fe29084",
+    "scope": "eleven independent immutable current-test snapshots; no archives or sibling test dependencies",
+    "checks": [
+      {
+        "key": "current-toilet-market",
+        "state": "PASS",
+        "tests": 45,
+        "elapsedMs": 784,
+        "ownedInputs": 24
+      },
+      {
+        "key": "current-bacteria-visibility-mechanics",
+        "state": "PASS",
+        "tests": 15,
+        "elapsedMs": 1423,
+        "ownedInputs": 47
+      },
+      {
+        "key": "current-bacteria-normal-startup",
+        "state": "PASS",
+        "tests": 11,
+        "elapsedMs": 441,
+        "ownedInputs": 49
+      },
+      {
+        "key": "current-design-worker",
+        "state": "PASS",
+        "tests": 1,
+        "elapsedMs": 15706,
+        "ownedInputs": 72
+      },
+      {
+        "key": "current-design-certification",
+        "state": "PASS",
+        "tests": 12,
+        "elapsedMs": 1371,
+        "ownedInputs": 57
+      },
+      {
+        "key": "current-design-auto-colors",
+        "state": "PASS",
+        "tests": 5,
+        "elapsedMs": 9269,
+        "ownedInputs": 33
+      },
+      {
+        "key": "current-bacteria-ranking-lifecycle",
+        "state": "PASS",
+        "tests": 2,
+        "elapsedMs": 341,
+        "ownedInputs": 16
+      },
+      {
+        "key": "current-hospital-hud-current",
+        "state": "PASS",
+        "tests": 10,
+        "elapsedMs": 450,
+        "ownedInputs": 2
+      },
+      {
+        "key": "current-mobile-log-actions",
+        "state": "PASS",
+        "tests": 13,
+        "elapsedMs": 357,
+        "ownedInputs": 32
+      },
+      {
+        "key": "current-void-reward-entry",
+        "state": "PASS",
+        "tests": 46,
+        "elapsedMs": 468,
+        "ownedInputs": 24
+      },
+      {
+        "key": "current-void-reward-captcha",
+        "state": "PASS",
+        "tests": 9,
+        "elapsedMs": 418,
+        "ownedInputs": 3
+      }
+    ],
+    "result": "PASS"
+  },
+  "installedServiceCommit": "864c645bba885ac3ffba79713005a0b2311eac88",
+  "installedServiceIdle": true,
+  "productionExecuted": false,
+  "databaseEngineUpgraded": false,
+  "candidateApiReadinessImplemented": false
+}
