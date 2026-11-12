@@ -15,7 +15,7 @@ const RESIDENT_INPUTS = [
     .map(n=>'src/main/java/com/zly/hospital/model/resident/'+n+'.java')
 ];
 const POLICY_FILES = ['src/changeValidationPolicy.js','src/changeValidationRunner.js','src/changeValidationReceipts.js',
-  'src/residentMigrationCheck.js','src/localCheckLeaves.js','src/changeValidationGit.js','src/designValidationLeaves.json'];
+  'src/residentMigrationCheck.js','src/localCheckLeaves.js','src/changeValidationGit.js','src/designValidationLeaves.json','src/designEvidenceInputs.json'];
 const PUBLISHER_GATE_INPUTS = [...POLICY_FILES,'.gitattributes','src/localCheckPolicy.js','scripts/run-game-release-preflight.mjs',
   'scripts/validate-local-change.mjs','.githooks/pre-commit','.githooks/pre-push',
   'test/changeValidationPolicy.test.js','test/changeValidationRunner.test.js',
@@ -40,7 +40,10 @@ function planChanges(repository, changedPaths) {
     if(document(file)) {docs.push(file);continue;}
     if(repository==='game' && APP_GATE_INPUTS.includes(file)) selected.add('game-gate');
     else if(repository==='game' && RESIDENT_INPUTS.slice(0,4).includes(file)) selected.add('resident-schema');
-    else if(repository==='game' && ['scripts/bacteria-lab/validate-design-evidence.mjs','scripts/bacteria-lab/design-validation-leaves.json'].includes(file)) selected.add('game-gate');
+    else if(repository==='game' && file==='scripts/bacteria-lab/validate-design-evidence.mjs') {selected.add('game-gate');selected.add('design-evidence');}
+    else if(repository==='game' && file==='scripts/bacteria-lab/design-validation-leaves.json') selected.add('game-gate');
+    else if(repository==='game' && ['scripts/bacteria-lab/validate-stall-monitor-evidence.mjs','scripts/bacteria-lab/r34-source-successor.mjs',
+      'src/test/js/bacteriaStallMonitorEvidence.test.mjs','src/test/js/bacteriaQueueMotionEvidence.test.mjs','src/test/js/designEvidenceGate.test.mjs'].includes(file)) selected.add('design-evidence');
     else if(repository==='publisher' && PUBLISHER_GATE_INPUTS.includes(file)) selected.add('publisher-gate');
     else unmapped.push(file);
   }
@@ -52,6 +55,8 @@ function planChanges(repository, changedPaths) {
   if(selected.has('game-gate')) checks.push({key:'game-gate',kind:'node-tests',inputs:[...APP_GATE_INPUTS,
     'scripts/bacteria-lab/validate-design-evidence.mjs','scripts/bacteria-lab/design-validation-leaves.json'],
     tests:['src/test/js/changeValidationGate.test.mjs'],timeoutSeconds:180});
+  if(selected.has('design-evidence')) checks.push({key:'design-evidence',kind:'node-tests',inputs:require('./designEvidenceInputs.json').files,
+    dependencies:['pngjs'],tests:['src/test/js/bacteriaStallMonitorEvidence.test.mjs','src/test/js/bacteriaQueueMotionEvidence.test.mjs','src/test/js/designEvidenceGate.test.mjs'],timeoutSeconds:180});
   if(selected.has('publisher-gate')) checks.push({key:'publisher-gate',kind:'node-tests',inputs:PUBLISHER_GATE_INPUTS,
     tests:['test/changeValidationPolicy.test.js','test/changeValidationRunner.test.js','test/localCheckLeaves.test.js','test/localCheckPolicy.test.js'],timeoutSeconds:180});
   return {schema:1,repository,changedPaths:paths,checks,scope:'local-change',productionActions:false};

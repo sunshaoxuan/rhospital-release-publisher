@@ -20,7 +20,7 @@ function selectLeaves(checks) {
         // The pinned toilet protocol requires one authentic combined TAP summary.
         if(check.key==='verify-toilet-market')specs.push({args:['--test','--test-concurrency=1',...files],test:true});
         else for(const file of files)specs.push({args:['--test','--test-concurrency=1',file],test:true});
-      } else specs.push({args:tokens,test:false});
+      } else specs.push({args:tokens[0]==='scripts/bacteria-lab/validate-design-evidence.mjs'?[...tokens,'--leaf-plan-v1']:tokens,test:false});
     }
     if(check.key==='verify-design-level-packages') {
       for(const file of design.tests)specs.push({args:['--test','--test-concurrency=1',file],test:true});

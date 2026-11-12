@@ -4,7 +4,7 @@ const {createRequire}=require('node:module');
 function git(root,args,input) {
   const env={...process.env,GIT_NO_REPLACE_OBJECTS:'1',GIT_NO_LAZY_FETCH:'1'};
   for(const k of ['GIT_DIR','GIT_WORK_TREE','GIT_COMMON_DIR','GIT_INDEX_FILE'])delete env[k];
-  return execFileSync('git',['-C',root,...args],{input,env,windowsHide:true,maxBuffer:32*1024*1024});
+  return execFileSync('git',['-C',root,...args],{input,env,windowsHide:true,maxBuffer:256*1024*1024});
 }
 const text=(root,...args)=>git(root,args).toString('utf8').trim();
 function manifest(root,ref) {
@@ -36,10 +36,28 @@ function snapshot(root,ref,files) {
 }
 function loadPolicy(repository,ref='HEAD') {
   const names=['src/changeValidationPolicy.js','src/changeValidationRunner.js','src/changeValidationReceipts.js',
-    'src/residentMigrationCheck.js','src/changeValidationGit.js'];
+    'src/residentMigrationCheck.js','src/changeValidationGit.js','src/designEvidenceInputs.json'];
   const copy=snapshot(repository,ref,names);
   const req=createRequire(path.join(copy.root,'package.json'));
   return {...copy,plan:req('./src/changeValidationPolicy').planChanges,validate:req('./src/changeValidationRunner').validateChange};
+}
+function copyDependencies(source,target,checks) {
+  for(const name of new Set(checks.flatMap(c=>c.dependencies||[]))) {
+    if(name!=='pngjs')throw new Error('Unregistered validation dependency: '+name);
+    const lock=JSON.parse(fs.readFileSync(path.join(target,'package-lock.json'),'utf8'));
+    const base=path.join(source,'node_modules',name),destination=path.join(target,'node_modules',name);
+    if(fs.lstatSync(base).isSymbolicLink()||fs.realpathSync(base)!==base)throw new Error('Unsafe dependency root');
+    const version=JSON.parse(fs.readFileSync(path.join(base,'package.json'),'utf8')).version;
+    if(version!==lock.packages?.['node_modules/'+name]?.version)throw new Error('Installed validation dependency does not match candidate lock: '+name);
+    const copy=(from,to)=>{
+      if(fs.lstatSync(from).isSymbolicLink())throw new Error('Linked validation dependency rejected');
+      if(fs.lstatSync(from).isDirectory()){
+        fs.mkdirSync(to,{recursive:true});for(const file of fs.readdirSync(from))copy(path.join(from,file),path.join(to,file));
+      } else if(fs.lstatSync(from).isFile())fs.copyFileSync(from,to);
+      else throw new Error('Nonregular validation dependency');
+    };
+    copy(base,destination);
+  }
 }
 async function gate(root,{repository,policyRoot=root,phase='commit',commit,remote,validate=false,write}={}) {
   if(text(root,'branch','--show-current')!=='master')throw new Error('Validation requires master');
@@ -61,6 +79,7 @@ async function gate(root,{repository,policyRoot=root,phase='commit',commit,remot
     const owned=[...new Set(plan.checks.flatMap(c=>c.inputs).concat(['package.json','package-lock.json']))];
     const copy=snapshot(root,target,owned);
     try {
+      copyDependencies(root,copy.root,plan.checks);
       const result=await policy.validate(copy.root,plan,{
         cacheDirectory:path.join(text(root,'rev-parse','--path-format=absolute','--git-common-dir'),'change-validation'),
         requireReceipts:!committing&&!validate,write,
@@ -73,4 +92,4 @@ async function gate(root,{repository,policyRoot=root,phase='commit',commit,remot
     } finally {copy.close();}
   } finally {policy.close();}
 }
-module.exports={git,text,manifest,snapshot,loadPolicy,gate};
+module.exports={git,text,manifest,snapshot,loadPolicy,copyDependencies,gate};

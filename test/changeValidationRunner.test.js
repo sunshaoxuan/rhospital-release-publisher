@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
-const {validateChange,assertNodeResult,validateDocuments}=require('../src/changeValidationRunner');
+const {validateChange,assertNodeResult,validateDocuments,identity}=require('../src/changeValidationRunner');
 const {receiptStore}=require('../src/changeValidationReceipts');
-const {gate,text,snapshot}=require('../src/changeValidationGit');
+const {gate,text,snapshot,copyDependencies}=require('../src/changeValidationGit');
 const {execFileSync}=require('node:child_process');
 const good='# tests 1\n# pass 1\n# fail 0\n# skipped 0\n# cancelled 0\n# todo 0\n';
 function fixture(fn){const root=fs.mkdtempSync(path.join(os.tmpdir(),'impact-test-'));return Promise.resolve().then(()=>fn(root)).finally(()=>fs.rmSync(root,{recursive:true,force:true}));}
@@ -45,6 +45,18 @@ test('documents check new local links and malformed JSON without retesting histo
   validateDocuments(root,['README.md'],{baseFile:()=>'[old](missing.md)'});
   assert.throws(()=>validateDocuments(root,['README.md']),/Broken new/);
   fs.writeFileSync(path.join(root,'bad.json'),'{');assert.throws(()=>validateDocuments(root,['bad.json']));
+}));
+test('scoped installed dependencies are copied immutably and every byte participates in identity',()=>fixture(root=>{
+  const source=path.join(root,'source'),target=path.join(root,'target'),installed=path.join(source,'node_modules/pngjs');
+  fs.mkdirSync(installed,{recursive:true});fs.mkdirSync(target);
+  fs.writeFileSync(path.join(installed,'package.json'),JSON.stringify({version:'7.0.0'}));fs.writeFileSync(path.join(installed,'index.js'),'original');
+  fs.writeFileSync(path.join(target,'package-lock.json'),JSON.stringify({packages:{'node_modules/pngjs':{version:'7.0.0'}}}));
+  const check={key:'fixture',kind:'node-tests',inputs:[],dependencies:['pngjs']};
+  copyDependencies(source,target,[check]);const before=identity(target,check);
+  fs.writeFileSync(path.join(installed,'index.js'),'source changed');assert.equal(fs.readFileSync(path.join(target,'node_modules/pngjs/index.js'),'utf8'),'original');
+  fs.writeFileSync(path.join(target,'node_modules/pngjs/index.js'),'target changed');assert.notDeepEqual(identity(target,check),before);
+  fs.writeFileSync(path.join(installed,'package.json'),JSON.stringify({version:'8.0.0'}));assert.throws(()=>copyDependencies(source,target,[check]),/candidate lock/);
+  assert.throws(()=>copyDependencies(source,target,[{dependencies:['unregistered']}]),/Unregistered/);
 }));
 test('real staged Git snapshot ignores dirty working bytes and push reuses exact document receipt',()=>fixture(async root=>{
   const repo=path.join(root,'repo'),policy=path.join(root,'policy');fs.mkdirSync(repo);fs.mkdirSync(policy);

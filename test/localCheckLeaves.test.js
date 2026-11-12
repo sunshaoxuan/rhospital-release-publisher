@@ -10,6 +10,8 @@ test('design and authoritative shared tests have one executable leaf with both o
   assert.equal(shared.length,1);
   assert(plan.owners.get(design.key).includes(shared[0].id));assert(plan.owners.get(BACTERIA_AUTHORITATIVE_CHECK.key).includes(shared[0].id));
   assert(plan.leaves.length<plan.owners.get(design.key).length+plan.owners.get(BACTERIA_AUTHORITATIVE_CHECK.key).length);
+  const evidence=plan.leaves.find(l=>l.args[0]==='scripts/bacteria-lab/validate-design-evidence.mjs');
+  assert(evidence.args.includes('--leaf-plan-v1'),'new candidates must reject the old opaque publisher runner');
 });
 test('finite leaf selection preserves pinned contracts and rejects shell injections and unmapped aggregates',()=>{
   const p=selectLeaves([TOILET_MARKET_CHECK,BACTERIA_AUTHORITATIVE_CHECK,steam]);

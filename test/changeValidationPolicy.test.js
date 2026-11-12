@@ -13,3 +13,12 @@ test('unknown runtime, entity behavioral edits and unsafe paths fail closed with
   for(const f of ['src/main/java/New.java','src/main/java/com/zly/hospital/model/resident/ResidentRewardAccount.java','../outside','C:/outside'])assert.throws(()=>planChanges('game',[f]));
   assert.throws(()=>planChanges('other',[]));
 });
+test('design-tool changes select the actual evidence consumer and preserve unrelated scope isolation',()=>{
+  const plan=planChanges('game',['scripts/bacteria-lab/validate-design-evidence.mjs']);
+  assert.deepEqual(plan.checks.map(c=>c.key),['game-gate','design-evidence']);
+  const evidence=plan.checks.find(c=>c.key==='design-evidence');
+  assert(evidence.tests.includes('src/test/js/designEvidenceGate.test.mjs'));
+  assert(evidence.inputs.includes('scripts/bacteria-lab/validate-stall-monitor-evidence.mjs'));
+  assert(!evidence.tests.some(p=>/steam|resident|toilet/i.test(p)));
+  assert.deepEqual(planChanges('game',['docs/tasks/update.md']).checks.map(c=>c.key),['documents']);
+});

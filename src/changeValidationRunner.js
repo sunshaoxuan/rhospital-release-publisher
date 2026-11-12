@@ -53,6 +53,17 @@ function identity(root,check,context={}) {
     if(h==='absent'&&check.kind!=='documents'&&!['package.json','package-lock.json'].includes(file))throw new Error('Missing owned input: '+file);
     inputs[file]=h;
   }
+  for(const dependency of check.dependencies||[]) {
+    if(dependency!=='pngjs')throw new Error('Unregistered validation dependency');
+    const folder='node_modules/'+dependency;
+    const visit=relative=>{
+      const full=path.join(root,relative);
+      if(fs.lstatSync(full).isSymbolicLink())throw new Error('Linked validation dependency');
+      if(fs.lstatSync(full).isDirectory())for(const name of fs.readdirSync(full).sort())visit(relative+'/'+name);
+      else inputs[relative]=fileHash(root,relative);
+    };
+    visit(folder);
+  }
   const executorFiles=['changeValidationRunner.js','changeValidationReceipts.js','changeValidationPolicy.js','changeValidationGit.js',...(check.kind==='resident'?['residentMigrationCheck.js']:[])];
   const executor=hash(Object.fromEntries(executorFiles.map(f=>[f,hash(fs.readFileSync(path.join(__dirname,f)))])));
   const baseline=check.kind==='documents'?Object.fromEntries(check.inputs.map(f=>[f,hash(context.baseFile?.(f)||'')])):{};
