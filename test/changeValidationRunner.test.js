@@ -62,10 +62,10 @@ test('real staged Git snapshot ignores dirty working bytes and push reuses exact
   const repo=path.join(root,'repo'),policy=path.join(root,'policy');fs.mkdirSync(repo);fs.mkdirSync(policy);
   const command=(r,...args)=>execFileSync('git',['-C',r,...args],{encoding:'utf8',windowsHide:true,stdio:['pipe','pipe','pipe']}).trim();
   for(const r of [repo,policy]){command(r,'init','-b','master');command(r,'config','user.name','Fixture');command(r,'config','user.email','fixture@example.invalid');}
-  for(const name of ['changeValidationPolicy','changeValidationRunner','changeValidationReceipts','changeValidationGit','residentMigrationCheck']) {
+  for(const name of ['changeValidationPolicy','changeValidationRunner','changeValidationReceipts','changeValidationGit','residentMigrationCheck','skinAdminCheck']) {
     fs.mkdirSync(path.join(policy,'src'),{recursive:true});fs.copyFileSync(path.join(__dirname,'../src',name+'.js'),path.join(policy,'src',name+'.js'));
   }
-  for(const file of ['currentBehaviorInputs.json','publisherGateInputs.json'])fs.copyFileSync(path.join(__dirname,'../src',file),path.join(policy,'src',file));
+  for(const file of ['currentBehaviorInputs.json','publisherGateInputs.json','skinAdminCheckInputs.json'])fs.copyFileSync(path.join(__dirname,'../src',file),path.join(policy,'src',file));
   command(policy,'add','.');command(policy,'commit','-m','policy');
   fs.writeFileSync(path.join(repo,'README.md'),'initial');command(repo,'add','.');command(repo,'commit','-m','base');
   fs.writeFileSync(path.join(repo,'README.md'),'accepted');command(repo,'add','.');fs.writeFileSync(path.join(repo,'README.md'),'[dirty](missing.md)');

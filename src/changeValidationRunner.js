@@ -44,6 +44,10 @@ function environment(check,{dockerIdentity}={}) {
   const result={node:process.version,executable:hash(fs.readFileSync(process.execPath)),platform:process.platform,arch:process.arch,os:os.release(),
     variables:hash(Object.fromEntries(['NODE_OPTIONS','NODE_PATH','NODE_ENV','PATH','Path','ComSpec','SystemRoot','TZ','LANG'].map(k=>[k,process.env[k]||''])))};
   if(check.kind==='resident')result.docker=dockerIdentity?dockerIdentity(check.images):require('./residentMigrationCheck').dockerIdentity(check.images);
+  if(check.kind==='skin-admin'){
+    result.tools=require('./skinAdminCheck').toolIdentity();
+    result.docker=dockerIdentity?dockerIdentity(check.images):require('./residentMigrationCheck').dockerIdentity(check.images);
+  }
   return result;
 }
 function identity(root,check,context={}) {
@@ -64,7 +68,7 @@ function identity(root,check,context={}) {
     };
     visit(folder);
   }
-  const executorFiles=['changeValidationRunner.js','changeValidationReceipts.js','changeValidationPolicy.js','changeValidationGit.js',...(check.kind==='resident'?['residentMigrationCheck.js']:[])];
+  const executorFiles=['changeValidationRunner.js','changeValidationReceipts.js','changeValidationPolicy.js','changeValidationGit.js',...(check.kind==='resident'?['residentMigrationCheck.js']:[]),...(check.kind==='skin-admin'?['skinAdminCheck.js','residentMigrationCheck.js']:[])];
   const executor=hash(Object.fromEntries(executorFiles.map(f=>[f,hash(fs.readFileSync(path.join(__dirname,f)))])));
   const baseline=check.kind==='documents'?Object.fromEntries(check.inputs.map(f=>[f,hash(context.baseFile?.(f)||'')])):{};
   return {schema:1,check,inputs,executor,baseline,environment:environment(check,context)};
@@ -75,6 +79,7 @@ function assertResult(check,result) {
   if(check.kind==='node-tests')assertNodeResult({status:0,output:result.output});
   else if(check.kind==='documents'&&result.protocol!=='documents/v1')throw new Error('Invalid document protocol');
   else if(check.kind==='resident'&&(result.protocol!=='resident-schema/v1'||result.versions?.length!==2||result.cases<20))throw new Error('Invalid migration protocol');
+  else if(check.kind==='skin-admin')require('./skinAdminCheck').assertProtocol(result,check.testClasses);
 }
 async function validateChange(root,plan,{cacheDirectory,requireReceipts=false,write=s=>process.stdout.write(s),execute, ...context}={}) {
   if(plan.scope!=='local-change'||plan.productionActions!==false||new Set(plan.checks.map(c=>c.key)).size!==plan.checks.length)throw new Error('Invalid bounded validation plan');
@@ -97,6 +102,8 @@ async function validateChange(root,plan,{cacheDirectory,requireReceipts=false,wr
     else if(check.kind==='resident') {
       const output=nodeTests(root,['src/test/js/residentSchemaOracle.test.cjs'],30);
       result={...await require('./residentMigrationCheck').runResident(root,check.images),output};
+    } else if(check.kind==='skin-admin'){
+      result=require('./skinAdminCheck').runSkin(root,check.testClasses,check.timeoutSeconds);
     } else throw new Error('Unknown leaf kind');
     assertResult(check,result);
     if(hash(identity(root,check,context))!==hash(id))throw new Error('Owned inputs changed during validation: '+check.key);
