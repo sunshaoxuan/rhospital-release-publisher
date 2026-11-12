@@ -1,0 +1,172 @@
+{
+  "verify-toilet-market": {
+    "tests": [
+      "src/test/js/toiletMarket.test.mjs"
+    ],
+    "timeoutSeconds": 180
+  },
+  "verify-bacteria-authoritative-challenges": {
+    "tests": [
+      "src/test/js/bacteriaAuthoritativeChallenge.test.mjs",
+      "src/test/js/bacteriaCoverReveal.test.mjs",
+      "src/test/js/bacteriaConcurrentSelection.test.mjs",
+      "src/test/js/bacteriaSpeed.test.mjs",
+      "src/test/js/bacteriaSettlementTiming.test.mjs"
+    ],
+    "timeoutSeconds": 300
+  },
+  "verify-bacteria-gates": {
+    "tests": [
+      "src/test/js/bacteriaGateAnimation.test.mjs",
+      "src/test/js/bacteriaVisibilityMechanics.test.mjs"
+    ],
+    "timeoutSeconds": 180
+  },
+  "verify-game-loading": {
+    "tests": [
+      "scripts/tests/game-loading-recovery.test.mjs",
+      "scripts/tests/emergency-fetch.test.mjs"
+    ],
+    "timeoutSeconds": 180
+  },
+  "verify-hospital-hud": {
+    "tests": [
+      "src/test/js/hospitalHudCurrent.test.mjs",
+      "src/test/js/mobileModalChat.test.mjs",
+      "src/test/js/mobileLogActions.test.mjs"
+    ],
+    "timeoutSeconds": 180
+  },
+  "verify-game-fault-reports": {
+    "tests": [
+      "src/test/js/bacteriaDiagnostics.test.mjs"
+    ],
+    "timeoutSeconds": 180
+  },
+  "verify-bacteria-ranking": {
+    "tests": [
+      "src/test/js/bacteriaRankingLifecycle.test.mjs"
+    ],
+    "timeoutSeconds": 120
+  },
+  "verify-game-epidemic-flow": {
+    "tests": [
+      "src/test/js/epidemicBossSweep.test.mjs"
+    ],
+    "timeoutSeconds": 180
+  },
+  "verify-game-medical-contest-entry": {
+    "tests": [
+      "src/test/js/medicalContestEntry.test.mjs"
+    ],
+    "timeoutSeconds": 120
+  },
+  "verify-game-client-fingerprint": {
+    "tests": [
+      "src/test/js/clientFingerprint.test.mjs"
+    ],
+    "timeoutSeconds": 120
+  },
+  "verify-game-hospital-skin-fallback": {
+    "tests": [
+      "src/test/js/hospitalSkinTexture.test.mjs"
+    ],
+    "timeoutSeconds": 120
+  },
+  "verify-game-steam-auth": {
+    "tests": [
+      "src/test/js/steamLogin.test.cjs"
+    ],
+    "timeoutSeconds": 120
+  },
+  "verify-game-void-rewards": {
+    "tests": [
+      "src/test/js/voidRewardCaptcha.test.mjs",
+      "src/test/js/voidRewardPopup.test.mjs",
+      "src/test/js/voidRewardEntry.test.mjs"
+    ],
+    "timeoutSeconds": 180
+  },
+  "verify-bacteria-region-covers": {
+    "tests": [
+      "src/test/js/bacteriaRegionCovers.test.mjs",
+      "src/test/js/bacteriaCoverReveal.test.mjs",
+      "src/test/js/bacteriaMobileLayout.test.mjs",
+      "src/test/js/bacteriaConcurrentSelection.test.mjs",
+      "src/test/js/bacteriaNormalStartup.test.mjs",
+      "src/test/js/bacteriaSpeed.test.mjs",
+      "src/test/js/bacteriaQueueDistribution.test.mjs",
+      "src/test/js/bacteriaComplexSearch.test.mjs",
+      "src/test/js/bacteriaSharedRules.test.mjs"
+    ],
+    "timeoutSeconds": 600
+  },
+  "verify-game-doorplate-ui": {
+    "tests": [
+      "scripts/tests/empty-hospital-ui.test.mjs",
+      "scripts/tests/doorplate-countdown.test.mjs",
+      "scripts/tests/world-chat.test.mjs"
+    ],
+    "timeoutSeconds": 180
+  },
+  "verify-bacteria-result-ui": {
+    "tests": [
+      "src/test/js/bacteriaResultDialog.test.mjs"
+    ],
+    "timeoutSeconds": 180
+  },
+  "verify-bacteria-entry-style": {
+    "tests": [
+      "src/test/js/bacteriaLabEntry.test.mjs"
+    ],
+    "timeoutSeconds": 120
+  },
+  "verify-game-special-clinic-atlas": {
+    "tests": [
+      "src/test/js/specialClinicAtlasMutation.test.mjs"
+    ],
+    "timeoutSeconds": 180
+  },
+  "verify-design-level-packages": {
+    "tests": [
+      "src/test/js/bacteriaPathDifficulty.test.mjs",
+      "src/test/js/designLevelPackage.test.mjs",
+      "src/test/js/designWorker.test.mjs",
+      "src/test/js/bacteriaSharedRules.test.mjs",
+      "src/test/js/bacteriaStallMonitor.test.mjs",
+      "src/test/js/bacteriaUnstartedSelection.test.mjs"
+    ],
+    "checks": [
+      [
+        "scripts/bacteria-lab/build-level-catalog.mjs",
+        "--check"
+      ],
+      [
+        "scripts/bacteria-lab/build-server-validator.mjs",
+        "--check"
+      ]
+    ],
+    "timeoutSeconds": 600
+  },
+  "verify-game-potion-lab": {
+    "tests": [
+      "src/test/js/potionRecipeEditor.test.mjs",
+      "src/test/js/potionBatchSynthesis.test.mjs",
+      "src/test/js/potionModalHistory.test.mjs",
+      "src/test/js/potionHistory.test.mjs"
+    ],
+    "timeoutSeconds": 180
+  },
+  "verify-game-emergency-guard": {
+    "tests": [
+      "scripts/tests/emergency-fetch.test.mjs"
+    ],
+    "backendTests": [
+      "EmergencyRequestPolicyTest",
+      "EmergencyOutcomeTest",
+      "EmergencyGuardTransportTest",
+      "EmergencyGuardPostgresTest"
+    ],
+    "timeoutSeconds": 120
+  }
+}

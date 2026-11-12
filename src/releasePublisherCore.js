@@ -1,4 +1,4 @@
-const {TOILET_MARKET_CHECK, BACTERIA_AUTHORITATIVE_CHECK, doubleCheckLocalChecks} = require('./localCheckPolicy');
+const {currentLocalCheck, doubleCheckLocalChecks} = require('./localCheckPolicy');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -33,12 +33,6 @@ const DEFAULT_FORUM_BUILD_CONTEXT = 'integrations/flarum';
 const DEFAULT_FORUM_INIT_SCRIPTS = [
   'integrations/flarum/04-rhospital-secret.sh',
   'integrations/flarum/05-rhospital-env.sh'
-];
-const GAME_SSO_BASELINE_COMMIT = 'e54c5fba27b79b7d13ea9993e02eedf830875733';
-const GAME_SSO_SOURCE_PATHS = [
-  'src/main/java/com/zly/hospital/controller/api/ForumSsoController.java',
-  'src/main/java/com/zly/hospital/service/ForumSsoDatabaseUpgradeService.java',
-  'src/main/java/com/zly/hospital/service/ForumProvisioningService.java'
 ];
 const GAME_RUNTIME_PATHS = ['Dockerfile', 'docker-compose.yml', 'entrypoint.sh', 'pom.xml'];
 const GAME_MIGRATION_PREFIX = 'scripts/migration/';
@@ -278,20 +272,6 @@ function createPlan(projectRoot, request, env = process.env) {
     : null;
   const requiresEmergencyGuard = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-emergency-guard'));
-  const requiresDoorplateUi = Boolean(releaseImpactAssessment
-    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-doorplate-ui'));
-  const requiresPotionLab = Boolean(releaseImpactAssessment
-    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-potion-lab'));
-  const requiresMedicalContestEntry = Boolean(releaseImpactAssessment
-    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-medical-contest-entry'));
-  const requiresClientFingerprint = Boolean(releaseImpactAssessment
-    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-client-fingerprint'));
-  const requiresHospitalSkinFallback = Boolean(releaseImpactAssessment
-    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-hospital-skin-fallback'));
-  const requiresVoidRewards = Boolean(releaseImpactAssessment
-    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-void-rewards'));
-  const requiresEpidemicFlow = Boolean(releaseImpactAssessment
-    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-epidemic-flow'));
   const requiresSteamAuth = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-steam-auth'));
   const requiresSteamRuntime = Boolean(releaseImpactAssessment
@@ -299,16 +279,6 @@ function createPlan(projectRoot, request, env = process.env) {
   if (requiresSteamAuth !== requiresSteamRuntime) {
     throw new Error('Steam 修复必须同时选择客户端行为和生产验票/DNS验收');
   }
-  const requiresSpecialClinicAtlas = Boolean(releaseImpactAssessment
-    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-special-clinic-atlas'));
-  const requiresDesignPackages = Boolean(releaseImpactAssessment
-    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-design-level-packages'));
-  const requiresRegionCovers = Boolean(releaseImpactAssessment
-    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-bacteria-region-covers'));
-  const requiresBacteriaResultUi = Boolean(releaseImpactAssessment
-    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-bacteria-result-ui'));
-  const requiresBacteriaEntryStyle = Boolean(releaseImpactAssessment
-    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-bacteria-entry-style'));
   const requiresEmergencyRuntime = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-emergency-guard-runtime'));
   if (requiresEmergencyGuard !== requiresEmergencyRuntime) {
@@ -328,104 +298,9 @@ function createPlan(projectRoot, request, env = process.env) {
   const tomcatProbe = tomcatVersion
     ? `printf %s '${Buffer.from(tomcatJarCheckScript(tomcatVersion)).toString('base64')}' | base64 -d | sh`
     : null;
-  const bacteriaResultUiCommand = chainPowerShellCommands([
-    'node src/test/js/bacteriaResultDialog.test.mjs',
-    'node scripts/bacteria-lab/validate-result-dialog-evidence.mjs'
-  ]);
-  const designPackagesCommand = chainPowerShellCommands([
-    'node src/test/js/bacteriaPathDifficulty.test.mjs',
-    'node src/test/js/designLevelPackage.test.mjs',
-    'node src/test/js/designWorker.test.mjs',
-    'node src/test/js/bacteriaSharedRules.test.mjs',
-    'node scripts/bacteria-lab/build-level-catalog.mjs --check',
-    'node scripts/bacteria-lab/validate-design-evidence.mjs'
-  ]);
-  const potionLabCommand = `node ${shellToken(path.resolve(__dirname, '../scripts/verify-potion-lab-release.mjs'))} --project-root .`;
-  const regionCoversCommand = chainPowerShellCommands([
-    'node --test src/test/js/bacteriaComplexSearch.test.mjs src/test/js/bacteriaSharedRules.test.mjs',
-    'node --test src/test/js/bacteriaRegionCovers.test.mjs src/test/js/bacteriaCoverReveal.test.mjs src/test/js/bacteriaMobileLayout.test.mjs src/test/js/bacteriaConcurrentSelection.test.mjs src/test/js/bacteriaNormalStartup.test.mjs src/test/js/bacteriaSpeed.test.mjs src/test/js/bacteriaRegionCoverEvidence.test.mjs',
-    'node scripts/bacteria-lab/validate-region-cover-evidence.mjs',
-    'node --test src/test/js/bacteriaQueueDistribution.test.mjs',
-    'node scripts/bacteria-lab/validate-queue-distribution-evidence.mjs'
-  ]);
-  const emergencyGuardCommand = `node ${shellToken(path.resolve(__dirname, '../scripts/verify-emergency-guard-release.mjs'))} --mode evidence --project-root .`;
-  const doorplateUiCommand = chainPowerShellCommands([
-    'node --experimental-vm-modules --test scripts/tests/empty-hospital-ui.test.mjs scripts/tests/doorplate-countdown.test.mjs scripts/tests/world-chat.test.mjs',
-    'node scripts/validation/world-chat/verify-empty-doorplate.mjs'
-  ]);
-  const independentChecks = [
-  {
-    ...TOILET_MARKET_CHECK,
-    title: '核验洗手间独立证据'
-  },
-  {
-    ...BACTERIA_AUTHORITATIVE_CHECK,
-    title: '核验菌落实验室权威挑战',
-  },
-  {
-    "key": "verify-bacteria-gates",
-    "title": "核验与非门全队列切换",
-    "tests": "src/test/js/bacteriaGateAnimation.test.mjs src/test/js/bacteriaVisibilityMechanics.test.mjs src/test/js/bacteriaGateEvidence.test.mjs",
-    "validator": "scripts/bacteria-lab/validate-gate-evidence.mjs",
-    "vm": false
-  },
-  {
-    "key": "verify-game-loading",
-    "title": "核验加载容错",
-    "tests": "scripts/tests/game-loading-recovery.test.mjs scripts/tests/emergency-fetch.test.mjs",
-    "validator": "scripts/ui/validate-game-loading-evidence.mjs",
-    "vm": true
-  },
-  {
-    "key": "verify-hospital-hud",
-    "title": "核验医院 HUD",
-    "tests": "src/test/js/hospitalHudGeometry.test.mjs",
-    "validator": "scripts/ui/validate-hospital-hud.mjs",
-    "vm": true
-  },
-  {
-    "key": "verify-bacteria-ranking",
-    "title": "核验菌落实验室排行榜",
-    "tests": "src/test/js/bacteriaRankingEvidence.test.mjs",
-    "validator": "scripts/bacteria-lab/validate-ranking-evidence.mjs",
-    "vm": false
-  },
-  {
-    "key": "verify-game-fault-reports",
-    "title": "核验故障报告",
-    "tests": "src/test/js/bacteriaDiagnostics.test.mjs src/test/js/bacteriaFaultReportEvidence.test.mjs",
-    "validator": "scripts/bacteria-lab/validate-fault-report-evidence.mjs",
-    "vm": false
-  }
-].filter(check => releaseImpactAssessment?.requiredChecks.some(item => item.stepKey === check.key))
-    .map(check => ({...check, command: check.command || chainPowerShellCommands([
-      'node '+(check.vm ? '--experimental-vm-modules ' : '')+'--test '+check.tests,
-      'node '+check.validator
-    ]), timeoutSeconds: check.timeoutSeconds ?? 180}));
-  const localEvidenceChecks = [
-    ...independentChecks.map(({key,command,timeoutSeconds}) => ({key,command,timeoutSeconds})),
-    ...(requiresEpidemicFlow ? [{ key: 'verify-game-epidemic-flow', command: chainPowerShellCommands([
-      'node --test src/test/js/epidemicBossSweep.test.mjs',
-      'node scripts/validation/verify-epidemic-flow.cjs'
-    ]), timeoutSeconds: 600 }] : []),
-    ...(requiresMedicalContestEntry ? [{key: 'verify-game-medical-contest-entry', command: 'node --test src/test/js/medicalContestEntry.test.mjs', timeoutSeconds: 120}] : []),
-    ...(requiresClientFingerprint ? [{key: 'verify-game-client-fingerprint', command: 'node --test src/test/js/clientFingerprint.test.mjs', timeoutSeconds: 120}] : []),
-    ...(requiresHospitalSkinFallback ? [{key: 'verify-game-hospital-skin-fallback', command: 'node --test src/test/js/hospitalSkinTexture.test.mjs', timeoutSeconds: 120}] : []),
-    ...(requiresVoidRewards ? [{key: 'verify-game-void-rewards', command: 'node scripts/validation/void-rewards/validate-evidence.mjs', timeoutSeconds: 120}] : []),
-    ...(requiresRegionCovers ? [{key: 'verify-bacteria-region-covers', command: regionCoversCommand, timeoutSeconds: 1800}] : []),
-    ...(requiresDoorplateUi ? [{key: 'verify-game-doorplate-ui', command: doorplateUiCommand, timeoutSeconds: 600}] : []),
-    ...(requiresBacteriaResultUi ? [{key: 'verify-bacteria-result-ui', command: bacteriaResultUiCommand, timeoutSeconds: 1800}] : []),
-    ...(requiresBacteriaEntryStyle ? [{key: 'verify-bacteria-entry-style', command: chainPowerShellCommands([
-      'node --test src/test/js/bacteriaLabEntry.test.mjs',
-      'node scripts/bacteria-lab/validate-entry-style-evidence.mjs'
-    ]), timeoutSeconds: 180}] : []),
-    ...(requiresSteamAuth ? [{key: 'verify-game-steam-auth', command: 'node --test src/test/js/steamLogin.test.cjs', timeoutSeconds: 120}] : []),
-    ...(requiresSpecialClinicAtlas ? [{key: 'verify-game-special-clinic-atlas', command: 'node scripts/validation/special-clinic/validate-evidence.mjs', timeoutSeconds: 180}] : []),
-    ...(requiresDesignPackages ? [{key: 'verify-design-level-packages', command: designPackagesCommand, timeoutSeconds: 1800}] : []),
-    ...(requiresPotionLab ? [{key: 'verify-game-potion-lab', command: potionLabCommand, timeoutSeconds: 600}] : []),
-    ...(requiresEmergencyGuard ? [{key: 'verify-game-emergency-guard', command: emergencyGuardCommand, timeoutSeconds: 600}] : [])
-  ];
-
+  const localEvidenceChecks = ["verify-toilet-market", "verify-bacteria-authoritative-challenges", "verify-bacteria-gates", "verify-game-loading", "verify-hospital-hud", "verify-bacteria-ranking", "verify-game-fault-reports", "verify-game-epidemic-flow", "verify-game-medical-contest-entry", "verify-game-client-fingerprint", "verify-game-hospital-skin-fallback", "verify-game-steam-auth", "verify-game-void-rewards", "verify-bacteria-region-covers", "verify-game-doorplate-ui", "verify-bacteria-result-ui", "verify-bacteria-entry-style", "verify-game-special-clinic-atlas", "verify-design-level-packages", "verify-game-potion-lab", "verify-game-emergency-guard"]
+    .filter(key=>releaseImpactAssessment?.requiredChecks.some(item=>item.stepKey===key))
+    .map(currentLocalCheck);
   doubleCheckLocalChecks(localEvidenceChecks);
 
   const steps = [
@@ -514,18 +389,16 @@ function createPlan(projectRoot, request, env = process.env) {
     ...(releaseImpactAssessment ? [releaseImpactValidationStep(releaseImpactAssessment)] : []),
     releaseStep({
       key: 'validate-game-sso-source',
-      title: '校验游戏 SSO 发布基线',
-      summary: '确认目标提交包含已上线的游戏论坛 SSO 和自动升级能力',
+      title: '校验候选源码身份',
+      summary: '确认当前候选干净且包含当前 Catalog 升级声明；SSO 由镜像与运行合同验证',
       command: chainPowerShellCommands([
         sourceCleanPowerShellCommand('gameReleaseChanges', [
           ...GAME_RUNTIME_PATHS,
           ...GAME_RUNTIME_PREFIXES.map(prefix => prefix.replace(/\/$/, ''))
         ]),
-        `git merge-base --is-ancestor ${GAME_SSO_BASELINE_COMMIT} HEAD`,
-        ...GAME_SSO_SOURCE_PATHS.map(sourcePath => `git cat-file -e HEAD:${sourcePath}`),
         `git grep -n -E ${shellToken(`MARKER_VERSION[[:space:]]*=[[:space:]]*${catalogSchemaVersion};`)} HEAD -- ${shellToken(CATALOG_UPGRADE_SOURCE_PATH)}`
       ]),
-      validation: `目标提交必须包含 ${GAME_SSO_BASELINE_COMMIT.slice(0, 8)}、三个游戏 SSO 核心文件和 Catalog v${catalogSchemaVersion} 升级声明`,
+      validation: `当前候选必须干净并包含 Catalog v${catalogSchemaVersion} 升级声明`,
       actionType: 'local-check',
       executable: true
     }),
@@ -538,10 +411,10 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'build', executable: true, timeoutSeconds: 900
     }), releaseStep({
       key: 'validate-game-release-preflight',
-      title: '全量预检发布候选',
-      summary: '在完整构建和生产动作前执行全部适用的本地证据门禁，并一次汇总所有失败项',
+      title: '验证候选相关行为',
+      summary: '在生产动作前执行选中功能的当前行为叶子，共用测试只执行一次；历史审计单独手动运行',
       command: gameReleasePreflightCommand(localEvidenceChecks),
-      validation: '全部适用门禁必须输出 PASS；失败时必须完成其余门禁并汇总失败项目',
+      validation: '当前行为测试必须真实完整通过；历史材料不参与日常发布前置条件',
       actionType: 'local-check', executable: true,
       timeoutSeconds: Math.max(3600, localEvidenceChecks.reduce((total, check) => total + check.timeoutSeconds, 60))
     })] : []),
@@ -568,116 +441,13 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'build',
       executable: true
     }),
-    ...(requiresEpidemicFlow ? [releaseStep({
-      key: 'verify-game-epidemic-flow', title: '验证疫区出战扣费与洗点流程',
-      summary: '验证扫荡和重试行为，检查真实数据库迁移、运行截图、几何及源码绑定',
-      command: chainPowerShellCommands(['node --test src/test/js/epidemicBossSweep.test.mjs', 'node scripts/validation/verify-epidemic-flow.cjs']),
-      validation: '出战结算、原额退款迁移、洗点资格及三种视口验收全部通过',
-      actionType: 'local-check', executable: true
-    })] : []),
-    ...(requiresMedicalContestEntry ? [releaseStep({
-      key: 'verify-game-medical-contest-entry', title: '验证医道会入口资格门禁',
-      summary: '验证正式成员准入、未达标拦截、连点合并、超时恢复和场景退出取消',
-      command: 'node --test src/test/js/medicalContestEntry.test.mjs',
-      validation: '入口行为测试全部通过，缺失测试或验证失败时阻止发布',
-      actionType: 'local-check', executable: true
-    })] : []),
-    ...(requiresClientFingerprint ? [releaseStep({
-      key: 'verify-game-client-fingerprint', title: '验证客户端指纹观察',
-      summary: '验证浏览器标识采集、安装标识复用及无效标识拒绝',
-      command: 'node --test src/test/js/clientFingerprint.test.mjs',
-      validation: '浏览器采集行为测试通过，失败时阻止发布',
-      actionType: 'local-check', executable: true
-    })] : []),
-    ...(requiresHospitalSkinFallback ? [releaseStep({
-      key: 'verify-game-hospital-skin-fallback', title: '验证建筑皮肤缺图回退',
-      summary: '验证已加载皮肤正常显示、未加载皮肤改用标准白墙贴图',
-      command: 'node --test src/test/js/hospitalSkinTexture.test.mjs',
-      validation: '首次进入和换肤逻辑测试通过，失败时阻止发布',
-      actionType: 'local-check', executable: true
-    })] : []),
-    ...(requiresVoidRewards ? [releaseStep({
-      key: 'verify-game-void-rewards', title: '核验虚空馈赠与金币收入',
-      summary: '核对奖励、并发事务、验证码绑定和真实游戏四视口几何证据及源码摘要',
-      command: 'node scripts/validation/void-rewards/validate-evidence.mjs',
-      validation: '缺少功能、数据库事务、像素几何或最终意图证据时拒绝发布',
-      actionType: 'local-check', executable: true
-    })] : []),
-    ...(requiresDoorplateUi ? [releaseStep({
-      key: 'verify-game-doorplate-ui', title: '核验空地与有人医院门牌一致性',
-      summary: '执行场景生命周期、导航和聊天回归，校验真实容器响应式截图与源码摘要',
-      command: doorplateUiCommand, validation: '功能、几何、视觉与源码一致性全部通过',
-      actionType: 'local-check', executable: true
-    })] : []),
-    ...(requiresBacteriaResultUi ? [releaseStep({
-      key: 'verify-bacteria-result-ui',
-      title: '核验菌落清除室弹窗与交互',
-      summary: '校验失败、生命耗尽、通关和异常状态，以及最终容器几何、按钮语义和源码摘要',
-      command: bacteriaResultUiCommand,
-      validation: '全部弹窗状态、原始像素留白、无直接购买和最终用户意图验收均须通过',
-      actionType: 'local-check', executable: true
-    })] : []),
-    ...(requiresBacteriaEntryStyle ? [releaseStep({
-      key: 'verify-bacteria-entry-style', title: '核验医院主画面菌落入口',
-      summary: '执行入口交互与响应式几何测试，核对真实容器截图及最终意图回执的源码摘要',
-      command: chainPowerShellCommands([
-        'node --test src/test/js/bacteriaLabEntry.test.mjs',
-        'node scripts/bacteria-lab/validate-entry-style-evidence.mjs'
-      ]),
-      validation: '公告与入口的高度、字形安全区、间距和原始像素证据均须通过',
-      actionType: 'local-check', executable: true
-    })] : []),
-    ...independentChecks.map(check => releaseStep({
-      key: check.key, title: check.title, command: check.command,
-      summary: '执行本功能行为测试和独立来源证据核验',
-      validation: '行为测试和本功能证据全部通过',
-      actionType: 'local-check', executable: true, timeoutSeconds: check.timeoutSeconds
+    ...localEvidenceChecks.map(check=>releaseStep({
+      key:check.key,title:'验证'+({"verify-toilet-market": "洗手间交易", "verify-bacteria-authoritative-challenges": "菌落权威挑战", "verify-bacteria-gates": "菌落逻辑门", "verify-game-loading": "游戏加载", "verify-hospital-hud": "医院HUD", "verify-bacteria-ranking": "菌落排行榜", "verify-game-fault-reports": "故障报告", "verify-game-epidemic-flow": "疫区流程", "verify-game-medical-contest-entry": "医道会入口", "verify-game-client-fingerprint": "客户端指纹", "verify-game-hospital-skin-fallback": "医院皮肤", "verify-game-steam-auth": "Steam登录", "verify-game-void-rewards": "虚空馈赠", "verify-bacteria-region-covers": "菌落盖板", "verify-game-doorplate-ui": "医院门牌", "verify-bacteria-result-ui": "菌落结算", "verify-bacteria-entry-style": "菌落入口", "verify-game-special-clinic-atlas": "特需病例图谱", "verify-design-level-packages": "色块工坊与关卡包", "verify-game-potion-lab": "药剂实验室", "verify-game-emergency-guard": "急救防刷"})[check.key]+'当前行为',
+      command:check.command,timeoutSeconds:check.timeoutSeconds,
+      summary:'执行选中功能的当前行为测试；共用叶子仅运行一次',
+      validation:'当前测试真实完整通过；历史截图与历史验收审计另行手动执行，现场安全检查继续保留',
+      actionType:'local-check',executable:true
     })),
-    ...(requiresRegionCovers ? [releaseStep({
-      key: 'verify-bacteria-region-covers', title: '核验区域盖板与手机实验台',
-      summary: '执行关卡编辑、消耗与揭盖、并发培养皿和手机坐标映射回归，绑定最终真实容器证据',
-      command: regionCoversCommand,
-      validation: '单数字区域、真实消耗倒计数、隐藏组织、手机最终几何及用户意图回执全部通过',
-      actionType: 'local-check', executable: true
-    })] : []),
-    ...(requiresSteamAuth ? [releaseStep({
-      key: 'verify-game-steam-auth', title: '核验 Steam 票据与客户端生命周期',
-      summary: '验证客户端持票至后端结束、成功失败超时均释放、重试新票及脱敏诊断；后端正式验票协议由完整后端测试覆盖',
-      command: 'node --test src/test/js/steamLogin.test.cjs',
-      validation: '客户端票据行为测试全部通过，真实有效票据和游戏进入仍须发布前受控验收',
-      actionType: 'local-check', executable: true, timeoutSeconds: 120
-    })] : []),
-    ...(requiresSpecialClinicAtlas ? [releaseStep({
-      key: 'verify-game-special-clinic-atlas', title: '核验特需病例图谱保存与发布',
-      summary: '校验完整表单原子发布、真实 PostgreSQL 替换并发回滚、固定关闭提交区及非零处方置顶证据',
-      command: 'node scripts/validation/special-clinic/validate-evidence.mjs',
-      validation: '请求行为、数据库与四视口几何截图必须通过并绑定当前源码',
-      actionType: 'local-check', executable: true
-    })] : []),
-    ...(requiresDesignPackages ? [releaseStep({
-      key: 'verify-design-level-packages',
-      title: '验证色块工坊与关卡包',
-      summary: '验证双份容量下限、真实决策路径与唯一性证明、包格式和全关卡目录一致性',
-      command: designPackagesCommand,
-      validation: '颜色上限、非法数据拒绝、真实规则解题回放和关卡目录全部通过',
-      actionType: 'local-check', executable: true
-    })] : []),
-    ...(requiresPotionLab ? [releaseStep({
-      key: 'verify-game-potion-lab',
-      title: '核验药剂实验室最终证据',
-      summary: '运行材料编辑单元测试，校验数据库、真实浏览器、视觉和意图验收证据及目标源码摘要',
-      command: potionLabCommand,
-      validation: '全部验收必须PASS，证据与当前药剂实验室源码一致',
-      actionType: 'local-check', executable: true
-    })] : []),
-    ...(requiresEmergencyGuard ? [releaseStep({
-      key: 'verify-game-emergency-guard',
-      title: '核验急救防刷最终证据',
-      summary: '校验玩家回放、并发、浏览器和前置故障演练证据及目标源码哈希，缺少正常样本时禁止上线',
-      command: emergencyGuardCommand,
-      validation: '六项证据必须PASS并与当前候选源码完全一致',
-      actionType: 'local-check', executable: true
-    })] : []),
     releaseStep({
       key: 'build-image',
       title: '制作 Docker 镜像',
@@ -1206,7 +976,7 @@ function createPlan(projectRoot, request, env = process.env) {
       finalCheck: true,
       timeoutSeconds: 2100
     }));
-    steps.push(releaseStep({
+    if (requiresFeatureRuntimeCheck('verify-relations-release', request.changeAnalysis, releaseImpactAssessment)) steps.push(releaseStep({
       key: 'verify-relations-release',
       title: '验证管理员关系图发布结果',
       summary: '使用受控管理员登录令牌和真实 Chrome 分别直连 Riven 与 VMISS，验证医院 ID 唯一、API 与真实场景对象全量一致、三字段查询、显式选择及筛选刷新场景清理',
@@ -1217,7 +987,7 @@ function createPlan(projectRoot, request, env = process.env) {
       finalCheck: true,
       timeoutSeconds: 900
     }));
-    steps.push(releaseStep({
+    if (requiresFeatureRuntimeCheck('verify-tradepool-release', request.changeAnalysis, releaseImpactAssessment)) steps.push(releaseStep({
       key: 'verify-tradepool-release',
       title: '验证管理员交易池发布结果',
       summary: `核对 Catalog v${catalogSchemaVersion} 标记、字段、索引、迁移日志、匿名页面跳转和管理员 API 拒绝未登录请求`,
@@ -1348,6 +1118,7 @@ function createPlan(projectRoot, request, env = process.env) {
   for (const check of localEvidenceChecks) {
     const selectedStep = steps.find(step => step.key === check.key);
     if (selectedStep) {
+      selectedStep.command = check.command;
       selectedStep.timeoutSeconds = check.timeoutSeconds;
       selectedStep.coveredByPreflight = 'validate-game-release-preflight';
     }
@@ -1402,6 +1173,19 @@ function createPlan(projectRoot, request, env = process.env) {
       '旧代码回滚前必须暂停所有 ACTIVE 的 ADMIN 挂单，避免旧版交易逻辑继续处理系统库存'
     ]
   };
+}
+
+function requiresFeatureRuntimeCheck(key, analysis, assessment) {
+  if(!['verify-relations-release','verify-tradepool-release'].includes(key))throw new Error('Unknown feature runtime check');
+  if (assessment?.requiredChecks.some(item => item.stepKey === key)) return true;
+  const paths=analysis?.targets?.game?.changedPaths;
+  // A deploy without a frozen impact diff cannot establish unrelatedness.
+  if (!Array.isArray(paths)) return true;
+  const shared=/^(?:pom\.xml$|Dockerfile$|entrypoint\.sh$|docker-compose\.yml$|src\/main\/resources\/application|src\/main\/java\/com\/zly\/hospital\/(?:config\/(?:Security|Web)|security\/|service\/(?:Token|ForumSso|ForumProvisioning)))/;
+  const feature=key==='verify-relations-release'
+    ? /(?:[Rr]elations|HospitalRelationship|[Gg]uild|[Rr]anking|hospital-graph|relations)/
+    : /(?:[Tt]oilet|[Tt]rade[Pp]ool|CatalogDatabaseUpgrade|catalog|migration\/)/;
+  return paths.some(file=>shared.test(file)||feature.test(file)||/^src\/main\/java\//.test(file));
 }
 
 function gamePrd2RuntimeContractCommands(remoteComposeDir, stackName, containerName, startupContract) {
@@ -5567,6 +5351,7 @@ function escapeRegExp(value) {
 }
 
 module.exports = {
+  requiresFeatureRuntimeCheck,
   gamePrd2RuntimeContractCommands, gameStaticDeliveryCheckCommand, relationsReleaseCheckCommand, tradePoolPostDeployCheckCommand, remoteSshCommand, remoteBashScriptCommand, runPowerShell,
   DEFAULT_REMOTE_COMPOSE_DIR,
   DEFAULT_FORUM_REMOTE_COMPOSE_DIR,

@@ -292,8 +292,8 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.title === '切换到分支最新提交'
     && step.command === 'git checkout origin/master'));
   assert.ok(plan.steps.some(step => step.key === 'validate-game-sso-source'
-    && step.command.includes('e54c5fba27b79b7d13ea9993e02eedf830875733')
-    && step.command.includes('ForumSsoController.java')
+    && !step.command.includes('merge-base --is-ancestor')
+    && !step.command.includes('git cat-file -e')
     && step.command.includes('ForumSsoDatabaseUpgradeService.java')));
   assert.ok(plan.steps.some(step => step.key === 'test-game-backend'
     && step.command.includes('docker build --target build')
@@ -1283,7 +1283,7 @@ test('toilet loading HUD and fault checks are independently selected with matchi
     for (const check of checks) {
       const step = plan.steps.find(step => step.key === check.key);
       assert.equal(step.timeoutSeconds,check.timeoutSeconds);
-      assert.equal(check.timeoutSeconds, check.key === 'verify-bacteria-authoritative-challenges' ? 300 : 180);
+      assert.equal(check.timeoutSeconds, require('../src/localCheckPolicy').currentLocalCheck(check.key).timeoutSeconds);
       assert.equal(step.command,check.command);
     }
     for (const key of keys.filter(key => !selected.includes(key))) assert(!plan.steps.some(step => step.key === key));
@@ -1302,7 +1302,7 @@ test('toilet plan preserves exact contract preflight audit and mandatory safety 
   runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'toilet check']);
   const plan = createPlan(root, releaseImpactPlanRequest(runGit(root, ['rev-parse', 'HEAD']).trim(), baseline, [runtimePath], ['release/release-impact.json']));
   const step = plan.steps.find(step => step.key === 'verify-toilet-market');
-  assert.equal(step.command, 'node --test src/test/js/toiletMarket.test.mjs src/test/js/toiletMarketEvidence.test.mjs && node scripts/validation/toilet-market/validate-evidence.mjs');
+  assert.equal(step.command, require('../src/localCheckPolicy').currentLocalCheck('verify-toilet-market').command);
   assert.equal(step.timeoutSeconds, 180);
   assert.equal(step.executable, true);
   assert.equal(step.coveredByPreflight, 'validate-game-release-preflight');
@@ -4765,7 +4765,7 @@ test('Steam release pairs ticket tests and runtime DNS validation with a guarded
   const plan = createPlan(root, request);
   const step = key => plan.steps.find(item => item.key === key);
   const index = key => plan.steps.findIndex(item => item.key === key);
-  assert.equal(step('verify-game-steam-auth').command, 'node --test src/test/js/steamLogin.test.cjs');
+  assert.equal(step('verify-game-steam-auth').command, require('../src/localCheckPolicy').currentLocalCheck('verify-game-steam-auth').command);
   assert.ok(index('game-steam-preflight') < index('publish-image'));
   assert.ok(index('verify-game-steam-runtime') > index('final-runtime-check'));
   const preflight = decodedRemoteScript(step('game-steam-preflight').command);

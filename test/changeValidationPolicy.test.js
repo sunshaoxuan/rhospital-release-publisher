@@ -13,18 +13,18 @@ test('unknown runtime, entity behavioral edits and unsafe paths fail closed with
   for(const f of ['src/main/java/New.java','src/main/java/com/zly/hospital/model/resident/ResidentRewardAccount.java','../outside','C:/outside'])assert.throws(()=>planChanges('game',[f]));
   assert.throws(()=>planChanges('other',[]));
 });
-test('design-tool changes select the actual evidence consumer and preserve unrelated scope isolation',()=>{
-  const plan=planChanges('game',['scripts/bacteria-lab/validate-design-evidence.mjs']);
-  assert.deepEqual(plan.checks.map(c=>c.key),['game-gate','design-evidence']);
-  const evidence=plan.checks.find(c=>c.key==='design-evidence');
-  assert(evidence.tests.includes('src/test/js/designEvidenceGate.test.mjs'));
-  assert(evidence.inputs.includes('scripts/bacteria-lab/validate-stall-monitor-evidence.mjs'));
-  assert(!evidence.tests.some(p=>/steam|resident|toilet/i.test(p)));
-  assert.deepEqual(planChanges('game',['docs/tasks/update.md']).checks.map(c=>c.key),['documents']);
-  assert.deepEqual(planChanges('game',['docs/evidence/bacteria-question-center-20261020/ACCEPTANCE.json']).checks.map(c=>c.key),['evidence-attributes']);
+test('archived validator edits get syntax checks; unrelated historical JSON is static documentation',()=>{
+ const plan=planChanges('game',['scripts/bacteria-lab/validate-design-evidence.mjs']);
+ assert.deepEqual(plan.checks.map(c=>c.key),['archive-syntax']);
+ assert.deepEqual(planChanges('game',['docs/evidence/old/ACCEPTANCE.json']).checks.map(c=>c.key),['documents']);
 });
-test('raw evidence attribute relocation selects only its affected configuration check',()=>{
-  const plan=planChanges('game',['.gitattributes','docs/evidence/bacteria-question-center-20261020/.gitattributes']);
-  assert.deepEqual(plan.checks.map(c=>c.key),['evidence-attributes']);
-  assert.deepEqual(plan.checks[0].tests,['src/test/js/evidenceAttributes.test.mjs']);
+test('attribute validation has no archived receipt or predecessor inputs',()=>{
+ const plan=planChanges('game',['.gitattributes']);assert.deepEqual(plan.checks.map(c=>c.key),['evidence-attributes']);
+ assert(plan.checks[0].inputs.every(p=>!p.endsWith('.json')));
+});
+test('current test split selects actual affected behavior without archives or global evidence closure',()=>{
+ const plan=planChanges('game',['src/test/js/toiletMarket.test.mjs']);
+ assert.deepEqual(plan.checks.map(c=>c.key),['current-behavior']);
+ assert(plan.checks[0].inputs.every(p=>!p.startsWith('docs/evidence/')));
+ assert(plan.checks[0].inputs.length<250);
 });

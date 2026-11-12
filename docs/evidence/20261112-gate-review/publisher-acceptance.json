@@ -1,0 +1,61 @@
+{
+  "scope": "publisher-source batch A1",
+  "result": "PASS",
+  "checks": {
+    "publisher-policy": {
+      "completedAt": "2026-11-12T12:47:02.696Z",
+      "tests": 6,
+      "result": "PASS",
+      "receipt": "1473ec851dd40267e6741ba41bb15b970070d558570f62097a737e04a0d55147.json"
+    },
+    "publisher-runner": {
+      "completedAt": "2026-11-12T12:47:39.644Z",
+      "tests": 7,
+      "result": "PASS",
+      "receipt": "b1d18503b051a622df02e045555c72d03bab039cf82938d3f3e2dae1d74841ca.json"
+    },
+    "publisher-contract": {
+      "completedAt": "2026-11-12T12:47:40.183Z",
+      "tests": 4,
+      "result": "PASS",
+      "receipt": "0a9f125bf8e36f364d42bee8856bf67305e1aac355ba991722727b91ca021144.json"
+    },
+    "publisher-leaves": {
+      "completedAt": "2026-11-12T12:47:40.762Z",
+      "tests": 3,
+      "result": "PASS",
+      "receipt": "bd74ab7702f5ebdbdf872387bf5369c637ab1d493e150ddb5652addf99bda1b3.json"
+    },
+    "publisher-plan": {
+      "completedAt": "2026-11-12T12:47:44.757Z",
+      "tests": 7,
+      "result": "PASS",
+      "receipt": "0bc5710eae9a144bf9c1c3d45984e1bb21acbcdfec9c878ea353731af2d3cf74.json"
+    }
+  },
+  "sourceSha256": {
+    "scripts/audit-historical-evidence.mjs": "a64273b7c19f660b98324319a291d4982dbadc35202b6391d5fc29384e41d0b7",
+    "src/changeValidationGit.js": "56b1e8b210b55dd50d40877e14ff1bc3f06e512b05b661e5149f7a4a1e0830b6",
+    "src/changeValidationPolicy.js": "cbff617d7a55146ca78d0ee64a83fd73422eb93ce04201368861f6f7a4e98eb9",
+    "src/changeValidationRunner.js": "7f2656d5fd34d7bfd8af7bb2848e3839422ba5190de2d8afe9b96de3b70fcef4",
+    "src/currentBehaviorChecks.json": "91df4f779bce75509e12fff7d3849c50739f7051f7592cfa003164a85cdaf5d1",
+    "src/currentBehaviorGuard.cjs": "4ac1c5a3e1a07d49108c05cb60083788609d5a0e9744c4997f160a5a3a1bc3d2",
+    "src/currentBehaviorInputs.json": "34c8d8589cb9af4ff2ac1f340c165ea7f23221726c94a11ed6e1c9da23d89ed1",
+    "src/localCheckLeaves.js": "ba1839d3933abbf410e499d63b1dc04d927811b05d7535548ccbf056d5e2c934",
+    "src/localCheckPolicy.js": "89ad04e383f1eb3c879cecd53bcaf9945d02d3f01b900fbc692708df5ca315ac",
+    "src/manualArchiveChecks.json": "808f00a341add5199df4d9a12ad456d9990afdb4f76c3a7e4f4614c146c16cb9",
+    "src/publisherGateInputs.json": "03e65ce6bbc97ba830cd89cf23039ac5d3d56b95c2cf6db014abad5464a96908",
+    "src/releasePublisherCore.js": "4aab5f9969a681e94ac6e9d3ac23af875d85abb16e91d0cf57b0d28f495f012c",
+    "test/changeValidationPolicy.test.js": "fe7fd624cc1e6477282759cd82e762049830097a8baba66c7b0f8069559bc0b8",
+    "test/changeValidationRunner.test.js": "2e2d4d0eb9e45a93ad07610ad78d07377f317e844b5d322fcc28e528a75df9f3",
+    "test/fullGateScope.test.js": "a8e4ee82d5a51dbd27bb845f9bbe2b0d58da4acbc6e0bede093aa2c54c6f6a11",
+    "test/localCheckLeaves.test.js": "a8a80b0e68ab7cce66db7278352cd3d39ef0f5804a4d9babfec7cd8e39c39b0f",
+    "test/localCheckPolicy.test.js": "5c05201949d007ffd13a3e0e13abf21af98fa6ead0fc2f3dbd2c1e40adedf550",
+    "test/releasePublisherCore.test.js": "4bc30b46c027cdceb63ab4ddd24fca9a52110a03098481eb21c0259baf85e391"
+  },
+  "productionExecuted": false,
+  "publisherServiceActivated": false,
+  "databaseEngineChanged": false,
+  "applicationConsumerAcceptance": "separate dependent batch A2 pending",
+  "apiReadinessImplementation": "design proposal, not implemented or activated"
+}

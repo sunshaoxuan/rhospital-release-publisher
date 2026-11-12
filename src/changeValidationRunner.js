@@ -20,9 +20,9 @@ function assertNodeResult(result) {
 }
 function nodeTests(root,tests,seconds,launch=spawnSync) {
   const env={...process.env};for(const key of ['GIT_DIR','GIT_WORK_TREE','GIT_COMMON_DIR','GIT_INDEX_FILE'])delete env[key];
-  const r=launch(process.execPath,['--test','--test-concurrency=1',...tests],{cwd:root,env,encoding:'utf8',windowsHide:true,timeout:seconds*1000,maxBuffer:8*1024*1024});
+  const r=launch(process.execPath,['--experimental-vm-modules','--test','--test-concurrency=1',...tests],{cwd:root,env,encoding:'utf8',windowsHide:true,timeout:seconds*1000,maxBuffer:8*1024*1024});
   const result={status:r.status,signal:r.signal,error:r.error?.message,output:(r.stdout||'')+(r.stderr||'')};
-  assertNodeResult(result);return result.output;
+  try {assertNodeResult(result);} catch(error) {throw new Error(error.message+'\n'+result.output.slice(-24000));}return result.output;
 }
 const links=text=>[...text.matchAll(/\]\(([^)]+)\)/g)].map(m=>m[1].replace(/^<|>$/g,''));
 function validateDocuments(root,files,{baseFile=()=>'',exists=file=>fs.existsSync(path.resolve(root,file))}={}) {
@@ -71,6 +71,7 @@ function identity(root,check,context={}) {
 }
 function assertResult(check,result) {
   if(result?.state!=='PASS')throw new Error('Missing validation PASS');
+  if(check.kind==='syntax'&&(result.protocol!=='syntax/v1'||result.files!==check.inputs.length))throw new Error('Invalid syntax protocol');
   if(check.kind==='node-tests')assertNodeResult({status:0,output:result.output});
   else if(check.kind==='documents'&&result.protocol!=='documents/v1')throw new Error('Invalid document protocol');
   else if(check.kind==='resident'&&(result.protocol!=='resident-schema/v1'||result.versions?.length!==2||result.cases<20))throw new Error('Invalid migration protocol');
@@ -88,6 +89,10 @@ async function validateChange(root,plan,{cacheDirectory,requireReceipts=false,wr
     let result;
     if(execute)result=await execute(check);
     else if(check.kind==='documents')result=validateDocuments(root,check.inputs,context);
+    else if(check.kind==='syntax') {
+      for(const file of check.inputs){const r=spawnSync(process.execPath,['--check',file],{cwd:root,encoding:'utf8',windowsHide:true,timeout:check.timeoutSeconds*1000});if(r.status!==0||r.error||r.signal)throw new Error('Invalid archive tooling syntax: '+file);}
+      result={state:'PASS',protocol:'syntax/v1',files:check.inputs.length};
+    }
     else if(check.kind==='node-tests')result={state:'PASS',output:nodeTests(root,check.tests,check.timeoutSeconds)};
     else if(check.kind==='resident') {
       const output=nodeTests(root,['src/test/js/residentSchemaOracle.test.cjs'],30);
