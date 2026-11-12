@@ -21,5 +21,10 @@ test('design-tool changes select the actual evidence consumer and preserve unrel
   assert(evidence.inputs.includes('scripts/bacteria-lab/validate-stall-monitor-evidence.mjs'));
   assert(!evidence.tests.some(p=>/steam|resident|toilet/i.test(p)));
   assert.deepEqual(planChanges('game',['docs/tasks/update.md']).checks.map(c=>c.key),['documents']);
-  assert.deepEqual(planChanges('game',['docs/evidence/bacteria-question-center-20261020/ACCEPTANCE.json']).checks.map(c=>c.key),['design-evidence']);
+  assert.deepEqual(planChanges('game',['docs/evidence/bacteria-question-center-20261020/ACCEPTANCE.json']).checks.map(c=>c.key),['evidence-attributes']);
+});
+test('raw evidence attribute relocation selects only its affected configuration check',()=>{
+  const plan=planChanges('game',['.gitattributes','docs/evidence/bacteria-question-center-20261020/.gitattributes']);
+  assert.deepEqual(plan.checks.map(c=>c.key),['evidence-attributes']);
+  assert.deepEqual(plan.checks[0].tests,['src/test/js/evidenceAttributes.test.mjs']);
 });

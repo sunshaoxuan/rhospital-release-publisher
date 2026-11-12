@@ -37,7 +37,8 @@ function planChanges(repository, changedPaths) {
   const paths=[...new Set(changedPaths.map(safePath))].sort(), selected=new Set(), unmapped=[];
   const docs=[];
   for(const file of paths) {
-    if(repository==='game'&&['.gitattributes','docs/evidence/bacteria-question-center-20261020/ACCEPTANCE.json'].includes(file)) {selected.add('design-evidence');continue;}
+    if(repository==='game'&&['.gitattributes','docs/evidence/bacteria-question-center-20261020/ACCEPTANCE.json',
+      'docs/evidence/bacteria-question-center-20261020/.gitattributes','src/test/js/evidenceAttributes.test.mjs'].includes(file)) {selected.add('evidence-attributes');continue;}
     if(document(file)) {docs.push(file);continue;}
     if(repository==='game' && APP_GATE_INPUTS.includes(file)) selected.add('game-gate');
     else if(repository==='game' && RESIDENT_INPUTS.slice(0,4).includes(file)) selected.add('resident-schema');
@@ -53,6 +54,11 @@ function planChanges(repository, changedPaths) {
   if(docs.length) checks.push({key:'documents',kind:'documents',inputs:docs,timeoutSeconds:30});
   if(selected.has('resident-schema')) checks.push({key:'resident-schema',kind:'resident',inputs:RESIDENT_INPUTS,
     timeoutSeconds:240,images:['postgres:18.6-alpine','postgres:16-alpine']});
+  if(selected.has('evidence-attributes')) checks.push({key:'evidence-attributes',kind:'node-tests',inputs:[
+    '.gitattributes','docs/evidence/bacteria-question-center-20261020/.gitattributes',
+    'docs/evidence/bacteria-question-center-20261020/ACCEPTANCE.json','src/test/js/evidenceAttributes.test.mjs',
+    'docs/evidence/r34-toilet-preference-successor-20261112/runtime-restore-successor.json',
+    'docs/evidence/bacteria-editor-stages-20261021/ACCEPTANCE.json'],tests:['src/test/js/evidenceAttributes.test.mjs'],timeoutSeconds:30});
   if(selected.has('game-gate')) checks.push({key:'game-gate',kind:'node-tests',inputs:[...APP_GATE_INPUTS,
     'scripts/bacteria-lab/validate-design-evidence.mjs','scripts/bacteria-lab/design-validation-leaves.json'],
     tests:['src/test/js/changeValidationGate.test.mjs'],timeoutSeconds:180});

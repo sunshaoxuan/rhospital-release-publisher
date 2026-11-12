@@ -1,0 +1,11 @@
+# Evidence attribute scope repair, 2026-11-12
+
+User objective: diagnose the real864c645 failed toilet leaf; check related changed-code/backend gates only; commit/push completed repairs without game production retry or database upgrade. Continue the existing task guide C:/workspace/codex-work/test-impact-audit-20261112/TASK.md.
+
+Evidence: failed candidate6fe927696,90 tests with87 passing and3 failures. All failures identify the same root .gitattributes hash changing from the recorded a4c88d9b... to28c94b3e.... The previous raw-evidence preservation rule was placed globally. This was a cross-feature effect from the prior repair; no game business source changed.
+
+Bounded fix: restore exact root attribute identity and put /ACCEPTANCE.json -text -whitespace in docs/evidence/bacteria-question-center-20261020/.gitattributes. Original captured JSON bytes and original toilet records/checksums remain unchanged. Four dedicated positive/negative configuration tests require both accepted unrelated root identity and the exact local rule, and reject global/broad/missing rules or altered bytes. Daily ownership selects only evidence-attributes for these paths. Add the local rule to the design evidence dependency identity without selecting unrelated design behavior tests for a config-only change.
+
+Checks: rerun only the actual failed90-test toilet leaf once and its following evidence validator; both passed. Dedicated config4 tests pass. Existing29 publisher policy/gate tests cover the changed selector. Native commit/push must reuse unchanged results. No full Maven/backend/npm/product run, game source/UI work, browser session, DB or service operation. Publisher runtime remains the explicitly installed864c645; this source change affects daily check selection only, with formal scheduler/core scripts unchanged.
+
+Completion: actual toilet parent protocol accepts the genuine completed output and evidence marker; native exact candidate passes; new directory rule keeps the original raw artifact hash; original root matches the prior toilet record; final intent review and remote refs pass. Any missing required evidence keeps delivery pending. Final acceptance records source delivery separately from production release readiness.
