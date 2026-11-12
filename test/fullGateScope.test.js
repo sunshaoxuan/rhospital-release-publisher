@@ -34,6 +34,7 @@ test('actual game plan keeps production safety and replaces every displayed loca
  const keys=plan.steps.map(s=>s.key);
  for(const key of ['test-game-backend','build-image','game-database-preflight','backup-game-release','pre-deploy-checklist','deploy-stack','final-runtime-check','verify-game-static-assets-predeploy','verify-game-static-delivery','game-rollback-decision','game-fatal-rollback-decision'])assert(keys.includes(key),key);
  const sso=plan.steps.find(s=>s.key==='validate-game-sso-source');assert(!sso.command.includes('merge-base --is-ancestor'));assert(sso.command.includes('MARKER_VERSION'));
+ assert.deepEqual(plan.dryRunChecks,[]);
  assert(plan.steps.find(s=>s.key==='final-runtime-check').command);
 }));
 test('actual forum reuse plan retains database admission backup and runtime safety',()=>fixture(root=>{
@@ -47,12 +48,21 @@ test('actual R34-shaped plan carries all five current contracts without historic
  const mandatory=['test-game-backend','verify-game-static-assets-predeploy','pre-deploy-checklist','final-runtime-check','verify-game-static-delivery'];
  const target=(coveredRuntimePaths,checks)=>({checklistDecision:'existing-checks-sufficient',riskLevel:'low',codeImpact:'Controlled fixture validates current check ownership and production boundaries',databaseImpact:'none',coveredRuntimePaths,requiredChecks:checks.map(stepKey=>({stepKey,reason:'Controlled current candidate coverage for '+stepKey}))});
  put(root,'release/release-impact.json',JSON.stringify({schemaVersion:1,assessmentId:'20261112-current-checks',summary:'Controlled current behavior selection',targets:{game:target([file],[...mandatory,...keys,'verify-game-steam-runtime']),forum:target([],['validate-forum-source','forum-preflight','final-runtime-check'])}}));
- const plan=createPlan(root,{appTag:'20261112',dryRun:true,includeStackDeploy:true,changeAnalysis:{targets:{game:{changed:true,changedPaths:[file],ignoredPaths:['release/release-impact.json']}}}},{...env,RELEASE_PUBLISHER_CONFIG:process.env.RELEASE_PUBLISHER_CONFIG});
+ const digest=text=>require('node:crypto').createHash('sha256').update(text).digest('hex');
+ put(root,'src/main/resources/bacteria-level-validator.js','current bundle');
+ put(root,'scripts/bacteria-lab/server-validator-entry.mjs','current source');
+ put(root,'scripts/bacteria-lab/server-validator-manifest.json',JSON.stringify({bundleSha256:digest('current bundle'),sources:{'scripts/bacteria-lab/server-validator-entry.mjs':digest('current source')}}));
+ const request={appTag:'20261112',dryRun:true,includeStackDeploy:true,changeAnalysis:{targets:{game:{changed:true,changedPaths:[file],ignoredPaths:['release/release-impact.json']}}}};
+ const plan=createPlan(root,request,{...env,RELEASE_PUBLISHER_CONFIG:process.env.RELEASE_PUBLISHER_CONFIG});
  const preflight=plan.steps.find(s=>s.key==='validate-game-release-preflight');
  const checks=JSON.parse(Buffer.from(preflight.command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/)[1],'base64').toString()).checks;
  assert.deepEqual(checks.map(c=>c.key).sort(),keys.sort());doubleCheckLocalChecks(checks);
  for(const check of checks){const step=plan.steps.find(s=>s.key===check.key);assert.equal(step.command,check.command);assert.equal(step.coveredByPreflight,preflight.key);assert(!/validate-.+evidence|Evidence\.test/.test(step.command));}
  assert(!plan.steps.some(s=>s.key==='verify-relations-release'||s.key==='verify-tradepool-release'));
+ assert.equal(plan.dryRunChecks.length,1);assert.equal(plan.dryRunChecks[0].state,'PASS');
+ put(root,'src/main/resources/bacteria-level-validator.js','stale bundle');
+ assert.throws(()=>createPlan(root,request,{...env,RELEASE_PUBLISHER_CONFIG:process.env.RELEASE_PUBLISHER_CONFIG}),/artifact drift/);
+ assert.equal(createPlan(root,{...request,dryRun:false},{...env,RELEASE_PUBLISHER_CONFIG:process.env.RELEASE_PUBLISHER_CONFIG}).dryRunChecks.length,0);
 }));
 test('archive guard rejects actual sync async and subprocess history reads while current fixtures work',()=>fixture(root=>{
  const guard=path.resolve(__dirname,'../src/currentBehaviorGuard.cjs'),script=path.join(root,'probe.cjs');

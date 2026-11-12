@@ -1,5 +1,13 @@
 # Publisher gate review, 2026-11-12
 
+## Reopened silent artifact protocol and scoped dry-run admission
+
+Actual job2026-11-12T14:24:58.411Z-20261112 failed in local preflight because localCheckLeaves required nonempty stdout from build-server-validator.mjs --check, whose successful documented implementation exits silently. Remove that unnecessary stdout gate; retain exit/signal/error failures and full Node test completion. This is a publisher regression, missed by the previous isolated smoke coverage.
+
+Necessity review: Java BacteriaLevelValidator actually loads src/main/resources/bacteria-level-validator.js for server-side validation. Comparing this current build artifact to its current bundled source manifest protects against missed rebuilds; historical evidence is not involved. Existing Node behavioral suites do not verify this entire artifact/source identity. Keep the existing CLI check in formal preflight. Only selected design-package dry runs additionally inspect the selected candidate's current manifest/source/bundle using read-only source reads, without running product tests, target scripts, builds, archive audits or adding a new universal release step. Unrelated plans select no such read. This is a cheap admission check; formal actual-candidate artifact validation retains its own authority.
+
+Frozen batch: localCheckLeaves.js, releasePublisherCore.js, their existing leaf/whole-plan tests and documentation. Native hook owns direct preflight/leaves/plan tests once; no full npm/Maven/game suite. Execute actual silent --check once with current guard, verify real target dry-run admission once, push master, then protected publisher-only service activation. No game release retry or database action. Existing operational guidance/evidence stays in C:/workspace/codex-work/test-impact-audit-20261112/TASK.md.
+
 ## Objective and limits
 
 Personally review all source-defined game/forum release steps, local feature entrypoints and Git/formal gates. Remove archive audit coupling and unrelated product acceptance from routine delivery. No external model, production execution, service activation or database engine upgrade. Existing dirty work is excluded. Task guidance: `C:/workspace/codex-work/test-impact-audit-20261112/TASK.md`.

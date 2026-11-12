@@ -29,7 +29,8 @@ async function runLeaves(checks,{root=process.cwd(),run,write=()=>{},onCheck=()=
     if(result.status!==0||result.signal||result.error)
       throw new Error('Leaf failed: '+leaf.id+' exit='+result.status+' signal='+(result.signal||'none')+' error='+(result.error||'none'));
     if(leaf.test)assertNodeResult(result);
-    else if(!result.output?.trim())throw new Error('Missing leaf output: '+leaf.id);
+    // Registered artifact CLIs use exit status, including silent success.
+    // Test leaves still require complete TAP; errors/signals were rejected above.
     results.set(leaf.id,result);
   }
   for(const check of checks) {
@@ -42,4 +43,19 @@ async function runLeaves(checks,{root=process.cwd(),run,write=()=>{},onCheck=()=
   write('game_release_preflight=PASS checks='+checks.length+' leaves='+plan.leaves.length+'\n');
   return {passed:true,failures:[],leaves:plan.leaves.length};
 }
-module.exports={selectLeaves,runLeaves};
+function verifyServerArtifact(read) {
+  const manifest=JSON.parse(read('scripts/bacteria-lab/server-validator-manifest.json'));
+  const sources=Object.entries(manifest.sources||{});
+  if(!sources.length||sources.length>128)throw new Error('Invalid current validator source manifest');
+  const hash=text=>require('node:crypto').createHash('sha256').update(text.replaceAll('\r\n','\n')).digest('hex');
+  const matches=(file,expected)=>{
+    if(!/^[a-f0-9]{64}$/.test(expected)||hash(read(file))!==expected)throw new Error('Current validator artifact drift: '+file);
+  };
+  matches('src/main/resources/bacteria-level-validator.js',manifest.bundleSha256);
+  for(const [file,expected] of sources) {
+    if(!/^(?:scripts\/bacteria-lab\/|src\/main\/resources\/static\/js\/)[a-zA-Z0-9_./-]+$/.test(file)||file.split('/').some(p=>!p||p==='.'||p==='..'))throw new Error('Invalid current validator source path');
+    matches(file,expected);
+  }
+  return {key:'server-validator-current-artifact',state:'PASS',sources:sources.length,protocol:'exit-status',historyRead:false};
+}
+module.exports={selectLeaves,runLeaves,verifyServerArtifact};

@@ -303,6 +303,11 @@ function createPlan(projectRoot, request, env = process.env) {
     .map(currentLocalCheck);
   doubleCheckLocalChecks(localEvidenceChecks);
 
+  // Cheap current-artifact admission in dry run only, scoped to selected design
+  // behavior. No behavior test, build, historical receipt or target script runs.
+  const dryRunChecks = dryRun && localEvidenceChecks.some(c=>c.key==='verify-design-level-packages')
+    ? [require('./localCheckLeaves').verifyServerArtifact(startupSource)] : [];
+
   const steps = [
     releaseStep({
       key: 'git-status-before-update',
@@ -1163,11 +1168,12 @@ function createPlan(projectRoot, request, env = process.env) {
     includeStackDeploy,
     dryRun,
     remoteRehearsal,
+    dryRunChecks,
     steps,
     guardrails: [
       remoteRehearsal
         ? '远程前置演练只允许使用 environment=rehearsal 的隔离清单，并在 /tmp/rhospital-release-rehearsal 下创建、删除、恢复后清理对象'
-        : '勾选 dry run 时只生成命令和写入预览',
+        : '勾选 dry run 时生成命令预览，并只读校验选中功能的当前打包产物',
       '取消 dry run 后会执行本地测试、镜像上传和勾选范围内的远端发布步骤',
       '目标提交新增或修改的 scripts/migration/*.sql 必须存在于目标镜像，并在镜像切换前完成备份、提取、校验和执行',
       '旧代码回滚前必须暂停所有 ACTIVE 的 ADMIN 挂单，避免旧版交易逻辑继续处理系统库存'
@@ -1805,6 +1811,7 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
   };
   if (plan.dryRun) {
     logs.push(`DRY_RUN: ${plan.imageTag}`);
+    for(const check of plan.dryRunChecks||[])logs.push(`dry_run_current_artifact=PASS key=${check.key} sources=${check.sources}`);
     const rehearsalStep = plan.steps.find(step => step.rehearsal);
     if (rehearsalStep) {
       currentStepKey = rehearsalStep.key;
