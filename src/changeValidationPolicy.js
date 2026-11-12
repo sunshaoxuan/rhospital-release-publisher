@@ -37,6 +37,7 @@ function planChanges(repository, changedPaths) {
   const paths=[...new Set(changedPaths.map(safePath))].sort(), selected=new Set(), unmapped=[];
   const docs=[];
   for(const file of paths) {
+    if(repository==='game'&&['.gitattributes','docs/evidence/bacteria-question-center-20261020/ACCEPTANCE.json'].includes(file)) {selected.add('design-evidence');continue;}
     if(document(file)) {docs.push(file);continue;}
     if(repository==='game' && APP_GATE_INPUTS.includes(file)) selected.add('game-gate');
     else if(repository==='game' && RESIDENT_INPUTS.slice(0,4).includes(file)) selected.add('resident-schema');

@@ -21,4 +21,5 @@ test('design-tool changes select the actual evidence consumer and preserve unrel
   assert(evidence.inputs.includes('scripts/bacteria-lab/validate-stall-monitor-evidence.mjs'));
   assert(!evidence.tests.some(p=>/steam|resident|toilet/i.test(p)));
   assert.deepEqual(planChanges('game',['docs/tasks/update.md']).checks.map(c=>c.key),['documents']);
+  assert.deepEqual(planChanges('game',['docs/evidence/bacteria-question-center-20261020/ACCEPTANCE.json']).checks.map(c=>c.key),['design-evidence']);
 });
