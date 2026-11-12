@@ -200,3 +200,7 @@ Final transitive review removed the stale designEvidenceInputs archive manifest 
 Routine current behavior ownership is now per test consumer rather than an11-file cross-feature group: independent immutable snapshots passed169 tests. The45 current toilet behavior tests completed in0.784s in this scoped run; the previous90-test mixed behavior/archive run took89.118s. These are different workloads and environments, not a benchmark of total release time or in-game performance. Each modified source invalidates only its direct owned checks; unknown impact still requires registration, with no full-product fallback.
 
 Final source cleanup acceptance is PASS; native exact-candidate commit/push remain mandatory. Installed service remains864c645, UP_TO_DATE, idle. New source has not been activated. API readiness, its direct-candidate health integration and shortening/replacing passive monitor waiting remain unimplemented. There was no production or engine operation.
+
+## 用户要求的验证停止强规则
+
+已在全局 AGENTS 与本仓库 AGENTS 落实六项强约束：冻结范围与预算；正式验证后独立问题留待下一批；重跑先写明具体失效输入和最小范围；复用有效证据；跟踪原运行并控制超时扩张；达标立即交付。规则本身只做静态格式、冲突和正反场景核对，不新增可执行门禁或运行产品测试。原文件、安装哈希和回滚说明保存在 C:/workspace/codex-selfimp/acceptance-gate-performance-20261023/installations/20261112-validation-stop-rules/INSTALLATION_RECEIPT.json。收益需后续任务持续观察，本次不作速度保证。
