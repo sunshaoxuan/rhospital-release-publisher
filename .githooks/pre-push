@@ -1,0 +1,7 @@
+#!/bin/sh
+root="$(git rev-parse --show-toplevel)" || exit 1
+while read local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/master" ] && [ "$local_sha" != "0000000000000000000000000000000000000000" ]; then
+    node "$root/scripts/validate-local-change.mjs" --push "$local_sha" "$remote_sha" || exit 1
+  fi
+done

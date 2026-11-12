@@ -1,0 +1,22 @@
+{
+  "first": {
+    "state": "PASS",
+    "checks": [
+      {
+        "key": "resident-schema",
+        "reused": false
+      }
+    ]
+  },
+  "second": {
+    "state": "PASS",
+    "checks": [
+      {
+        "key": "resident-schema",
+        "reused": true
+      }
+    ]
+  },
+  "production": false,
+  "engineUpgrade": false
+}

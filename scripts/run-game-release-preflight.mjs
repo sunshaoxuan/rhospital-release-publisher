@@ -3,6 +3,7 @@ import {pathToFileURL} from 'node:url';
 import {resolve} from 'node:path';
 
 import checkPolicy from '../src/localCheckPolicy.js';
+import leafPolicy from '../src/localCheckLeaves.js';
 const {TOILET_MARKET_CHECK} = checkPolicy;
 export const {doubleCheckLocalChecks, assertLocalCheckResult} = checkPolicy;
 
@@ -119,6 +120,7 @@ function streamChild(executable,args,input,timeoutMs,onChunk,launch) {
 }
 
 export async function runChecksStreaming(checks, {run = runPowerShellCheckStreaming, write = text => process.stdout.write(text)} = {}) {
+  if(run===runPowerShellCheckStreaming) return leafPolicy.runLeaves(checks,{write,run:(leaf,onChunk)=>streamChild(process.execPath,leaf.args,'',leaf.timeoutSeconds*1000,onChunk,spawn)});
   doubleCheckLocalChecks(checks);
   const failures = [];
   for (const check of checks) {
