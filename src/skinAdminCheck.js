@@ -33,8 +33,16 @@ function runSkin(root,classes,seconds=1200){
  const args=['-q','-DskipTests=false','-Dmaven.test.skip=false','-Dtest='+classes.join(','),'test'];
  const started=Date.now();
  const env={...process.env};for(const key of ['GIT_DIR','GIT_WORK_TREE','GIT_COMMON_DIR','GIT_INDEX_FILE'])delete env[key];
- if(process.platform==='win32')run('cmd.exe',['/d','/c','mvnw.cmd',...args],{cwd:root,env,timeout:seconds*1000});
- else run('sh',['./mvnw',...args],{cwd:root,env,timeout:seconds*1000});
+ try{
+  if(process.platform==='win32')run('cmd.exe',['/d','/c','mvnw.cmd',...args],{cwd:root,env,timeout:seconds*1000});
+  else run('sh',['./mvnw',...args],{cwd:root,env,timeout:seconds*1000});
+ }catch(error){
+  const folder=path.join(root,'target/surefire-reports');
+  const details=fs.existsSync(folder)?fs.readdirSync(folder).filter(f=>f.startsWith('TEST-')&&f.endsWith('.xml')).flatMap(f=>{
+   const text=fs.readFileSync(path.join(folder,f),'utf8');return [...text.matchAll(/<(?:failure|error)\b[^>]*message="([^"]*)"[^>]*>/g)].map(m=>f+': '+m[1]);
+  }):[];
+  throw new Error(error.message+'\n'+details.join('\n').slice(0,14000));
+ }
  const tests=reports(root,classes,started);
  run(process.execPath,['--check','src/main/resources/static/js/adminSkins.mjs'],{cwd:root,env,timeout:30000});
  const output=run('python',['scripts/validation/skins/migration-check.py'],{cwd:root,env,timeout:240000});

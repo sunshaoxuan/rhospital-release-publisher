@@ -18,6 +18,7 @@ test('Surefire requires actual named complete results; skip/error/missing/duplic
   for(const mutation of ['tests="0" failures="0" errors="0" skipped="0"','tests="2" failures="1" errors="0" skipped="0"','tests="2" failures="0" errors="0" skipped="1"','tests="2" failures="0" errors="1" skipped="0"']){fs.writeFileSync(file,'<testsuite '+mutation+'>');assert.throws(()=>reports(root,['SampleTest']),/Incomplete/);}
   fs.writeFileSync(path.join(folder,'TEST-other.SampleTest.xml'),'<testsuite/>');assert.throws(()=>reports(root,['SampleTest']),/ambiguous/);
   assert.throws(()=>reports(root,['MissingTest']),/Missing/);
+  fs.rmSync(path.join(folder,'TEST-other.SampleTest.xml'));fs.writeFileSync(file,'<testsuite tests="2" failures="0" errors="0" skipped="0">');fs.utimesSync(file,1,1);assert.throws(()=>reports(root,['SampleTest'],Date.now()),/Stale/);
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
 test('SQL and JVM completion protocols cannot be replaced by aggregate PASS',()=>{
