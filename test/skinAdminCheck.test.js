@@ -25,3 +25,8 @@ test('SQL and JVM completion protocols cannot be replaced by aggregate PASS',()=
  const good={state:'PASS',protocol:'skin-admin/v1',classes:1,tests:4,migration:{state:'PASS',protocol:'skin-migration/v1',version:'18.6',checks:Array(8).fill('case')}};
  assertProtocol(good,['SampleTest']);for(const bad of [{state:'PASS'},{...good,tests:0},{...good,classes:2},{...good,migration:{...good.migration,version:'16'}},{...good,migration:{...good.migration,state:'FAIL'}}])assert.throws(()=>assertProtocol(bad,['SampleTest']),/Incomplete/);
 });
+test('runtime screenshot documentation receives binary format validation without JVM selection',()=>{
+ const plan=planChanges('game',['docs/evidence/skin-admin-20261113/desktop.png']);assert.deepEqual(plan.checks.map(c=>c.key),['documents']);
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'skin-image-'));const file='docs/evidence/screen.png';fs.mkdirSync(path.join(root,'docs/evidence'),{recursive:true});
+ try{fs.writeFileSync(path.join(root,file),Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6AgAAAABJRU5ErkJggg==','base64'));assert.equal(require('../src/changeValidationRunner').validateDocuments(root,[file]).state,'PASS');fs.writeFileSync(path.join(root,file),'broken');assert.throws(()=>require('../src/changeValidationRunner').validateDocuments(root,[file]),/Invalid evidence PNG/);}finally{fs.rmSync(root,{recursive:true,force:true});}
+});
