@@ -16,7 +16,7 @@ const RESIDENT_INPUTS = [
 ];
 const POLICY_FILES = ['src/changeValidationPolicy.js','src/changeValidationRunner.js','src/changeValidationReceipts.js',
   'src/residentMigrationCheck.js','src/localCheckLeaves.js','src/changeValidationGit.js','src/designValidationLeaves.json'];
-const PUBLISHER_GATE_INPUTS = [...POLICY_FILES,'src/localCheckPolicy.js','scripts/run-game-release-preflight.mjs',
+const PUBLISHER_GATE_INPUTS = [...POLICY_FILES,'.gitattributes','src/localCheckPolicy.js','scripts/run-game-release-preflight.mjs',
   'scripts/validate-local-change.mjs','.githooks/pre-commit','.githooks/pre-push',
   'test/changeValidationPolicy.test.js','test/changeValidationRunner.test.js',
   'test/localCheckLeaves.test.js','test/localCheckPolicy.test.js',

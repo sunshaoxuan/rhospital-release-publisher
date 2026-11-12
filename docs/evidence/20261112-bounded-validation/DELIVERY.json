@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "game": {
+    "implementationCommit": "bd3e49481abeefdcd5fe2dcdcab941c2bd078c3f",
+    "tree": "838532af107ce7a6ba52b18b619687c51d7a551f",
+    "verifiedOriginMaster": "bd3e49481abeefdcd5fe2dcdcab941c2bd078c3f",
+    "nativeCommitPassed": true,
+    "nativePushReusedReceipts": true,
+    "tests": [
+      {
+        "key": "game-gate",
+        "tests": [
+          3
+        ],
+        "state": "PASS",
+        "receiptSha256": "702e8013fd8965d73ba44fcfef9589bf3c9197013263a08957f0dfffbfdaa12c"
+      }
+    ]
+  },
+  "publisher": {
+    "implementationCommit": "f1df28cdc3e51b6e10b7c75aa965ce20affdd743",
+    "tree": "2ce918000738dab33c5d03726ed1f439c4b0f053",
+    "verifiedOriginMaster": "f1df28cdc3e51b6e10b7c75aa965ce20affdd743",
+    "nativeCommitPassed": true,
+    "nativePushReusedReceipts": true,
+    "tests": [
+      {
+        "key": "publisher-gate",
+        "tests": [
+          25
+        ],
+        "state": "PASS",
+        "receiptSha256": "5fc42a4493ba2a745289fecd61209e635d514d9c4661ba2cdc4dceb5a61cd0e2"
+      }
+    ]
+  },
+  "migrationNativeHooks": {
+    "state": "PASS",
+    "source": "bd3e49481abeefdcd5fe2dcdcab941c2bd078c3f",
+    "policy": "f1df28cdc3e51b6e10b7c75aa965ce20affdd743",
+    "commitMilliseconds": 71518,
+    "nativeCommitPassed": true,
+    "nativePushPassed": true,
+    "checks": [
+      "resident-schema"
+    ],
+    "protocol": "resident-schema/v1",
+    "versions": [
+      "18.6",
+      "16.13"
+    ],
+    "cases": 24,
+    "production": false,
+    "helpersRemoved": true,
+    "output": "✔ version and exact generated-column oracle are identical in migration/postcheck; preflight uses same range (0.8294ms)\n✔ PG12/13/14/15/16/17 ordinary writable catalog is admitted by the offline model (0.2769ms)\n✔ generated version_id is rejected although type/nullability/identity match (1.3181ms)\n✔ generated ordinary_issued is rejected although type/nullability/identity match (0.1173ms)\n✔ generated effective_date is rejected although type/nullability/identity match (0.1011ms)\n✔ generated result_json is rejected although type/nullability/identity match (0.0664ms)\n✔ PG10/11 are explicitly rejected before any attgenerated catalog access (0.1394ms)\n✔ PG18 normal NOT NULL catalog is admitted and PG19 remains unreviewed (0.1213ms)\n✔ PG18 abnormal CHECK/FK/unique and missing NOT NULL catalogs remain rejected (0.2059ms)\n✔ PG17 extra CHECK/FK/unique/exclusion/trigger/unknown constraint or unique index is never ignored (0.2735ms)\n✔ both read-only inspection files remain free of DDL/data/sequence writes (0.1876ms)\nℹ tests 11\nℹ suites 0\nℹ pass 11\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 149.7474\n",
+    "engineUpgrade": false,
+    "fixtureRemoved": true
+  },
+  "documentationOnlyVerification": {
+    "selectedKeys": [
+      "documents"
+    ],
+    "gameTests": 0,
+    "publisherTests": 0,
+    "nativeHookResult": "Recorded in subsequent Git output and task FINAL_DELIVERY.json"
+  },
+  "consumerTests": {
+    "files": [
+      "test/gameReleasePreflight.test.js",
+      "test/bacteriaAuthoritativeBudget.test.js"
+    ],
+    "passed": 12,
+    "failed": 0
+  },
+  "productionReleased": false,
+  "publisherServiceActivated": false,
+  "engineUpgraded": false,
+  "localVolumeCount": 50,
+  "localHospitalAppHealthy": true,
+  "localHospitalDatabaseHealthy": true,
+  "remainingScope": "Other runtime modules need explicit check owners. The publisher source has been pushed; service activation remains separate. Formal release retains backend, migration, backup and runtime gates."
+}

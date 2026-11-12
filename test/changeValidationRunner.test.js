@@ -10,6 +10,14 @@ test('complete Node protocol rejects missing totals, skips and execution errors'
   for(const output of ['',good.replace('# fail 0\n',''),good.replace('# skipped 0','# skipped 1'),good+'not ok 1 - failure\n'])assert.throws(()=>assertNodeResult({status:0,output}));
   assert.throws(()=>assertNodeResult({status:1,output:good}));
 });
+test('publisher hooks retain LF under Windows autocrlf checkout',()=>fixture(root=>{
+  const git=(...args)=>execFileSync('git',['-C',root,...args],{encoding:'utf8',windowsHide:true,stdio:['pipe','pipe','pipe']});
+  git('init','-b','master');git('config','user.name','Fixture');git('config','user.email','fixture@example.invalid');git('config','core.autocrlf','true');
+  fs.copyFileSync(path.join(__dirname,'../.gitattributes'),path.join(root,'.gitattributes'));
+  fs.mkdirSync(path.join(root,'.githooks'));const hook=path.join(root,'.githooks/pre-commit');fs.writeFileSync(hook,'#!/bin/sh\nexit 0\n');
+  git('add','.');git('commit','-m','hook attributes fixture');fs.unlinkSync(hook);git('checkout','HEAD','--','.githooks/pre-commit');
+  assert(!fs.readFileSync(hook,'utf8').includes('\r'));git('config','core.hooksPath','.githooks');git('commit','--allow-empty','-m','native hook checkout proof');
+}));
 test('owned-input receipts reuse across unrelated edits and reject relevant edits, tampering, missing keys',()=>fixture(async root=>{
   fs.writeFileSync(path.join(root,'README.md'),'hello');
   const plan={scope:'local-change',productionActions:false,checks:[{key:'documents',kind:'documents',inputs:['README.md'],timeoutSeconds:30}]};
