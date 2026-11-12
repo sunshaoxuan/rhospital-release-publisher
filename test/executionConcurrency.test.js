@@ -131,8 +131,10 @@ function serverHarness() {
   const jobControllers = new Map();
   const context = vm.createContext({
     jobs, jobControllers, AbortController,
+    publisherOperationLock: 'isolated-concurrency-fixture',
+    acquireOperationLock: () => ({release() {}}),
     hasActivePublisherJobs: () => [...jobs.values()].some(job => isActiveJobStatus(job.status)),
-    persistJobs() {}, pruneJobs() {}, runExecutionJobInIsolatedWorktree() { executions++; }
+    persistJobs() {}, pruneJobs() {}, async runExecutionJobInIsolatedWorktree() { executions++; }
   });
   vm.runInContext(source.slice(source.indexOf('function createExecutionJob(body)'),
     source.indexOf('async function runExecutionJobInIsolatedWorktree')), context);

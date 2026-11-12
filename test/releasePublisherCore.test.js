@@ -37,6 +37,7 @@ const {
   validateGitBranch,
   validateGitCommit,
   resolveCatalogSchemaVersion,
+  residentMigrationPreflight,
   analyzeReleaseChanges,
   assertReleaseTargetChanged,
   readRemoteComposeImageTag,
@@ -626,6 +627,36 @@ test('deploy guard blocks stack deploy when rendered compose requests zero repli
     assert.equal(fs.existsSync(path.join(isolatedRoot, 'deploy-called')), false);
   } finally {
     fs.rmSync(isolatedRoot, {recursive: true, force: true});
+  }
+});
+
+test('resident candidate precondition runs readonly before image upload and excludes migration DDL', () => {
+  const root = tempProject(sampleXml);
+  const migrationPath = 'scripts/migration/20261108_add_resident_reward_ledger.sql';
+  const block = `do $resident_precondition$
+declare application_owner name;
+begin
+ if current_setting('server_version_num')::integer >= 190000 or current_schema() <> 'public' then
+  raise exception 'unsupported target';
+ end if;
+ select pg_get_userbyid(core_table.relowner) into application_owner from pg_class core_table where core_table.relname='t_hospitals';
+end $resident_precondition$;`;
+  const source = `\\set ON_ERROR_STOP on\nbegin;\nset local lock_timeout='5s';\nset local statement_timeout='30s';\n${block}\ncreate table if not exists resident_fixture(id bigint);\ndo $owner$ declare application_owner name; begin select pg_get_userbyid(core_table.relowner) into application_owner from pg_class core_table where core_table.relname='t_hospitals'; execute format('alter table resident_fixture owner to %I',application_owner); end $owner$;\ncommit;\nselect 1;\n`;
+  const file = path.join(root, migrationPath);
+  fs.mkdirSync(path.dirname(file), {recursive:true}); fs.writeFileSync(file, source);
+  const plan = createPlan(root, {appTag:'2026111201', dryRun:true, includeStackDeploy:true, gitCommit:'latest',
+    changeAnalysis:{targets:{game:{changedPaths:[migrationPath]}}}}, {
+    RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE:'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE:'true', RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE:'true'});
+  const guard = plan.steps.find(s=>s.key==='validate-game-database-migration-compatibility');
+  const script = decodedScriptTree(guard.command);
+  assert.match(script,/BEGIN READ ONLY/); assert(script.includes(block));
+  assert.doesNotMatch(script,/create table if not exists resident_fixture/);
+  assert.match(script,/statement_timeout = '30s'/);
+  assert(plan.steps.indexOf(guard)<plan.steps.findIndex(s=>s.key==='publish-image'));
+  assert.equal(plan.config.databaseMigrations[0].sha256,crypto.createHash('sha256').update(source).digest('hex'));
+  assert.deepEqual(residentMigrationPreflight('scripts/migration/other.sql',source),{});
+  for(const invalid of [source.replace(block,''),source+block,source.replace('begin\n if','begin\n execute \'select 1\';\n if'),source.replace('current_schema()','public_schema()'),source.replace(block,'/*\n'+block+'\n*/'),source.replace(block,"select '\n"+block+"\n';")]) {
+    assert.throws(()=>residentMigrationPreflight(migrationPath,invalid),/Resident migration/);
   }
 });
 

@@ -1,5 +1,10 @@
 # 变更记录
 
+## 2026-11-12
+
+- Run the Resident ledger's exact version/schema/owner precondition from candidate migration bytes in the bounded READ ONLY compatibility transaction before image upload. Reject missing, duplicate, unsafe or ambiguous blocks during plan generation; retain candidate SHA binding and nonresident/forum checks. Preserve the current PostgreSQL18.6 engine; upgrades require a separate authorized project. No game release retry is included.
+- Align the isolated concurrency VM fixture with the existing operation-lock dependency and asynchronous execution signature; retain production locking behavior and dedicated lock tests.
+
 ## 2026-10-27
 
 - Permit a guarded user-started retry from a paused failed rollout using the exact healthy old task as the recovery/database baseline, without a preliminary service rollback or history reset.

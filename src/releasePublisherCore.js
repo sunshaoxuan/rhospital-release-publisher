@@ -2921,6 +2921,7 @@ function resolveReleaseMigrations(projectRoot, gitCommit, changeAnalysis) {
     return {
       filePath,
       sha256: crypto.createHash('sha256').update(canonicalSql, 'utf8').digest('hex'),
+      ...residentMigrationPreflight(filePath, sql),
       targetReleaseHash: migrationReleaseHashConstant(sql, 'target_release_hash'),
       expectedReleaseHash: migrationReleaseHashConstant(sql, 'expected_release_hash')
     };
@@ -2930,12 +2931,38 @@ function resolveReleaseMigrations(projectRoot, gitCommit, changeAnalysis) {
     ? fs.readFileSync(resolveInside(projectRoot, migration.filePath), 'utf8')
     : runGit(projectRoot, ['show', `${gitCommit}:${migration.filePath}`]));
   return ordered
-    .map(({filePath, sha256, targetReleaseHash, expectedReleaseHash}) => ({
+    .map(({filePath, sha256, targetReleaseHash, expectedReleaseHash, residentPreflight}) => ({
       filePath,
       sha256,
+      ...(residentPreflight ? {residentPreflight} : {}),
       targetReleaseHash,
       expectedReleaseHash
     }));
+}
+
+function residentMigrationPreflight(filePath, sql) {
+  if (filePath !== 'scripts/migration/20261108_add_resident_reward_ledger.sql') return {};
+  const source = String(sql);
+  const blocks = [...source.matchAll(/^do \$resident_precondition\$[\s\S]*?^end \$resident_precondition\$;/gm)];
+  if (blocks.length !== 1 || (source.match(/\$resident_precondition\$/g) || []).length !== 2) {
+    throw new Error('Resident migration requires exactly one readonly precondition block');
+  }
+  const block = blocks[0][0];
+  const preamble = source.slice(0, blocks[0].index).replace(/--[^\n]*/g, '');
+  if (source.includes('/*') || source.includes('*/') || preamble.split(/\r?\n/).some(line =>
+    line.trim() && !/^(?:\\set ON_ERROR_STOP on|begin;|set local (?:lock_timeout|statement_timeout)\s*=\s*'[^']+';|select pg_advisory_xact_lock\(\d+\);)$/.test(line.trim()))) {
+    throw new Error('Resident migration precondition has an ambiguous SQL context');
+  }
+  // Candidate bytes are bound to this migration SHA. Run only its reviewed admission block,
+  // never its DDL, transaction wrapper, advisory lock or owner mutation.
+  const code = block.replace(/--[^\n]*/g, '').replace(/'(?:''|[^'])*'/g, "''");
+  if (/\b(?:create|alter|drop|truncate|insert|update|delete|merge|execute|perform|call|copy|grant|revoke|set|lock|nextval|setval|pg_notify|pg_advisory\w*|dblink\w*|lo_\w*)\b/i.test(code)
+      || /\\|\/\*|\*\//.test(code)
+      || !block.includes("current_setting('server_version_num')")
+      || !block.includes('current_schema()') || !block.includes("core_table.relname='t_hospitals'")) {
+    throw new Error('Resident migration precondition must be readonly version/schema/owner admission');
+  }
+  return {residentPreflight: block};
 }
 
 function migrationReleaseHashConstant(sql, name) {
@@ -4528,6 +4555,8 @@ $preflight$;` : '';
   const sql = `\\set ON_ERROR_STOP on
 BEGIN READ ONLY;
 SELECT current_database() AS migration_preflight_database;
+SET LOCAL statement_timeout = '30s';
+${releaseMigrations.map(migration => migration.residentPreflight || '').filter(Boolean).join('\n')}
 ${catalogCheck}
 ROLLBACK;
 `;
@@ -5579,6 +5608,7 @@ module.exports = {
   validateGitBranch,
   validateGitCommit,
   resolveCatalogSchemaVersion,
+  residentMigrationPreflight,
   tradePoolCatalogLogCheckCommands,
   gamePostReleaseCleanupCommand,
   gameSteamPartnerProbeCommands,
