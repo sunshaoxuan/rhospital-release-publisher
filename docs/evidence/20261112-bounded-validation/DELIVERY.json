@@ -20,7 +20,7 @@
   "publisher": {
     "implementationCommit": "f1df28cdc3e51b6e10b7c75aa965ce20affdd743",
     "tree": "2ce918000738dab33c5d03726ed1f439c4b0f053",
-    "verifiedOriginMaster": "f1df28cdc3e51b6e10b7c75aa965ce20affdd743",
+    "verifiedOriginMaster": "906274be51bf98d246dbc724914a90e0908a457c",
     "nativeCommitPassed": true,
     "nativePushReusedReceipts": true,
     "tests": [
@@ -32,7 +32,10 @@
         "state": "PASS",
         "receiptSha256": "5fc42a4493ba2a745289fecd61209e635d514d9c4661ba2cdc4dceb5a61cd0e2"
       }
-    ]
+    ],
+    "windowsCheckoutFixCommit": "906274be51bf98d246dbc724914a90e0908a457c",
+    "windowsHookCheckout": "PASS with core.autocrlf=true and a real native hook after checkout",
+    "finalTargetedTests": 26
   },
   "migrationNativeHooks": {
     "state": "PASS",
@@ -54,7 +57,8 @@
     "helpersRemoved": true,
     "output": "✔ version and exact generated-column oracle are identical in migration/postcheck; preflight uses same range (0.8294ms)\n✔ PG12/13/14/15/16/17 ordinary writable catalog is admitted by the offline model (0.2769ms)\n✔ generated version_id is rejected although type/nullability/identity match (1.3181ms)\n✔ generated ordinary_issued is rejected although type/nullability/identity match (0.1173ms)\n✔ generated effective_date is rejected although type/nullability/identity match (0.1011ms)\n✔ generated result_json is rejected although type/nullability/identity match (0.0664ms)\n✔ PG10/11 are explicitly rejected before any attgenerated catalog access (0.1394ms)\n✔ PG18 normal NOT NULL catalog is admitted and PG19 remains unreviewed (0.1213ms)\n✔ PG18 abnormal CHECK/FK/unique and missing NOT NULL catalogs remain rejected (0.2059ms)\n✔ PG17 extra CHECK/FK/unique/exclusion/trigger/unknown constraint or unique index is never ignored (0.2735ms)\n✔ both read-only inspection files remain free of DDL/data/sequence writes (0.1876ms)\nℹ tests 11\nℹ suites 0\nℹ pass 11\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 149.7474\n",
     "engineUpgrade": false,
-    "fixtureRemoved": true
+    "fixtureRemoved": true,
+    "nativePushReusedReceipts": true
   },
   "documentationOnlyVerification": {
     "selectedKeys": [
@@ -62,7 +66,7 @@
     ],
     "gameTests": 0,
     "publisherTests": 0,
-    "nativeHookResult": "Recorded in subsequent Git output and task FINAL_DELIVERY.json"
+    "nativeHookResult": "Final documentation-only native commit and receipt-only push are recorded in task FINAL_DELIVERY.json"
   },
   "consumerTests": {
     "files": [
@@ -78,5 +82,11 @@
   "localVolumeCount": 50,
   "localHospitalAppHealthy": true,
   "localHospitalDatabaseHealthy": true,
-  "remainingScope": "Other runtime modules need explicit check owners. The publisher source has been pushed; service activation remains separate. Formal release retains backend, migration, backup and runtime gates."
+  "remainingScope": "Other runtime modules need explicit check owners. The publisher source has been pushed; service activation remains separate. Formal release retains backend, migration, backup and runtime gates.",
+  "rerunScope": {
+    "invalidatedInput": "Working-tree CRLF inputs differ from immutable Git LF blobs",
+    "affectedCheck": "resident-schema",
+    "minimumScope": "Only SQL/oracle leaf in native Git fixture; no product suites",
+    "windowsCheckoutFix": "New hook text attributes and its direct owner/test inputs invalidated publisher-gate only;26 tests passed in17.185 seconds"
+  }
 }
