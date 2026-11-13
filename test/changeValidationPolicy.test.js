@@ -1,6 +1,17 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {planChanges}=require('../src/changeValidationPolicy');
 
+test('freeze dialog inputs select one isolated leaf, duplicates deduplicate, unknown input rejects',()=>{
+ const files=['src/main/resources/static/js/design/FreezeEditor.mjs','src/main/resources/static/js/design/QueueMechanicDialogs.css','src/test/js/bacteriaFreezeEditor.test.mjs'];
+ const plan=planChanges('game',[...files,...files]);
+ assert.deepEqual(plan.checks.map(c=>c.key),['current-bacteria-freeze-editor']);
+ const check=plan.checks[0];assert.equal(new Set(check.inputs).size,check.inputs.length);
+ assert.deepEqual(check.tests,['src/test/js/bacteriaFreezeEditor.test.mjs','src/test/js/bacteriaQueueMechanisms.test.mjs']);
+ assert(!check.inputs.some(f=>/docs\/evidence|resident|steam/i.test(f)));
+ assert.deepEqual(planChanges('game',['docs/tasks/freeze-editor.md']).checks.map(c=>c.key),['documents']);
+ assert.throws(()=>planChanges('game',['src/main/resources/static/js/design/UnknownFreeze.mjs']));
+});
+
 test('Resident presentation changes select one bounded leaf without backend or unrelated suites',()=>{
  const files=['src/main/resources/static/js/scenes/utils/ResidentRewardDialog.mjs','src/main/resources/static/js/scenes/utils/ResidentExchangeMotion.mjs','src/main/resources/static/js/scenes/utils/residentSoftGlow.mjs','src/test/js/residentDrawPresentation.test.mjs'];
  const plan=planChanges('game',[...files,...files]);

@@ -197,6 +197,33 @@
   ],
   "checks": [
     {
+      "key": "current-bacteria-freeze-editor",
+      "kind": "node-tests",
+      "inputs": [
+        "src/main/resources/static/js/design/FreezeEditor.mjs",
+        "src/main/resources/static/js/design/QueueMechanicDialogs.mjs",
+        "src/main/resources/static/js/design/QueueMechanicDialogs.css",
+        "src/main/resources/static/js/design/QueueMechanics.mjs",
+        "src/main/resources/static/js/design/LayoutSchematic.mjs",
+        "src/main/resources/static/js/design/Workbench.mjs",
+        "src/main/resources/static/js/design/vendor/lucide-icons.mjs",
+        "src/main/resources/static/js/gameplay/BacteriaPackageFormat.mjs",
+        "src/main/resources/static/js/gameplay/BacteriaPathAnalysis.mjs",
+        "src/main/resources/static/js/gameplay/BacteriaQueueMechanics.mjs",
+        "src/main/resources/static/js/gameplay/BacteriaCarryRules.mjs",
+        "src/main/resources/static/js/gameplay/BacteriaDispatch.mjs",
+        "src/main/resources/static/js/gameplay/BacteriaCoverRegions.mjs",
+        "src/main/resources/static/js/gameplay/BacteriaPlayerCovers.mjs",
+        "src/main/resources/static/js/gameplay/BacteriaDraftSettings.mjs",
+        "src/main/resources/static/js/gameplay/bacteriaLab/BacteriaQueueReveal.mjs",
+        "scripts/bacteria-lab/BacteriaChallengeReplay.mjs",
+        "src/test/js/bacteriaFreezeEditor.test.mjs",
+        "src/test/js/bacteriaQueueMechanisms.test.mjs"
+      ],
+      "tests": ["src/test/js/bacteriaFreezeEditor.test.mjs", "src/test/js/bacteriaQueueMechanisms.test.mjs"],
+      "timeoutSeconds": 60
+    },
+    {
       "key": "current-resident-exchange-presentation",
       "kind": "node-tests",
       "inputs": [

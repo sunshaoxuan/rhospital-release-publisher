@@ -140,6 +140,8 @@
   },
   "verify-design-level-packages": {
     "tests": [
+      "src/test/js/bacteriaFreezeEditor.test.mjs",
+      "src/test/js/bacteriaQueueMechanisms.test.mjs",
       "src/test/js/bacteriaPathDifficulty.test.mjs",
       "src/test/js/designLevelPackage.test.mjs",
       "src/test/js/designWorker.test.mjs",
