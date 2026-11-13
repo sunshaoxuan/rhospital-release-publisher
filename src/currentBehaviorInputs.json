@@ -18,7 +18,9 @@
     "src/test/js/voidRewardEntry.test.mjs",
     "src/test/js/voidRewardCaptcha.test.mjs",
     "src/test/js/residentForegroundArt.test.mjs",
-    "src/test/js/residentNormalIntegration.test.mjs"
+    "src/test/js/residentNormalIntegration.test.mjs",
+    "src/test/js/mobileHospitalEntryMenu.test.mjs",
+    "src/test/js/bacteriaLabEntry.test.mjs"
   ],
   "files": [
     "release/release-impact.json",
@@ -206,7 +208,13 @@
     "src/main/resources/static/img/game/themes/resident-evil/first-floor.png",
     "src/main/resources/static/img/game/themes/resident-evil/second-floor.png",
     "src/main/resources/static/img/game/themes/resident-evil/basement.png",
-    "src/main/resources/static/img/game/themes/resident-evil/basement-wall.png"
+    "src/main/resources/static/img/game/themes/resident-evil/basement-wall.png",
+    "src/main/resources/static/js/scenes/components/MobileHospitalEntryMenu.mjs",
+    "src/main/resources/static/js/scenes/components/BacteriaLabEntry.js",
+    "src/main/resources/static/img/game/ui/btn/btn-bacteria-lab.png",
+    "src/main/resources/static/img/game/ui/btn/btn-gonggao-sm.png",
+    "src/test/js/mobileHospitalEntryMenu.test.mjs",
+    "src/test/js/bacteriaLabEntry.test.mjs"
   ],
   "checks": [
     {
@@ -663,12 +671,23 @@
       "kind": "node-tests",
       "inputs": [
         "scripts/validation/current/hud-geometry.mjs",
-        "src/test/js/hospitalHudCurrent.test.mjs"
+        "src/test/js/hospitalHudCurrent.test.mjs",
+        "src/main/resources/static/js/scenes/components/MobileHospitalEntryMenu.mjs",
+        "src/main/resources/static/js/scenes/components/BacteriaLabEntry.js",
+        "src/main/resources/static/img/game/ui/btn/btn-bacteria-lab.png",
+        "src/main/resources/static/img/game/ui/btn/btn-gonggao-sm.png",
+        "src/test/js/mobileHospitalEntryMenu.test.mjs",
+        "src/test/js/bacteriaLabEntry.test.mjs"
       ],
       "tests": [
-        "src/test/js/hospitalHudCurrent.test.mjs"
+        "src/test/js/hospitalHudCurrent.test.mjs",
+        "src/test/js/mobileHospitalEntryMenu.test.mjs",
+        "src/test/js/bacteriaLabEntry.test.mjs"
       ],
-      "timeoutSeconds": 120
+      "timeoutSeconds": 120,
+      "dependencies": [
+        "pngjs"
+      ]
     },
     {
       "key": "current-mobile-log-actions",

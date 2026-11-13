@@ -1,6 +1,20 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {planChanges}=require('../src/changeValidationPolicy');
 
+test('mobile hospital entrances select their bounded HUD leaf with state and access checks',()=>{
+ const path='src/main/resources/static/js/scenes/components/MobileHospitalEntryMenu.mjs';
+ const plan=planChanges('game',[path,path]);
+ assert.deepEqual(plan.checks.map(c=>c.key),['current-hospital-hud-current']);
+ const check=plan.checks[0];
+ assert(check.tests.includes('src/test/js/mobileHospitalEntryMenu.test.mjs'));
+ assert(check.tests.includes('src/test/js/bacteriaLabEntry.test.mjs'));
+ assert(!check.tests.some(p=>/Evidence\.test/.test(p)));
+ assert.deepEqual(check.dependencies,['pngjs']);
+ assert(!check.tests.some(p=>/resident|Freeze|steam/i.test(p)));
+ assert.throws(()=>planChanges('game',[path.replace('Menu.mjs','Unknown.mjs')]));
+ assert.deepEqual(planChanges('game',['docs/tasks/mobile-menu.md']).checks.map(c=>c.key),['documents']);
+});
+
 test('Resident foreground assets select the presentation leaf once, including artwork negatives',()=>{
  const file='src/main/resources/static/img/game/themes/resident-evil/leon-foreground.png';
  const plan=planChanges('game',[file,file]);

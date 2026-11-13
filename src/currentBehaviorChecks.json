@@ -46,7 +46,9 @@
     "tests": [
       "src/test/js/hospitalHudCurrent.test.mjs",
       "src/test/js/mobileModalChat.test.mjs",
-      "src/test/js/mobileLogActions.test.mjs"
+      "src/test/js/mobileLogActions.test.mjs",
+      "src/test/js/mobileHospitalEntryMenu.test.mjs",
+      "src/test/js/bacteriaLabEntry.test.mjs"
     ],
     "timeoutSeconds": 180
   },
