@@ -16,6 +16,24 @@ test('JVM protocol rejects changed selection, empty totals and aggregate PASS',(
  assertProtocol(good,good.testClasses);
  for(const bad of [{state:'PASS'},{...good,testClasses:[]},{...good,tests:0},{...good,tests:NaN},{...good,protocol:'skin-admin/v1'}])assert.throws(()=>assertProtocol(bad,good.testClasses),/Incomplete/);
 });
+test('operator compile snapshot binds database policy and gift dependencies after startup configuration removal',()=>{
+ const retired='src/main/java/com/zly/hospital/service/resident/ResidentRewardPolicyConfiguration.java';
+ assert(!manifest.inputs.includes(retired));assert(!manifest.triggers.includes(retired));
+ const required=[
+  'src/main/java/com/zly/hospital/controller/api/AdminSkinController.java',
+  'src/main/java/com/zly/hospital/controller/page/AdminSkinPageController.java',
+  ...['SkinRewardPolicy','SkinRewardPolicyRevision'].map(n=>'src/main/java/com/zly/hospital/model/'+n+'.java'),
+  ...['SkinRewardPolicyRepository','SkinRewardPolicyRevisionRepository'].map(n=>'src/main/java/com/zly/hospital/repository/'+n+'.java'),
+  ...['AdminSkinService','ConfigurableGiftPackService','SkinPolicyService','SkinRewardService'].map(n=>'src/main/java/com/zly/hospital/service/'+n+'.java'),
+  'src/main/java/com/zly/hospital/service/item/ConfigurableGiftPackUser.java',
+  'src/test/java/com/zly/hospital/controller/api/AdminSkinControllerTest.java',
+  ...['ConfigurableGiftPackTest','SkinPolicyServiceTest','SkinRewardServiceTest','SkinTestPolicies'].map(n=>'src/test/java/com/zly/hospital/service/'+n+'.java')
+ ];
+ for(const file of required)assert(manifest.inputs.includes(file),'missing compile dependency: '+file);
+ assert(manifest.inputs.includes('src/test/java/com/zly/hospital/service/resident/ResidentRewardPolicyConfigurationTest.java'));
+ assert.throws(()=>planChanges('game',[retired]),/UNMAPPED/);
+ assert.deepEqual(manifest.testClasses,['BacteriaLabServiceTest','BacteriaLevelCatalogServiceTest','BacteriaCatalogSnapshotCacheTest','BacteriaLabRewardPolicyTest','BacteriaChallengeServiceTest']);
+});
 test('JVM runner enforces process success and complete fresh Surefire without another feature',()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'bacteria-gate-')),folder=path.join(root,'target/surefire-reports');fs.mkdirSync(folder,{recursive:true});
  const report=path.join(folder,'TEST-fixture.BacteriaLabServiceTest.xml');

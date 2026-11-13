@@ -24,7 +24,6 @@
     "src/main/java/com/zly/hospital/service/item/ResidentSetItemUser.java",
     "src/main/java/com/zly/hospital/service/item/SakuraSetItemUser.java",
     "src/main/java/com/zly/hospital/service/item/StatueItemUser.java",
-    "src/main/java/com/zly/hospital/service/resident/ResidentRewardPolicyConfiguration.java",
     "src/main/java/com/zly/hospital/service/resident/ResidentRewardService.java",
     "src/main/java/com/zly/hospital/service/runner/BookingTaskRunner.java",
     "src/main/java/com/zly/hospital/service/runner/LineCalculationRunner.java",
@@ -2217,6 +2216,9 @@
     "src/test/resources/toilet-market-legacy/ToiletMarketListingRepository.java.txt",
     "src/test/resources/toilet-market-legacy/ToiletMarketService.java.txt",
     "src/test/resources/toilet-market-legacy/ToiletMarketTransaction.java.txt",
-    "src/test/resources/toilet-market-legacy/source-identity.json"
+    "src/test/resources/toilet-market-legacy/source-identity.json",
+    "src/main/java/com/zly/hospital/service/ConfigurableGiftPackService.java",
+    "src/main/java/com/zly/hospital/service/item/ConfigurableGiftPackUser.java",
+    "src/test/java/com/zly/hospital/service/ConfigurableGiftPackTest.java"
   ]
 }

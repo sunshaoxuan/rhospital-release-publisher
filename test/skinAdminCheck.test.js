@@ -11,6 +11,18 @@ test('skin triggers are bounded and duplicate changes select one complete leaf',
  assert.equal(planChanges('game',['README.md']).checks.some(c=>c.key==='skin-admin'),false);
  assert.equal(new Set(manifest.inputs).size,manifest.inputs.length);assert.equal(new Set(manifest.testClasses).size,manifest.testClasses.length);
 });
+test('skin snapshot retains current configuration tests and complete gift compile dependencies',()=>{
+ const retired='src/main/java/com/zly/hospital/service/resident/ResidentRewardPolicyConfiguration.java';
+ assert(!manifest.triggers.includes(retired));assert(!manifest.inputs.includes(retired));
+ assert.throws(()=>planChanges('game',[retired]),/UNMAPPED/);
+ for(const file of ['src/main/java/com/zly/hospital/service/ConfigurableGiftPackService.java',
+  'src/main/java/com/zly/hospital/service/item/ConfigurableGiftPackUser.java',
+  'src/test/java/com/zly/hospital/service/ConfigurableGiftPackTest.java',
+  'src/main/java/com/zly/hospital/service/SkinPolicyService.java',
+  'src/test/java/com/zly/hospital/service/resident/ResidentRewardPolicyConfigurationTest.java'])assert(manifest.inputs.includes(file),file);
+ assert(manifest.testClasses.includes('ResidentRewardPolicyConfigurationTest'));
+ assert(!manifest.testClasses.includes('ConfigurableGiftPackTest'),'compile input must not expand runtime test selection');
+});
 test('Surefire requires actual named complete results; skip/error/missing/duplicates reject',()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'skin-check-')),folder=path.join(root,'target/surefire-reports');fs.mkdirSync(folder,{recursive:true});
  const file=path.join(folder,'TEST-fixture.SampleTest.xml');
