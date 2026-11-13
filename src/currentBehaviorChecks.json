@@ -151,7 +151,8 @@
       "src/test/js/designWorker.test.mjs",
       "src/test/js/bacteriaSharedRules.test.mjs",
       "src/test/js/bacteriaStallMonitor.test.mjs",
-      "src/test/js/bacteriaUnstartedSelection.test.mjs"
+      "src/test/js/bacteriaUnstartedSelection.test.mjs",
+      "src/test/js/bacteriaGateLabels.test.mjs"
     ],
     "checks": [
       [

@@ -239,11 +239,14 @@
         "src/main/resources/static/js/gameplay/bacteriaLab/BacteriaQueueReveal.mjs",
         "scripts/bacteria-lab/BacteriaChallengeReplay.mjs",
         "src/test/js/bacteriaFreezeEditor.test.mjs",
-        "src/test/js/bacteriaQueueMechanisms.test.mjs"
+        "src/test/js/bacteriaQueueMechanisms.test.mjs",
+        "src/main/resources/static/js/design/Editor.mjs",
+        "src/test/js/bacteriaGateLabels.test.mjs"
       ],
       "tests": [
         "src/test/js/bacteriaFreezeEditor.test.mjs",
-        "src/test/js/bacteriaQueueMechanisms.test.mjs"
+        "src/test/js/bacteriaQueueMechanisms.test.mjs",
+        "src/test/js/bacteriaGateLabels.test.mjs"
       ],
       "timeoutSeconds": 60
     },

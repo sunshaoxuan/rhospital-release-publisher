@@ -32,7 +32,10 @@ test('freeze dialog inputs select one isolated leaf, duplicates deduplicate, unk
  const plan=planChanges('game',[...files,...files]);
  assert.deepEqual(plan.checks.map(c=>c.key),['current-bacteria-freeze-editor']);
  const check=plan.checks[0];assert.equal(new Set(check.inputs).size,check.inputs.length);
- assert.deepEqual(check.tests,['src/test/js/bacteriaFreezeEditor.test.mjs','src/test/js/bacteriaQueueMechanisms.test.mjs']);
+ assert.deepEqual(check.tests,['src/test/js/bacteriaFreezeEditor.test.mjs','src/test/js/bacteriaQueueMechanisms.test.mjs','src/test/js/bacteriaGateLabels.test.mjs']);
+ assert.deepEqual(planChanges('game',['src/main/resources/static/js/design/Editor.mjs']).checks.map(c=>c.key),['current-bacteria-freeze-editor']);
+ assert(planChanges('game',['src/test/js/bacteriaGateLabels.test.mjs']).checks[0].inputs.includes('src/main/resources/static/js/design/Editor.mjs'));
+ assert(!check.tests.some(f=>/resident|steam|skin/i.test(f)));
  assert(!check.inputs.some(f=>/docs\/evidence|resident|steam/i.test(f)));
  assert.deepEqual(planChanges('game',['docs/tasks/freeze-editor.md']).checks.map(c=>c.key),['documents']);
  assert.throws(()=>planChanges('game',['src/main/resources/static/js/design/UnknownFreeze.mjs']));
