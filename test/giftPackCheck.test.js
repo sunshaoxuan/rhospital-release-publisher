@@ -11,6 +11,8 @@ test('gift pack triggers select one owned JVM leaf and isolate unrelated feature
  assert.equal(planChanges('game',['README.md']).checks.some(c=>c.key==='gift-pack'),false);
  assert.throws(()=>planChanges('game',['src/main/java/Unknown.java']),/UNMAPPED/);
  assert(manifest.triggers.every(file=>manifest.inputs.includes(file)));
+ assert(!manifest.inputs.some(file=>/^src\/main\/resources\/(?:static\/img|static\/fonts|local-preview)\//.test(file)));
+ for(const file of ['parallel-certified-19-20261013.json','production-level-19-20261004.json','covered-5-percent-user.json'])assert(manifest.inputs.includes('src/test/resources/bacteria-levels/'+file));
 });
 test('JVM protocol rejects changed selection, empty totals and aggregate PASS',()=>{
  assertProtocol(good,good.testClasses);
