@@ -1,5 +1,16 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {planChanges}=require('../src/changeValidationPolicy');
+
+test('Resident presentation changes select one bounded leaf without backend or unrelated suites',()=>{
+ const files=['src/main/resources/static/js/scenes/utils/ResidentRewardDialog.mjs','src/main/resources/static/js/scenes/utils/ResidentExchangeMotion.mjs','src/main/resources/static/js/scenes/utils/residentSoftGlow.mjs','src/test/js/residentDrawPresentation.test.mjs'];
+ const plan=planChanges('game',[...files,...files]);
+ assert.deepEqual(plan.checks.map(c=>c.key),['current-resident-exchange-presentation']);
+ const check=plan.checks[0];assert.equal(check.kind,'node-tests');assert(check.tests.includes(files[3]));
+ assert.equal(new Set(check.inputs).size,check.inputs.length);assert.equal(new Set(check.tests).size,check.tests.length);
+ assert(check.inputs.every(p=>!p.startsWith('docs/evidence/')));assert(!check.tests.some(p=>/bacteria|steam|design/i.test(p)));
+ for(const f of files)assert.throws(()=>planChanges('forum',[f]));
+ assert.deepEqual(planChanges('game',['docs/tasks/resident-fix.md']).checks.map(c=>c.key),['documents']);
+});
 test('documents select static validation only; duplicate paths select once',()=>{
   const p=planChanges('game',['CHANGELOG.md','docs/release.md','CHANGELOG.md']);
   assert.deepEqual(p.checks.map(c=>c.key),['documents']);assert.equal(p.changedPaths.length,2);

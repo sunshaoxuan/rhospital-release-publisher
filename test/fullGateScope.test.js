@@ -12,7 +12,7 @@ function project(root){
  put(root,'src/main/java/com/zly/hospital/service/catalog/CatalogDatabaseUpgradeService.java','class CatalogDatabaseUpgradeService { private static final int MARKER_VERSION = 20; }');
 }
 test('all registered features have bounded current contracts, manual archives stay outside selected leaves',()=>{
- const checks=Object.keys(catalog).map(currentLocalCheck);assert.equal(checks.length,21);doubleCheckLocalChecks(checks);
+ const checks=Object.keys(catalog).map(currentLocalCheck);assert.equal(checks.length,22);assert(catalog['verify-resident-exchange-presentation']);doubleCheckLocalChecks(checks);
  const plan=selectLeaves(checks);assert.equal(new Set(plan.leaves.map(l=>l.id)).size,plan.leaves.length);
  for(const leaf of plan.leaves)assert(!/Evidence\.test|validate-.*evidence|docs\/evidence|readiness|npm/.test(leaf.id),leaf.id);
  assert(plan.leaves.length<checks.reduce((n,c)=>n+plan.owners.get(c.key).length,0));

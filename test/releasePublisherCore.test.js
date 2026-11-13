@@ -1265,7 +1265,7 @@ test('aggregated game preflight includes every selected local evidence gate and 
 });
 
 test('toilet loading HUD and fault checks are independently selected with matching plan timeouts', () => {
-  const keys = ['verify-toilet-market','verify-bacteria-authoritative-challenges','verify-bacteria-gates','verify-game-loading','verify-hospital-hud','verify-bacteria-ranking','verify-game-fault-reports'];
+  const keys = ['verify-resident-exchange-presentation','verify-toilet-market','verify-bacteria-authoritative-challenges','verify-bacteria-gates','verify-game-loading','verify-hospital-hud','verify-bacteria-ranking','verify-game-fault-reports'];
   for (const selected of [[], ...keys.map(key => [key]), keys]) {
     const root = releaseImpactGitProject();
     const baseline = runGit(root, ['rev-parse','HEAD']).trim();

@@ -71,6 +71,7 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-static-delivery',
     'verify-game-smtp-sender',
     'verify-game-emergency-guard',
+    'verify-resident-exchange-presentation',
     'verify-game-emergency-guard-runtime',
     'verify-game-potion-lab',
     'verify-game-medical-contest-entry',
@@ -298,7 +299,7 @@ function createPlan(projectRoot, request, env = process.env) {
   const tomcatProbe = tomcatVersion
     ? `printf %s '${Buffer.from(tomcatJarCheckScript(tomcatVersion)).toString('base64')}' | base64 -d | sh`
     : null;
-  const localEvidenceChecks = ["verify-toilet-market", "verify-bacteria-authoritative-challenges", "verify-bacteria-gates", "verify-game-loading", "verify-hospital-hud", "verify-bacteria-ranking", "verify-game-fault-reports", "verify-game-epidemic-flow", "verify-game-medical-contest-entry", "verify-game-client-fingerprint", "verify-game-hospital-skin-fallback", "verify-game-steam-auth", "verify-game-void-rewards", "verify-bacteria-region-covers", "verify-game-doorplate-ui", "verify-bacteria-result-ui", "verify-bacteria-entry-style", "verify-game-special-clinic-atlas", "verify-design-level-packages", "verify-game-potion-lab", "verify-game-emergency-guard"]
+  const localEvidenceChecks = ["verify-resident-exchange-presentation", "verify-toilet-market", "verify-bacteria-authoritative-challenges", "verify-bacteria-gates", "verify-game-loading", "verify-hospital-hud", "verify-bacteria-ranking", "verify-game-fault-reports", "verify-game-epidemic-flow", "verify-game-medical-contest-entry", "verify-game-client-fingerprint", "verify-game-hospital-skin-fallback", "verify-game-steam-auth", "verify-game-void-rewards", "verify-bacteria-region-covers", "verify-game-doorplate-ui", "verify-bacteria-result-ui", "verify-bacteria-entry-style", "verify-game-special-clinic-atlas", "verify-design-level-packages", "verify-game-potion-lab", "verify-game-emergency-guard"]
     .filter(key=>releaseImpactAssessment?.requiredChecks.some(item=>item.stepKey===key))
     .map(currentLocalCheck);
   doubleCheckLocalChecks(localEvidenceChecks);
@@ -447,7 +448,7 @@ function createPlan(projectRoot, request, env = process.env) {
       executable: true
     }),
     ...localEvidenceChecks.map(check=>releaseStep({
-      key:check.key,title:'验证'+({"verify-toilet-market": "洗手间交易", "verify-bacteria-authoritative-challenges": "菌落权威挑战", "verify-bacteria-gates": "菌落逻辑门", "verify-game-loading": "游戏加载", "verify-hospital-hud": "医院HUD", "verify-bacteria-ranking": "菌落排行榜", "verify-game-fault-reports": "故障报告", "verify-game-epidemic-flow": "疫区流程", "verify-game-medical-contest-entry": "医道会入口", "verify-game-client-fingerprint": "客户端指纹", "verify-game-hospital-skin-fallback": "医院皮肤", "verify-game-steam-auth": "Steam登录", "verify-game-void-rewards": "虚空馈赠", "verify-bacteria-region-covers": "菌落盖板", "verify-game-doorplate-ui": "医院门牌", "verify-bacteria-result-ui": "菌落结算", "verify-bacteria-entry-style": "菌落入口", "verify-game-special-clinic-atlas": "特需病例图谱", "verify-design-level-packages": "色块工坊与关卡包", "verify-game-potion-lab": "药剂实验室", "verify-game-emergency-guard": "急救防刷"})[check.key]+'当前行为',
+      key:check.key,title:'验证'+({"verify-resident-exchange-presentation":"生化交换动效", "verify-toilet-market": "洗手间交易", "verify-bacteria-authoritative-challenges": "菌落权威挑战", "verify-bacteria-gates": "菌落逻辑门", "verify-game-loading": "游戏加载", "verify-hospital-hud": "医院HUD", "verify-bacteria-ranking": "菌落排行榜", "verify-game-fault-reports": "故障报告", "verify-game-epidemic-flow": "疫区流程", "verify-game-medical-contest-entry": "医道会入口", "verify-game-client-fingerprint": "客户端指纹", "verify-game-hospital-skin-fallback": "医院皮肤", "verify-game-steam-auth": "Steam登录", "verify-game-void-rewards": "虚空馈赠", "verify-bacteria-region-covers": "菌落盖板", "verify-game-doorplate-ui": "医院门牌", "verify-bacteria-result-ui": "菌落结算", "verify-bacteria-entry-style": "菌落入口", "verify-game-special-clinic-atlas": "特需病例图谱", "verify-design-level-packages": "色块工坊与关卡包", "verify-game-potion-lab": "药剂实验室", "verify-game-emergency-guard": "急救防刷"})[check.key]+'当前行为',
       command:check.command,timeoutSeconds:check.timeoutSeconds,
       summary:'执行选中功能的当前行为测试；共用叶子仅运行一次',
       validation:'当前测试真实完整通过；历史截图与历史验收审计另行手动执行，现场安全检查继续保留',

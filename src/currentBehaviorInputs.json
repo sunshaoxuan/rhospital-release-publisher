@@ -1,5 +1,11 @@
 {
   "tests": [
+    "src/test/js/residentDrawPresentation.test.mjs",
+    "src/test/js/residentExchangeMotion.test.mjs",
+    "src/test/js/residentSoftGlow.test.mjs",
+    "src/test/js/residentRewardUi.test.mjs",
+    "src/test/js/residentBrowserTimerContract.test.mjs",
+    "src/test/js/residentRecoveryLifecycle.test.mjs",
     "src/test/js/toiletMarket.test.mjs",
     "src/test/js/bacteriaVisibilityMechanics.test.mjs",
     "src/test/js/bacteriaNormalStartup.test.mjs",
@@ -13,6 +19,15 @@
     "src/test/js/voidRewardCaptcha.test.mjs"
   ],
   "files": [
+    "release/release-impact.json",
+    "src/main/resources/static/js/scenes/utils/ResidentRewardDialog.mjs",
+    "src/main/resources/static/js/scenes/utils/ResidentExchangeMotion.mjs",
+    "src/main/resources/static/js/scenes/utils/residentSoftGlow.mjs",
+    "src/main/resources/static/js/scenes/utils/ResidentCharacterLayer.mjs",
+    "src/main/resources/static/js/scenes/utils/ResidentRewardSession.mjs",
+    "src/main/resources/static/js/scenes/utils/ResidentRewardCosts.mjs",
+    "src/main/resources/static/js/scenes/utils/residentOutlineArt.mjs",
+    "src/main/resources/static/js/service/residentRewardProvider.mjs",
     "scripts/bacteria-lab/certify-frozen-package.mjs",
     "scripts/bacteria-lab/frozen-catalog-fixture.mjs",
     "scripts/validation/current/captcha-geometry.mjs",
@@ -181,6 +196,37 @@
     "src/test/resources/design/user-60x60-32color-request.json"
   ],
   "checks": [
+    {
+      "key": "current-resident-exchange-presentation",
+      "kind": "node-tests",
+      "inputs": [
+        "release/release-impact.json",
+        "src/main/resources/static/js/scenes/utils/ResidentRewardDialog.mjs",
+        "src/main/resources/static/js/scenes/utils/ResidentExchangeMotion.mjs",
+        "src/main/resources/static/js/scenes/utils/residentSoftGlow.mjs",
+        "src/main/resources/static/js/scenes/utils/ResidentCharacterLayer.mjs",
+        "src/main/resources/static/js/scenes/utils/ResidentRewardSession.mjs",
+        "src/main/resources/static/js/scenes/utils/ResidentRewardCosts.mjs",
+        "src/main/resources/static/js/scenes/utils/residentEvilTheme.mjs",
+        "src/main/resources/static/js/scenes/utils/residentOutlineArt.mjs",
+        "src/main/resources/static/js/service/residentRewardProvider.mjs",
+        "src/test/js/residentDrawPresentation.test.mjs",
+        "src/test/js/residentExchangeMotion.test.mjs",
+        "src/test/js/residentSoftGlow.test.mjs",
+        "src/test/js/residentRewardUi.test.mjs",
+        "src/test/js/residentBrowserTimerContract.test.mjs",
+        "src/test/js/residentRecoveryLifecycle.test.mjs"
+      ],
+      "tests": [
+        "src/test/js/residentDrawPresentation.test.mjs",
+        "src/test/js/residentExchangeMotion.test.mjs",
+        "src/test/js/residentSoftGlow.test.mjs",
+        "src/test/js/residentRewardUi.test.mjs",
+        "src/test/js/residentBrowserTimerContract.test.mjs",
+        "src/test/js/residentRecoveryLifecycle.test.mjs"
+      ],
+      "timeoutSeconds": 60
+    },
     {
       "key": "current-toilet-market",
       "kind": "node-tests",

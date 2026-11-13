@@ -1,6 +1,14 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {catalog,currentLocalCheck,doubleCheckLocalChecks,assertLocalCheckResult,registeredLocalCheckContracts}=require('../src/localCheckPolicy');
 const good={status:0,output:'# tests 1\n# pass 1\n# fail 0\n# skipped 0\n# cancelled 0\n# todo 0\n'};
+
+test('Resident presentation protocol rejects incomplete and altered checks',()=>{
+ const check=currentLocalCheck('verify-resident-exchange-presentation');
+ assert(check.command.includes('residentDrawPresentation.test.mjs'));assert.equal(check.timeoutSeconds,60);
+ assertLocalCheckResult(check,good);
+ for(const selection of [[],[check,check],[{...check,command:check.command+' && npm test'}]])assert.throws(()=>doubleCheckLocalChecks(selection,[check]));
+ for(const result of [{status:1,output:good.output},{status:0,output:'PASS'}, {...good,output:good.output.replace('# skipped 0','# skipped 1')}])assert.throws(()=>assertLocalCheckResult(check,result));
+});
 test('all current contracts select exactly their registered entrypoints and budgets',()=>{
  for(const key of Object.keys(catalog)){
   const check=currentLocalCheck(key);doubleCheckLocalChecks([check]);assertLocalCheckResult(check,good);

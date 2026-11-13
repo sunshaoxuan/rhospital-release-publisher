@@ -4,6 +4,16 @@ const {receiptStore}=require('../src/changeValidationReceipts');
 const {gate,text,snapshot,copyDependencies}=require('../src/changeValidationGit');
 const {execFileSync}=require('node:child_process');
 const good='# tests 1\n# pass 1\n# fail 0\n# skipped 0\n# cancelled 0\n# todo 0\n';
+
+test('Resident leaf identity rejects relevant drift and ignores absent unrelated archives',()=>fixture(root=>{
+  const check=require('../src/changeValidationPolicy').planChanges('game',['src/main/resources/static/js/scenes/utils/ResidentRewardDialog.mjs']).checks[0];
+  for(const file of check.inputs){const target=path.join(root,file);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,'source');}
+  const before=identity(root,check,{});
+  fs.mkdirSync(path.join(root,'docs/evidence/unrelated'),{recursive:true});fs.writeFileSync(path.join(root,'docs/evidence/unrelated/broken.json'),'{');
+  assert.deepEqual(identity(root,check,{}),before);
+  const file=check.inputs.find(f=>f.endsWith('ResidentRewardDialog.mjs'));fs.appendFileSync(path.join(root,file),'changed');
+  assert.notDeepEqual(identity(root,check,{}),before);
+}));
 function fixture(fn){const root=fs.mkdtempSync(path.join(os.tmpdir(),'impact-test-'));return Promise.resolve().then(()=>fn(root)).finally(()=>fs.rmSync(root,{recursive:true,force:true}));}
 test('complete Node protocol rejects missing totals, skips and execution errors',()=>{
   assertNodeResult({status:0,output:good});
