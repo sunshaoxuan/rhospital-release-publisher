@@ -1,5 +1,11 @@
 # Publisher gate review, 2026-11-12
 
+## 2026-11-13 bounded runtime observation repair
+
+User authorizes log retention, SSH and probe deadlines, native master push and publisher-only activation. Latest observed deployment was healthy but observer timed out; original stall location is unproven because final8 heartbeat logs erased state output. Freeze core implementation, existing whole-plan tests and docs only. Meaningful step logs retain80entries plus4 local heartbeat entries and bounded head/tail content. Outer command timeout carries last output. Generated SSH uses BatchMode,10second connection, one attempt and10second keepalive/3 missed responses. Both cutover/final observer Docker commands have15second TERM deadline with2second kill grace, labeled diagnostics and timeout failure. Preserve all existing safety predicates, recovery decisions and12minute Swarm monitor. This improves failure handling and evidence; it does not assert a historical root cause.
+
+Native affected preflight/plan groups own focused positive/negative tests once, including actual Bash execution against isolated fake Docker. No full npm/Maven/game suite, production probes/retry, DB action or API/status redesign. Baseline4a72ae3 includes unrelated completed operator/skin commits; preserve them. Operational task guidance and final receipts are under C:/workspace/codex-work/test-impact-audit-20261112. Reuse valid source acceptance on push and verify immutable installed runtime separately after protected updater.
+
 ## Reopened silent artifact protocol and scoped dry-run admission
 
 Actual job2026-11-12T14:24:58.411Z-20261112 failed in local preflight because localCheckLeaves required nonempty stdout from build-server-validator.mjs --check, whose successful documented implementation exits silently. Remove that unnecessary stdout gate; retain exit/signal/error failures and full Node test completion. This is a publisher regression, missed by the previous isolated smoke coverage.

@@ -2266,6 +2266,13 @@ function clearReleaseHistory(projectRoot, env = process.env) {
   return {deleted: true, total: 0};
 }
 
+function retainedStepLogs(logs) {
+  const entries=Array.from(logs||[],(line,index)=>({line:String(line),index}));
+  const heartbeat=e=>/^\[(?:RUNNING|RECOVERING)\].*(?:已运行|等待)/.test(e.line);
+  const selected=[...entries.filter(e=>!heartbeat(e)).slice(-80),...entries.filter(heartbeat).slice(-4)].sort((a,b)=>a.index-b.index);
+  return selected.map(({line})=>line.length<=8000?line:line.slice(0,4000)+'\n[TRUNCATED middle]\n'+line.slice(-4000));
+}
+
 function buildHistoryEntry(status, plan, logs, completedStepKeys) {
   let candidateReceipt = null;
   for (const line of logs || []) {
@@ -2345,7 +2352,7 @@ function buildHistoryEntry(status, plan, logs, completedStepKeys) {
       command: step.command,
       validation: step.validation,
       validationCommand: step.validationCommand || '',
-      logs: Array.isArray(step.logs) ? step.logs.slice(step.notificationOnly ? -80 : -8) : []
+      logs: retainedStepLogs(step.logs)
     })),
     logs: logs.slice(0, 12)
   };
@@ -4632,17 +4639,31 @@ function finalRuntimeCheckCommand(stackName, containerName, imageTag, appTag, op
     `expected_version=${shellToken(appTag)}`,
     `rollout_timeout_seconds="${'${RELEASE_PUBLISHER_ROLLOUT_TIMEOUT_SECONDS:-1800}'}"`,
     `rollout_deadline=$(( $(date +%s) + rollout_timeout_seconds ))`,
+    // Bound each read independently; print names, never command arguments/env.
+    `docker() {`,
+    `  echo "rollout_probe_begin=$1/$2" >&2`,
+    `  if timeout --signal=TERM --kill-after=2s 15s docker "$@"; then`,
+    `    echo "rollout_probe_end=$1/$2 status=PASS" >&2; return 0`,
+    `  else`,
+    `    probe_status=$?`,
+    `    echo "rollout_probe_end=$1/$2 exit=$probe_status" >&2`,
+    `    case "$probe_status" in 124|137) echo "ERROR: rollout probe timed out: $1/$2" >&2; exit "$probe_status" ;; esac`,
+    `    return "$probe_status"`,
+    `  fi`,
+    `}`,
     `while true; do`,
     `  service_image=$(docker service inspect "$service_name" --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}')`,
     `  service_env=$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}')`,
     `  service_version=$(printf '%s\n' "$service_env" | sed -n 's/^IMAGE_TAG=//p' | head -n 1)`,
     `  service_sso_enabled=$(printf '%s\n' "$service_env" | sed -n 's/^FORUM_SSO_ENABLED=//p' | head -n 1)`,
     `  service_sso_secret_file=$(printf '%s\n' "$service_env" | sed -n 's/^FORUM_SSO_SECRET_FILE=//p' | head -n 1)`,
-    `  service_sso_secret=$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Secrets}}{{println .SecretName}}{{end}}' | grep -x 'forum_sso_secret' || true)`,
+    `  service_secrets=$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Secrets}}{{println .SecretName}}{{end}}')`,
+    `  service_sso_secret=$(printf '%s\n' "$service_secrets" | grep -x 'forum_sso_secret' || true)`,
     `  update_state=$(docker service inspect "$service_name" --format '{{if .UpdateStatus}}{{.UpdateStatus.State}}{{else}}completed{{end}}')`,
     `  expected_replicas=$(docker service inspect "$service_name" --format '{{if .Spec.Mode.Replicated}}{{.Spec.Mode.Replicated.Replicas}}{{else}}1{{end}}')`,
     `  active_target_count=0`,
     `  active_other_count=0`,
+    `  task_rows=$(docker service ps "$service_name" --filter desired-state=running --format '{{.Image}}|{{.CurrentState}}')`,
     `  while IFS='|' read -r task_image task_state; do`,
     `    [ -n "$task_image" ] || continue`,
     `    case "$task_image" in`,
@@ -4650,10 +4671,11 @@ function finalRuntimeCheckCommand(stackName, containerName, imageTag, appTag, op
     `      *) active_other_count=$((active_other_count + 1)) ;;`,
     `    esac`,
     `  done <<EOF`,
-    `$(docker service ps "$service_name" --filter desired-state=running --format '{{.Image}}|{{.CurrentState}}')`,
+    `$task_rows`,
     `EOF`,
     `  healthy_target_count=0`,
-    `  for container_id in $(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name"); do`,
+    `  container_ids=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name")`,
+    `  for container_id in $container_ids; do`,
     `    container_image=$(docker inspect "$container_id" --format '{{.Config.Image}}')`,
     `    container_health=$(docker inspect "$container_id" --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}')`,
     `    container_env=$(docker inspect "$container_id" --format '{{range .Config.Env}}{{println .}}{{end}}')`,
@@ -4910,8 +4932,9 @@ function scpUploadCommand(localExpression, target, remotePath) {
 }
 
 function sshCommandParts(target) {
+  const bounded=['ssh','-o','BatchMode=yes','-o','ConnectTimeout=10','-o','ConnectionAttempts=1','-o','ServerAliveInterval=10','-o','ServerAliveCountMax=3'];
   if (target && typeof target === 'object') {
-    const parts = ['ssh'];
+    const parts = bounded;
     if (target.keyPath) {
       parts.push('-i', target.keyPath);
     }
@@ -4920,7 +4943,7 @@ function sshCommandParts(target) {
     }
     return parts.concat(sshTargetValue(target));
   }
-  return target ? ['ssh', target] : [];
+  return target ? bounded.concat(target) : [];
 }
 
 function scpCommandParts(target) {
@@ -5273,7 +5296,7 @@ function runPowerShell(cwd, command, env, onChunk, onHeartbeat, signal, timeoutS
         settled = true;
         cleanup();
         killProcessTree(child);
-        reject(new Error(`命令超过 ${timeoutSeconds} 秒未完成`));
+        reject(new Error(`命令超过 ${timeoutSeconds} 秒未完成${output ? '\n[LAST_OUTPUT]\n'+output.slice(-8000) : ''}`));
       }, Number(timeoutSeconds) * 1000);
     }
   });

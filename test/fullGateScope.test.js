@@ -91,3 +91,67 @@ test('manual audit is explicit and unavailable in routine selection',()=>{
  const result=spawnSync(process.execPath,[path.resolve(__dirname,'../scripts/audit-historical-evidence.mjs')],{encoding:'utf8',windowsHide:true});
  assert.notEqual(result.status,0);assert.match(result.stderr,/Select an explicit archive check/);
 });
+
+test('history retains probe state and error through hundreds of local heartbeats with bounded output',()=>fixture(root=>{
+ project(root);
+ const core=require('../src/releasePublisherCore'),plan=core.createPlan(root,{appTag:'20261113',dryRun:true,includeStackDeploy:true},{...env,RELEASE_PUBLISHER_CONFIG:process.env.RELEASE_PUBLISHER_CONFIG});
+ const step=plan.steps.find(s=>s.key==='commit-game-cutover');
+ step.status='failed';step.logs=['rollout_state=updating healthy_target=0','x'.repeat(10000)+'ERROR: original probe stalled',...Array.from({length:300},(_,i)=>'[RUNNING] 观察 已运行 '+i+' 秒，等待命令输出'),'ERROR: outer timeout'];
+ const history=core.buildHistoryEntry('RECOVERY_REQUIRED',plan,[],[]),saved=history.stepSummary.find(s=>s.key===step.key).logs;
+ assert(saved.some(l=>l.startsWith('rollout_state=')));assert(saved.some(l=>l.endsWith('ERROR: original probe stalled')));
+ assert(saved.some(l=>l==='ERROR: outer timeout'));assert.equal(saved.filter(l=>l.startsWith('[RUNNING]')).length,4);assert(saved.every(l=>l.length<8100));
+ for(const target of ['fixture-host',{user:'fixture',host:'fixture-host',port:2222,keyPath:'fixture-key'}]) {
+  const command=core.remoteSshCommand(target,'echo read-only');
+  for(const value of ['BatchMode=yes','ConnectTimeout=10','ConnectionAttempts=1','ServerAliveInterval=10','ServerAliveCountMax=3'])assert(command.includes(value));
+ }
+}));
+
+test('actual generated observer bounds hung Docker reads and retains required safety predicates',()=>fixture(root=>{
+ project(root);const core=require('../src/releasePublisherCore'),plan=core.createPlan(root,{appTag:'20261113',dryRun:true,includeStackDeploy:true},{...env,RELEASE_PUBLISHER_CONFIG:process.env.RELEASE_PUBLISHER_CONFIG});
+ const bash=process.platform==='win32'?path.join(process.env.ProgramFiles||'C:\\Program Files','Git','bin','bash.exe'):'bash';
+ const script=key=>Buffer.from(plan.steps.find(s=>s.key===key).command.match(/remoteScript = '([A-Za-z0-9+/=]+)'/)[1],'base64').toString();
+ // Real GNU timeout executes a fake Docker in a child shell. No real Docker,
+ // SSH, production host or database is contacted by any scenario.
+ const fixtureShell=`
+export RELEASE_PUBLISHER_ROLLOUT_TIMEOUT_SECONDS=0
+fixture_docker() {
+ case "$1 $2" in
+  'service inspect')
+   [ "$MODE" != hung ] || sleep 5
+   case "$*" in
+    *ContainerSpec.Image*) echo hospital-backend:20261113;;
+    *ContainerSpec.Env*) printf 'IMAGE_TAG=20261113\\nFORUM_SSO_ENABLED=true\\nFORUM_SSO_SECRET_FILE=/run/secrets/forum_sso_secret\\n';;
+    *ContainerSpec.Secrets*) echo forum_sso_secret;;
+    *UpdateStatus*) echo completed;;
+    *Replicas*) echo 1;;
+   esac;;
+  'service ps') printf 'hospital-backend:20261113|Running now\\n'; [ "$MODE" != old ] || printf 'hospital-backend:20261101|Running now\\n';;
+  'ps -q') echo fixture-container;;
+  'inspect fixture-container')
+   case "$*" in
+    *Config.Image*) echo hospital-backend:20261113;;
+    *State.Health*) if [ "$MODE" = unhealthy ]; then echo unhealthy; else echo healthy; fi;;
+    *Config.Env*) printf 'IMAGE_TAG=20261113\\nFORUM_SSO_ENABLED=true\\nFORUM_SSO_SECRET_FILE=/run/secrets/forum_sso_secret\\n';;
+   esac;;
+  'exec fixture-container')
+   case "$*" in *SHA256SUMS*) [ "$MODE" != checksum ];; *) [ "$MODE" != secret ];; esac;;
+  'stack services') echo fixture-stack;;
+  *) return 87;;
+ esac
+}
+export -f fixture_docker
+timeout() {
+ [ "$1" = --signal=TERM ] && [ "$2" = --kill-after=2s ] && [ "$3" = 15s ] && [ "$4" = docker ] || return 88
+ shift 4
+ command timeout --kill-after=1s 0.5s bash -c 'fixture_docker "$@"' fixture "$@"
+}
+`;
+ for(const mode of ['healthy','hung','secret','checksum','old','unhealthy']) {
+  const result=spawnSync(bash,['-c',fixtureShell+'\n'+script('commit-game-cutover')],{env:{...process.env,MODE:mode},encoding:'utf8',windowsHide:true,timeout:15000});
+  const text=result.stdout+result.stderr;assert(!result.error,String(result.error));
+  if(mode==='healthy'){assert.equal(result.status,0,text);assert(text.includes('game_cutover_observation=PASS'));}
+  else {assert.notEqual(result.status,0,text);assert(!text.includes('game_cutover_observation=PASS'));if(mode==='hung')assert.match(text,/probe timed out: service\/inspect/);}
+ }
+ assert(script('final-runtime-check').includes('[ "$update_state" = completed ]'));
+ assert(script('commit-game-cutover').includes('[ "$update_state" = updating ]'));
+}));
