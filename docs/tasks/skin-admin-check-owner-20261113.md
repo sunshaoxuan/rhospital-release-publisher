@@ -16,3 +16,5 @@ Next sparse run resolved artwork initialization and exposed RoomCatalogTestSuppo
 Required UI screenshots are documentation evidence. Admit docs/evidence PNG through the existing documents check with binary header/dimensions/end validation, never as Java runtime changes and never as automatic visual acceptance. Positive real1px PNG and truncated/non-PNG negative covered. Existing staged/source identity gate remains authoritative; image-only documentation selects no JVM checks.
 
 官方后端完整构建发现旧导航与schema源码断言仍使用启动注入；更新游戏测试时新增两个明确叶子输入及测试类，41类由skin-admin拥有。变更仅映射清单，原生8组策略检查需按manifest输入更新验证；无新增运行机制。
+
+正式41类叶子执行前检查传递文件依赖，ResidentRewardSchemaContractTest读取旧账本迁移与两个只读oracle，补入这三个明确输入。未增加新功能检查或扩大产品范围，避免稀疏候选缺文件。原生策略检查按manifest变化执行，业务源保持冻结。
