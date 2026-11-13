@@ -202,7 +202,11 @@
     "docs/artwork/resident-backlight-20261113/composition.json",
     "docs/artwork/resident-backlight-20261113/sources/background-original.png",
     "src/test/js/residentForegroundArt.test.mjs",
-    "src/test/js/residentNormalIntegration.test.mjs"
+    "src/test/js/residentNormalIntegration.test.mjs",
+    "src/main/resources/static/img/game/themes/resident-evil/first-floor.png",
+    "src/main/resources/static/img/game/themes/resident-evil/second-floor.png",
+    "src/main/resources/static/img/game/themes/resident-evil/basement.png",
+    "src/main/resources/static/img/game/themes/resident-evil/basement-wall.png"
   ],
   "checks": [
     {
@@ -265,7 +269,11 @@
         "docs/artwork/resident-backlight-20261113/composition.json",
         "docs/artwork/resident-backlight-20261113/sources/background-original.png",
         "src/test/js/residentForegroundArt.test.mjs",
-        "src/test/js/residentNormalIntegration.test.mjs"
+        "src/test/js/residentNormalIntegration.test.mjs",
+        "src/main/resources/static/img/game/themes/resident-evil/first-floor.png",
+        "src/main/resources/static/img/game/themes/resident-evil/second-floor.png",
+        "src/main/resources/static/img/game/themes/resident-evil/basement.png",
+        "src/main/resources/static/img/game/themes/resident-evil/basement-wall.png"
       ],
       "tests": [
         "src/test/js/residentDrawPresentation.test.mjs",
