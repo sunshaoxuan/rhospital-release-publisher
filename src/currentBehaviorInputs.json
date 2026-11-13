@@ -214,7 +214,15 @@
     "src/main/resources/static/img/game/ui/btn/btn-bacteria-lab.png",
     "src/main/resources/static/img/game/ui/btn/btn-gonggao-sm.png",
     "src/test/js/mobileHospitalEntryMenu.test.mjs",
-    "src/test/js/bacteriaLabEntry.test.mjs"
+    "src/test/js/bacteriaLabEntry.test.mjs",
+    "docs/artwork/resident-backlight-20261113/background-clean.png",
+    "docs/artwork/resident-backlight-20261113/sources/background-clean-generated.png",
+    "docs/artwork/resident-backlight-20261113/sources/leon-generated.png",
+    "docs/artwork/resident-backlight-20261113/sources/claire-generated.png",
+    "docs/artwork/resident-backlight-20261113/compose.cjs",
+    "docs/evidence/resident-exchange-motion-20261113/mobile-menu/check-menu-scene.cjs",
+    "docs/evidence/resident-exchange-motion-20261113/mobile-menu/collect-runtime-geometry.js",
+    "docs/evidence/resident-exchange-motion-20261113/mobile-menu/measure-menu-pixels.cjs"
   ],
   "checks": [
     {
@@ -284,7 +292,11 @@
         "src/main/resources/static/img/game/themes/resident-evil/first-floor.png",
         "src/main/resources/static/img/game/themes/resident-evil/second-floor.png",
         "src/main/resources/static/img/game/themes/resident-evil/basement.png",
-        "src/main/resources/static/img/game/themes/resident-evil/basement-wall.png"
+        "src/main/resources/static/img/game/themes/resident-evil/basement-wall.png",
+        "docs/artwork/resident-backlight-20261113/background-clean.png",
+        "docs/artwork/resident-backlight-20261113/sources/background-clean-generated.png",
+        "docs/artwork/resident-backlight-20261113/sources/leon-generated.png",
+        "docs/artwork/resident-backlight-20261113/sources/claire-generated.png"
       ],
       "tests": [
         "src/test/js/residentDrawPresentation.test.mjs",
@@ -780,6 +792,17 @@
         "src/test/js/voidRewardCaptcha.test.mjs"
       ],
       "timeoutSeconds": 120
+    },
+    {
+      "key": "current-resident-artifact-syntax",
+      "kind": "syntax",
+      "inputs": [
+        "docs/artwork/resident-backlight-20261113/compose.cjs",
+        "docs/evidence/resident-exchange-motion-20261113/mobile-menu/check-menu-scene.cjs",
+        "docs/evidence/resident-exchange-motion-20261113/mobile-menu/collect-runtime-geometry.js",
+        "docs/evidence/resident-exchange-motion-20261113/mobile-menu/measure-menu-pixels.cjs"
+      ],
+      "timeoutSeconds": 30
     }
   ]
 }

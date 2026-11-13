@@ -1,6 +1,18 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {planChanges}=require('../src/changeValidationPolicy');
 
+test('Resident source art and standalone artifact code have exact bounded owners',()=>{
+ const art='docs/artwork/resident-backlight-20261113/sources/leon-generated.png';
+ assert.deepEqual(planChanges('game',[art,art]).checks.map(c=>c.key),['current-resident-exchange-presentation']);
+ const code='docs/evidence/resident-exchange-motion-20261113/mobile-menu/measure-menu-pixels.cjs';
+ const plan=planChanges('game',[code,code]);
+ assert.deepEqual(plan.checks.map(c=>c.key),['current-resident-artifact-syntax']);
+ assert.equal(plan.checks[0].kind,'syntax');assert.equal(plan.checks[0].timeoutSeconds,30);
+ assert(plan.checks[0].inputs.every(p=>/\.(cjs|js)$/.test(p)));
+ assert.throws(()=>planChanges('game',[code.replace('measure-menu-pixels','unknown-tool')]));
+ assert.throws(()=>planChanges('game',['docs/evidence/resident-exchange-motion-20261113/backlight-revision/old.jpg']));
+});
+
 test('mobile hospital entrances select their bounded HUD leaf with state and access checks',()=>{
  const path='src/main/resources/static/js/scenes/components/MobileHospitalEntryMenu.mjs';
  const plan=planChanges('game',[path,path]);
