@@ -1,5 +1,8 @@
 # 生化交换动效定向检查登记
 
+2026-11-13追加纠正：用户允许找不到持枪里昂原稿时制作同风格人物并重新合成。原授权内补齐本项图片资产、按需资源计划、正常集成与前景Alpha检查输入，增加两份Node测试；保持60秒叶子预算。只改currentBehaviorInputs.json、currentBehaviorChecks.json、定向策略测试、CHANGELOG及本文档，不改runner、服务、生产或其他门禁。测试覆盖新资产选中一次、主体像素保持、错误Alpha/移位拒绝、普通场景回归；本项真实运行视觉仍由游戏主任务承担。原生提交门禁执行选中发布器检查，不预跑副本。
+原生提交首轮在Windows临时候选目录hospital-impact-cux4fz清理处返回EPERM；此前documents、publisher-gift-pack、publisher-bacteria-operator、publisher-skin、publisher-preflight、publisher-policy、publisher-runner、publisher-contract、publisher-leaves均真实PASS，plan未形成完整PASS。源码及测试输入未改，按原生提交重试，复用仍有效签名结果并保留失败事实，不绕过钩子或修改验证器。
+
 主任务：C:/workspace/hospital-backend/docs/tasks/resident-exchange-motion-fix-20261113.md。
 授权：用户答复“只要不拖慢发版，带坏游戏，都允许”，用于补齐本次三个前端模块的定向检查映射及必要测试。
 范围：登记独立Node叶子检查和精确输入，复用现有TAP成功协议、源码身份和提交/推送回执，不改变发布顺序、生产数据、权限或全量后端门禁。

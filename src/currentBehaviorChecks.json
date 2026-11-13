@@ -6,7 +6,9 @@
       "src/test/js/residentSoftGlow.test.mjs",
       "src/test/js/residentRewardUi.test.mjs",
       "src/test/js/residentBrowserTimerContract.test.mjs",
-      "src/test/js/residentRecoveryLifecycle.test.mjs"
+      "src/test/js/residentRecoveryLifecycle.test.mjs",
+      "src/test/js/residentForegroundArt.test.mjs",
+      "src/test/js/residentNormalIntegration.test.mjs"
     ],
     "timeoutSeconds": 60
   },

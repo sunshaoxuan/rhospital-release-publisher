@@ -16,7 +16,9 @@
     "src/test/js/hospitalHudCurrent.test.mjs",
     "src/test/js/mobileLogActions.test.mjs",
     "src/test/js/voidRewardEntry.test.mjs",
-    "src/test/js/voidRewardCaptcha.test.mjs"
+    "src/test/js/voidRewardCaptcha.test.mjs",
+    "src/test/js/residentForegroundArt.test.mjs",
+    "src/test/js/residentNormalIntegration.test.mjs"
   ],
   "files": [
     "release/release-impact.json",
@@ -193,7 +195,14 @@
     "src/test/resources/bacteria-levels/region-cover-proof-40x40.json",
     "src/test/resources/bacteria-levels/region-cover-proof-8x8.json",
     "src/test/resources/bacteria-levels/reverse-mechanics-40x40.json",
-    "src/test/resources/design/user-60x60-32color-request.json"
+    "src/test/resources/design/user-60x60-32color-request.json",
+    "src/main/resources/static/img/game/themes/resident-evil/background.png",
+    "src/main/resources/static/img/game/themes/resident-evil/leon-foreground.png",
+    "src/main/resources/static/img/game/themes/resident-evil/claire-foreground.png",
+    "docs/artwork/resident-backlight-20261113/composition.json",
+    "docs/artwork/resident-backlight-20261113/sources/background-original.png",
+    "src/test/js/residentForegroundArt.test.mjs",
+    "src/test/js/residentNormalIntegration.test.mjs"
   ],
   "checks": [
     {
@@ -220,7 +229,10 @@
         "src/test/js/bacteriaFreezeEditor.test.mjs",
         "src/test/js/bacteriaQueueMechanisms.test.mjs"
       ],
-      "tests": ["src/test/js/bacteriaFreezeEditor.test.mjs", "src/test/js/bacteriaQueueMechanisms.test.mjs"],
+      "tests": [
+        "src/test/js/bacteriaFreezeEditor.test.mjs",
+        "src/test/js/bacteriaQueueMechanisms.test.mjs"
+      ],
       "timeoutSeconds": 60
     },
     {
@@ -242,7 +254,18 @@
         "src/test/js/residentSoftGlow.test.mjs",
         "src/test/js/residentRewardUi.test.mjs",
         "src/test/js/residentBrowserTimerContract.test.mjs",
-        "src/test/js/residentRecoveryLifecycle.test.mjs"
+        "src/test/js/residentRecoveryLifecycle.test.mjs",
+        "src/main/resources/static/img/game/themes/resident-evil/background.png",
+        "src/main/resources/static/img/game/themes/resident-evil/leon-foreground.png",
+        "src/main/resources/static/img/game/themes/resident-evil/claire-foreground.png",
+        "src/main/resources/static/js/utils/GameAssetPlan.js",
+        "src/main/resources/static/js/utils/GameAssetGroups.js",
+        "src/main/resources/static/js/utils/GameAssetCatalog.js",
+        "src/main/resources/static/js/config/yiquBossLayoutConfig.js",
+        "docs/artwork/resident-backlight-20261113/composition.json",
+        "docs/artwork/resident-backlight-20261113/sources/background-original.png",
+        "src/test/js/residentForegroundArt.test.mjs",
+        "src/test/js/residentNormalIntegration.test.mjs"
       ],
       "tests": [
         "src/test/js/residentDrawPresentation.test.mjs",
@@ -250,7 +273,9 @@
         "src/test/js/residentSoftGlow.test.mjs",
         "src/test/js/residentRewardUi.test.mjs",
         "src/test/js/residentBrowserTimerContract.test.mjs",
-        "src/test/js/residentRecoveryLifecycle.test.mjs"
+        "src/test/js/residentRecoveryLifecycle.test.mjs",
+        "src/test/js/residentForegroundArt.test.mjs",
+        "src/test/js/residentNormalIntegration.test.mjs"
       ],
       "timeoutSeconds": 60
     },

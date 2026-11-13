@@ -1,6 +1,16 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {planChanges}=require('../src/changeValidationPolicy');
 
+test('Resident foreground assets select the presentation leaf once, including artwork negatives',()=>{
+ const file='src/main/resources/static/img/game/themes/resident-evil/leon-foreground.png';
+ const plan=planChanges('game',[file,file]);
+ assert.deepEqual(plan.checks.map(c=>c.key),['current-resident-exchange-presentation']);
+ assert(plan.checks[0].tests.includes('src/test/js/residentForegroundArt.test.mjs'));
+ assert(plan.checks[0].tests.includes('src/test/js/residentNormalIntegration.test.mjs'));
+ assert(!plan.checks[0].tests.some(f=>/bacteria|steam/i.test(f)));
+ assert.throws(()=>planChanges('game',['src/main/resources/static/img/game/themes/resident-evil/unknown-character.png']));
+});
+
 test('freeze dialog inputs select one isolated leaf, duplicates deduplicate, unknown input rejects',()=>{
  const files=['src/main/resources/static/js/design/FreezeEditor.mjs','src/main/resources/static/js/design/QueueMechanicDialogs.css','src/test/js/bacteriaFreezeEditor.test.mjs'];
  const plan=planChanges('game',[...files,...files]);
