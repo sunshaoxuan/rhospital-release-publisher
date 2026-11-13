@@ -7,6 +7,7 @@ test('Resident foreground assets select the presentation leaf once, including ar
  assert.deepEqual(plan.checks.map(c=>c.key),['current-resident-exchange-presentation']);
  assert(plan.checks[0].tests.includes('src/test/js/residentForegroundArt.test.mjs'));
  assert(plan.checks[0].tests.includes('src/test/js/residentNormalIntegration.test.mjs'));
+ assert.deepEqual(plan.checks[0].dependencies,['pngjs']);
  assert(!plan.checks[0].tests.some(f=>/bacteria|steam/i.test(f)));
  assert.throws(()=>planChanges('game',['src/main/resources/static/img/game/themes/resident-evil/unknown-character.png']));
 });

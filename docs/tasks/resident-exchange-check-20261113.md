@@ -1,5 +1,8 @@
 # 生化交换动效定向检查登记
 
+廉价依赖前检发现新增PNG检查需要现有pngjs，首个登记尚未声明依赖复制。补充本叶子dependencies=[pngjs]及策略断言，复用既有锁版本和真实依赖哈希机制，无新依赖或runner修改。失效输入为currentBehaviorInputs.json和相应策略测试，原生提交按实际身份重验其消费者；游戏38项实现测试、运行素材及原稿证据不失效。该问题在游戏正式提交和本候选Maven运行之前发现。
+依赖登记后的原生检查按预期拒绝旧的源码身份测试夹具：其未提供新增的pngjs目录。失效输入为test/changeValidationRunner.test.js；最小修复为夹具显式包含声明依赖，同时保留缺依赖ENOENT反例。由原生提交复验受影响消费者，已有完整PASS按身份复用。
+
 2026-11-13追加纠正：用户允许找不到持枪里昂原稿时制作同风格人物并重新合成。原授权内补齐本项图片资产、按需资源计划、正常集成与前景Alpha检查输入，增加两份Node测试；保持60秒叶子预算。只改currentBehaviorInputs.json、currentBehaviorChecks.json、定向策略测试、CHANGELOG及本文档，不改runner、服务、生产或其他门禁。测试覆盖新资产选中一次、主体像素保持、错误Alpha/移位拒绝、普通场景回归；本项真实运行视觉仍由游戏主任务承担。原生提交门禁执行选中发布器检查，不预跑副本。
 原生提交首轮在Windows临时候选目录hospital-impact-cux4fz清理处返回EPERM；此前documents、publisher-gift-pack、publisher-bacteria-operator、publisher-skin、publisher-preflight、publisher-policy、publisher-runner、publisher-contract、publisher-leaves均真实PASS，plan未形成完整PASS。源码及测试输入未改，按原生提交重试，复用仍有效签名结果并保留失败事实，不绕过钩子或修改验证器。
 

@@ -8,6 +8,8 @@ const good='# tests 1\n# pass 1\n# fail 0\n# skipped 0\n# cancelled 0\n# todo 0\
 test('Resident leaf identity rejects relevant drift and ignores absent unrelated archives',()=>fixture(root=>{
   const check=require('../src/changeValidationPolicy').planChanges('game',['src/main/resources/static/js/scenes/utils/ResidentRewardDialog.mjs']).checks[0];
   for(const file of check.inputs){const target=path.join(root,file);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,'source');}
+  assert.throws(()=>identity(root,check,{}),/ENOENT/);
+  for(const name of check.dependencies){const target=path.join(root,'node_modules',name);fs.mkdirSync(target,{recursive:true});fs.writeFileSync(path.join(target,'index.js'),'dependency fixture');}
   const before=identity(root,check,{});
   fs.mkdirSync(path.join(root,'docs/evidence/unrelated'),{recursive:true});fs.writeFileSync(path.join(root,'docs/evidence/unrelated/broken.json'),'{');
   assert.deepEqual(identity(root,check,{}),before);

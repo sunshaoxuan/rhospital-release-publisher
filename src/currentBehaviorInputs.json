@@ -277,7 +277,10 @@
         "src/test/js/residentForegroundArt.test.mjs",
         "src/test/js/residentNormalIntegration.test.mjs"
       ],
-      "timeoutSeconds": 60
+      "timeoutSeconds": 60,
+      "dependencies": [
+        "pngjs"
+      ]
     },
     {
       "key": "current-toilet-market",
