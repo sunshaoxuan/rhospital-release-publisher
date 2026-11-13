@@ -22,6 +22,12 @@ test('JVM runner enforces process success and complete fresh Surefire without an
  try{
   const launch=(command,args,options)=>{assert(args.includes('-Dtest=ConfigurableGiftPackTest'));assert.equal(options.cwd,root);assert(!('GIT_INDEX_FILE' in options.env));fs.writeFileSync(report,'<testsuite tests="1" failures="0" errors="0" skipped="0">');return {status:0};};
   assert.equal(runGift(root,good.testClasses,30,launch).tests,1);
+  const selected=['ConfigurableGiftPackTest#onlyOne+onlyTwo'];
+  assert.equal(runGift(root,selected,30,(command,args)=>{
+    assert(args.includes('-Dtest='+selected[0]));
+    fs.writeFileSync(report,'<testsuite tests="2" failures="0" errors="0" skipped="0">');return {status:0};
+  }).tests,2);
+  assert.throws(()=>runGift(root,['ConfigurableGiftPackTest#x,-DskipTests'],30,launch),/Invalid/);
   assert.throws(()=>runGift(root,good.testClasses,30,()=>({status:1})),/JVM failed/);
   assert.throws(()=>runGift(root,good.testClasses,30,()=>{fs.writeFileSync(report,'<testsuite tests="1" failures="0" errors="0" skipped="1">');return {status:0};}),/Incomplete/);
   assert.throws(()=>runGift(root,good.testClasses,30,()=>{fs.unlinkSync(report);return {status:0};}),/Missing/);

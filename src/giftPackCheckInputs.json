@@ -14,7 +14,8 @@
     "src/main/resources/templates/admin_store.html",
     "src/test/java/com/zly/hospital/service/ConfigurableGiftPackTest.java",
     "src/test/java/com/zly/hospital/service/catalog/AdminStoreServiceTest.java",
-    "src/test/java/com/zly/hospital/service/catalog/StoreCatalogServiceTest.java"
+    "src/test/java/com/zly/hospital/service/catalog/StoreCatalogServiceTest.java",
+    "src/test/java/com/zly/hospital/service/BacteriaLevelValidatorTest.java"
   ],
   "testClasses": [
     "ConfigurableGiftPackTest",
@@ -23,7 +24,8 @@
     "MaintenanceGiftPackUserTest",
     "SpecialOfferGiftPackUserTest",
     "BackPackServiceSpecialOfferGiftTest",
-    "StoreCatalogServiceTest"
+    "StoreCatalogServiceTest",
+    "BacteriaLevelValidatorTest#historicalSerialWitnessesAreReplayedAndRejectInvalidOrderingAtCurrentTravelSpeed+historicalCoveredWitnessesAreReplayedAndRejectInvalidOrderingAtCurrentTravelSpeed"
   ],
   "inputs": [
     ".mvn/wrapper/maven-wrapper.properties",

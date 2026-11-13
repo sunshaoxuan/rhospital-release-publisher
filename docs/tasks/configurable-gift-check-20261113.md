@@ -7,3 +7,5 @@
 冻结范围：giftPackCheck.js、giftPackCheckInputs.json、changeValidationPolicy.js、changeValidationRunner.js、changeValidationGit.js、独立回归测试、CHANGELOG及本文。预计局部门禁3分钟；完成标准为选择正负例、协议不完整拒绝、失败拒绝、源码漂移失效与无关证据隔离通过，原生提交推送通过。无关.task-tmp文件为既有任务产物，保持原样。
 
 首轮门禁：独立礼包检查4项通过，runner的Git隔离夹具遗漏新策略闭包导致失败。最小修复仅补齐夹具的两个依赖；失效项为依赖该夹具的runner检查，原生门禁复用输入未变检查，其余按签名判定。候选冻结后再次提交，不预跑相同检查。
+
+97d706b已通过原生门禁并推送。应用完整验证发现阻断构建的历史夹具换行哈希差异；应用仅规范化测试输入，增加两个失败方法的精确选择，保留其他测试结果。局部JVM叶子允许受限的ClassTest#method+method语法，报告仍按类绑定，非法参数拒绝；不扩大到整个菌落功能全量。此补充仅更改选择器、清单及回归夹具，由原生门禁验收后交回应用阶段。
