@@ -14,3 +14,5 @@ Native publisher8groupsPASS and origin/master verified b26e5b140dc983dff03840b66
 Next sparse run resolved artwork initialization and exposed RoomCatalogTestSupport's explicit scripts/migration/20261021_room_catalog.sql dependency. Add that exact fixture source, deduplicate repeated error details. Native publisher identity0e0d6d5 and application incomplete run remain historical; rerun affected leaf after closure correction. Independent source review confirms no unrelated image archive or feature acceptance recursion is added.
 
 Required UI screenshots are documentation evidence. Admit docs/evidence PNG through the existing documents check with binary header/dimensions/end validation, never as Java runtime changes and never as automatic visual acceptance. Positive real1px PNG and truncated/non-PNG negative covered. Existing staged/source identity gate remains authoritative; image-only documentation selects no JVM checks.
+
+官方后端完整构建发现旧导航与schema源码断言仍使用启动注入；更新游戏测试时新增两个明确叶子输入及测试类，41类由skin-admin拥有。变更仅映射清单，原生8组策略检查需按manifest输入更新验证；无新增运行机制。

@@ -48,6 +48,7 @@
     "src/test/java/com/zly/hospital/controller/api/AdminSkinControllerTest.java",
     "src/test/java/com/zly/hospital/controller/api/HospitalControllerTest.java",
     "src/test/java/com/zly/hospital/controller/api/PotionSynthesisFailureControllerTest.java",
+    "src/test/java/com/zly/hospital/migration/ResidentRewardSchemaContractTest.java",
     "src/test/java/com/zly/hospital/service/CodeGraphRemediationPostgresTest.java",
     "src/test/java/com/zly/hospital/service/HalloweenStoreTest.java",
     "src/test/java/com/zly/hospital/service/HospitalAddressServiceTest.java",
@@ -87,10 +88,12 @@
     "src/test/java/com/zly/hospital/service/utils/HalloweenSetUtilsTest.java",
     "src/test/java/com/zly/hospital/service/utils/MidAutumnSetUtilsTest.java",
     "src/test/java/com/zly/hospital/service/utils/ShenYiJiShiBackgroundEffectUtilsTest.java",
-    "src/test/java/com/zly/hospital/service/utils/VoidRewardRulesTest.java"
+    "src/test/java/com/zly/hospital/service/utils/VoidRewardRulesTest.java",
+    "src/test/java/com/zly/hospital/ui/AdminNavigationIconsTest.java"
   ],
   "testClasses": [
     "AccelerateDiagnosisItemUserTest",
+    "AdminNavigationIconsTest",
     "AdminSkinControllerTest",
     "BookingTaskRunnerTest",
     "ConfiguredResidentRewardPolicyTest",
@@ -115,6 +118,7 @@
     "ResidentBackpackFlowTest",
     "ResidentRewardFailureContractTest",
     "ResidentRewardPolicyConfigurationTest",
+    "ResidentRewardSchemaContractTest",
     "ResidentRewardServiceTest",
     "ResidentSetItemUserTest",
     "ResidentStoreTest",
