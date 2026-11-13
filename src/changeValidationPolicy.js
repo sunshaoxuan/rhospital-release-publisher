@@ -27,10 +27,13 @@ const PUBLISHER_GATE_INPUTS = [...["src/changeValidationPolicy.js", "src/changeV
 
 POLICY_FILES.push('src/skinAdminCheck.js','src/skinAdminCheckInputs.json');
 POLICY_FILES.push('src/bacteriaOperatorCheck.js','src/bacteriaOperatorCheckInputs.json');
+POLICY_FILES.push('src/giftPackCheck.js','src/giftPackCheckInputs.json');
+PUBLISHER_GATE_INPUTS.push('src/giftPackCheck.js','src/giftPackCheckInputs.json','test/giftPackCheck.test.js');
 PUBLISHER_GATE_INPUTS.push('src/bacteriaOperatorCheck.js','src/bacteriaOperatorCheckInputs.json','test/bacteriaOperatorCheck.test.js');
 PUBLISHER_GATE_INPUTS.push('src/skinAdminCheck.js','src/skinAdminCheckInputs.json','test/skinAdminCheck.test.js');
 const gateBase=[...POLICY_FILES,'src/localCheckPolicy.js','src/currentBehaviorChecks.json'];
 const publisherGroups=[
+ {key:'publisher-gift-pack',tests:['test/giftPackCheck.test.js'],inputs:[...POLICY_FILES,'test/giftPackCheck.test.js']},
  {key:'publisher-bacteria-operator',tests:['test/bacteriaOperatorCheck.test.js','test/changeValidationPolicy.test.js','test/changeValidationRunner.test.js'],inputs:[...POLICY_FILES,'test/bacteriaOperatorCheck.test.js','test/changeValidationPolicy.test.js','test/changeValidationRunner.test.js']},
  {key:'publisher-skin',tests:['test/skinAdminCheck.test.js'],inputs:[...POLICY_FILES,'test/skinAdminCheck.test.js']},
  {key:'publisher-preflight',tests:['test/gameReleasePreflight.test.js','test/bacteriaAuthoritativeBudget.test.js','test/gameRecoverySafety.test.js'],inputs:[...gateBase,'src/localCheckLeaves.js','src/currentBehaviorGuard.cjs','scripts/run-game-release-preflight.mjs',...require('./publisherGateInputs.json').files,'test/gameReleasePreflight.test.js','test/bacteriaAuthoritativeBudget.test.js','test/gameRecoverySafety.test.js','test/helpers/ownedFixtures.js','scripts/game-service-recovery.mjs','scripts/game-service-recovery.py']},
@@ -64,6 +67,7 @@ function planChanges(repository, changedPaths) {
 
     if(document(file)) {docs.push(file);continue;}
     if(repository==='game' && APP_GATE_INPUTS.includes(file)) selected.add('game-gate');
+    else if(repository==='game' && require('./giftPackCheckInputs.json').triggers.includes(file)) selected.add('gift-pack');
     else if(repository==='game' && require('./bacteriaOperatorCheckInputs.json').triggers.includes(file)) selected.add('bacteria-operator');
     else if(repository==='game' && require('./skinAdminCheckInputs.json').triggers.includes(file)) selected.add('skin-admin');
     else if(repository==='game' && RESIDENT_INPUTS.slice(0,4).includes(file)) selected.add('resident-schema');
@@ -78,6 +82,7 @@ function planChanges(repository, changedPaths) {
   }
   if(unmapped.length) throw new Error('UNMAPPED_CHANGE: register owned checks before validation: '+unmapped.join(', '));
   const checks=[];
+  if(selected.has('gift-pack')) checks.push({...require('./giftPackCheckInputs.json'),key:'gift-pack',kind:'gift-pack',timeoutSeconds:900});
   if(docs.length) checks.push({key:'documents',kind:'documents',inputs:docs,timeoutSeconds:30});
   if(selected.has('bacteria-operator')) checks.push({...require('./bacteriaOperatorCheckInputs.json'),key:'bacteria-operator',kind:'bacteria-operator',timeoutSeconds:900});
   if(selected.has('skin-admin')) checks.push({...require('./skinAdminCheckInputs.json'),key:'skin-admin',kind:'skin-admin',timeoutSeconds:1200,images:['postgres:18.6-alpine']});

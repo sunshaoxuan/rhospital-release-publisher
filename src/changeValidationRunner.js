@@ -51,6 +51,7 @@ function environment(check,{dockerIdentity}={}) {
     variables:hash(Object.fromEntries(['NODE_OPTIONS','NODE_PATH','NODE_ENV','PATH','Path','ComSpec','SystemRoot','TZ','LANG'].map(k=>[k,process.env[k]||''])))};
   if(check.kind==='resident')result.docker=dockerIdentity?dockerIdentity(check.images):require('./residentMigrationCheck').dockerIdentity(check.images);
   if(check.kind==='bacteria-operator')result.tools=require('./bacteriaOperatorCheck').toolIdentity();
+  if(check.kind==='gift-pack')result.tools=require('./giftPackCheck').toolIdentity();
   if(check.kind==='skin-admin'){
     result.tools=require('./skinAdminCheck').toolIdentity();
     result.docker=dockerIdentity?dockerIdentity(check.images):require('./residentMigrationCheck').dockerIdentity(check.images);
@@ -77,6 +78,7 @@ function identity(root,check,context={}) {
   }
   const executorFiles=['changeValidationRunner.js','changeValidationReceipts.js','changeValidationPolicy.js','changeValidationGit.js',...(check.kind==='resident'?['residentMigrationCheck.js']:[]),...(check.kind==='skin-admin'?['skinAdminCheck.js','residentMigrationCheck.js']:[])];
   if(check.kind==='bacteria-operator')executorFiles.push('bacteriaOperatorCheck.js','skinAdminCheck.js');
+  if(check.kind==='gift-pack')executorFiles.push('giftPackCheck.js','skinAdminCheck.js');
   const executor=hash(Object.fromEntries(executorFiles.map(f=>[f,hash(fs.readFileSync(path.join(__dirname,f)))])));
   const baseline=check.kind==='documents'?Object.fromEntries(check.inputs.map(f=>[f,hash(context.baseFile?.(f)||'')])):{};
   return {schema:1,check,inputs,executor,baseline,environment:environment(check,context)};
@@ -89,6 +91,7 @@ function assertResult(check,result) {
   else if(check.kind==='resident'&&(result.protocol!=='resident-schema/v1'||result.versions?.length!==2||result.cases<20))throw new Error('Invalid migration protocol');
   else if(check.kind==='skin-admin')require('./skinAdminCheck').assertProtocol(result,check.testClasses);
   else if(check.kind==='bacteria-operator')require('./bacteriaOperatorCheck').assertProtocol(result,check.testClasses);
+  else if(check.kind==='gift-pack')require('./giftPackCheck').assertProtocol(result,check.testClasses);
 }
 async function validateChange(root,plan,{cacheDirectory,requireReceipts=false,write=s=>process.stdout.write(s),execute, ...context}={}) {
   if(plan.scope!=='local-change'||plan.productionActions!==false||new Set(plan.checks.map(c=>c.key)).size!==plan.checks.length)throw new Error('Invalid bounded validation plan');
@@ -115,6 +118,8 @@ async function validateChange(root,plan,{cacheDirectory,requireReceipts=false,wr
       result=require('./skinAdminCheck').runSkin(root,check.testClasses,check.timeoutSeconds);
     } else if(check.kind==='bacteria-operator'){
       result=require('./bacteriaOperatorCheck').runBacteria(root,check.testClasses,check.timeoutSeconds);
+    } else if(check.kind==='gift-pack'){
+      result=require('./giftPackCheck').runGift(root,check.testClasses,check.timeoutSeconds);
     } else throw new Error('Unknown leaf kind');
     assertResult(check,result);
     if(hash(identity(root,check,context))!==hash(id))throw new Error('Owned inputs changed during validation: '+check.key);
