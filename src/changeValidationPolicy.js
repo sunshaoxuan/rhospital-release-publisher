@@ -53,7 +53,7 @@ function safePath(file) {
 function document(file) {
   return /^(?:AGENTS|CHANGELOG|README)\.md$/.test(file)
     || /^(?:docs|release\/evidence)\/.+\.(?:md|json)$/.test(file)
-    || /^docs\/evidence\/.+\.png$/.test(file)
+    || /^docs\/evidence\/.+\.(?:png|jpg|jpeg)$/.test(file)
     || file==='release/release-impact.json'
     || file==='.github/workflows/final-release-preflight.yml'
     || ['src/manualArchiveChecks.json','src/designValidationLeaves.json','src/designEvidenceInputs.json','test/fixtures/toilet-market-node-spec.json'].includes(file);

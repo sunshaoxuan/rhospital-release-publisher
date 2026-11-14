@@ -58,6 +58,19 @@ test('documents check new local links and malformed JSON without retesting histo
   assert.throws(()=>validateDocuments(root,['README.md']),/Broken new/);
   fs.writeFileSync(path.join(root,'bad.json'),'{');assert.throws(()=>validateDocuments(root,['bad.json']));
 }));
+
+test('JPEG evidence validates binary markers and rejects disguised or truncated bytes',()=>fixture(root=>{
+ // Marker validation is static admission; real screenshot decoding remains artifact acceptance.
+ const bytes=Buffer.from('ffd8ffe000044a46ffd9','hex');
+ for(const name of ['scene.jpg','scene.jpeg']){
+  fs.writeFileSync(path.join(root,name),bytes);
+  assert.equal(validateDocuments(root,[name]).state,'PASS');
+  for(const bad of [Buffer.from('text'),Buffer.from('89504e470d0a1a0a','hex'),bytes.subarray(0,-2)]){
+   fs.writeFileSync(path.join(root,name),bad);
+   assert.throws(()=>validateDocuments(root,[name]),/Invalid evidence JPEG/);
+  }
+ }
+}));
 test('scoped installed dependencies are copied immutably and every byte participates in identity',()=>fixture(root=>{
   const source=path.join(root,'source'),target=path.join(root,'target'),installed=path.join(source,'node_modules/pngjs');
   fs.mkdirSync(installed,{recursive:true});fs.mkdirSync(target);

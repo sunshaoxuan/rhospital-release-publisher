@@ -10,7 +10,7 @@ test('Resident source art and standalone artifact code have exact bounded owners
  assert.equal(plan.checks[0].kind,'syntax');assert.equal(plan.checks[0].timeoutSeconds,30);
  assert(plan.checks[0].inputs.every(p=>/\.(cjs|js)$/.test(p)));
  assert.throws(()=>planChanges('game',[code.replace('measure-menu-pixels','unknown-tool')]));
- assert.throws(()=>planChanges('game',['docs/evidence/resident-exchange-motion-20261113/backlight-revision/old.jpg']));
+ assert.throws(()=>planChanges('game',['docs/evidence/resident-exchange-motion-20261113/backlight-revision/old.webp']));
 });
 
 test('mobile hospital entrances select their bounded HUD leaf with state and access checks',()=>{
@@ -66,6 +66,16 @@ test('Resident presentation changes select one bounded leaf without backend or u
 test('documents select static validation only; duplicate paths select once',()=>{
   const p=planChanges('game',['CHANGELOG.md','docs/release.md','CHANGELOG.md']);
   assert.deepEqual(p.checks.map(c=>c.key),['documents']);assert.equal(p.changedPaths.length,2);
+});
+
+test('JPEG evidence selects only documents and keeps unknown formats and runtime artwork closed',()=>{
+ const files=['docs/evidence/runtime/scene.jpg','docs/evidence/runtime/crop.jpeg'];
+ for(const repository of ['game','publisher']){
+  const plan=planChanges(repository,[...files,...files]);
+  assert.deepEqual(plan.checks.map(c=>c.key),['documents']);
+  assert.deepEqual(plan.checks[0].inputs,files.slice().sort());
+ }
+ for(const file of ['docs/evidence/runtime/scene.webp','docs/artwork/scene.jpg','src/main/resources/static/img/scene.jpg'])assert.throws(()=>planChanges('game',[file]),/UNMAPPED_CHANGE/);
 });
 test('Resident SQL owns schema and direct entity inputs without editor or Steam',()=>{
   const p=planChanges('game',['scripts/migration/20261108_add_resident_reward_ledger.sql','scripts/validation/resident-reward/schema-readonly.sql']);

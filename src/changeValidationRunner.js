@@ -34,6 +34,11 @@ function validateDocuments(root,files,{baseFile=()=>'',exists=file=>fs.existsSyn
         ||!bytes.readUInt32BE(16)||!bytes.readUInt32BE(20)||bytes.toString('ascii',bytes.length-8,bytes.length-4)!=='IEND')throw new Error('Invalid evidence PNG: '+file);
       continue;
     }
+    if(/\.jpe?g$/.test(file)){
+      const bytes=fs.readFileSync(path.join(root,file));
+      if(bytes.length<4||bytes.subarray(0,3).toString('hex')!=='ffd8ff'||bytes.subarray(-2).toString('hex')!=='ffd9')throw new Error('Invalid evidence JPEG: '+file);
+      continue;
+    }
     const text=fs.readFileSync(path.join(root,file),'utf8');
     if(text.includes('\uFFFD')||text.includes('\0'))throw new Error('Invalid document encoding: '+file);
     if(file.endsWith('.json')){JSON.parse(text);continue;}
