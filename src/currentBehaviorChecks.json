@@ -102,6 +102,12 @@
     ],
     "timeoutSeconds": 180
   },
+  "verify-bacteria-normal-startup": {
+    "tests": [
+      "src/test/js/bacteriaNormalStartup.test.mjs"
+    ],
+    "timeoutSeconds": 60
+  },
   "verify-bacteria-region-covers": {
     "tests": [
       "src/test/js/bacteriaRegionCovers.test.mjs",

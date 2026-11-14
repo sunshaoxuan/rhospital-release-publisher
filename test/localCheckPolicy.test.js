@@ -2,6 +2,19 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const {catalog,currentLocalCheck,doubleCheckLocalChecks,assertLocalCheckResult,registeredLocalCheckContracts}=require('../src/localCheckPolicy');
 const good={status:0,output:'# tests 1\n# pass 1\n# fail 0\n# skipped 0\n# cancelled 0\n# todo 0\n'};
 
+test('normal startup owns one existing leaf and rejects omitted or widened contracts',()=>{
+ const check=currentLocalCheck('verify-bacteria-normal-startup');
+ assert.deepEqual(catalog[check.key].tests,['src/test/js/bacteriaNormalStartup.test.mjs']);
+ assert.equal(check.command,'node --experimental-vm-modules --test --test-concurrency=1 src/test/js/bacteriaNormalStartup.test.mjs');
+ assert.equal(check.timeoutSeconds,60);assertLocalCheckResult(check,good);
+ const local=require('../src/currentBehaviorInputs.json').checks.find(c=>c.key==='current-bacteria-normal-startup');
+ assert.deepEqual(local.tests,catalog[check.key].tests);
+ assert(local.inputs.includes('src/main/resources/static/js/gameplay/bacteriaLab/BacteriaLabPrototype.js'));
+ for(const [checks,selected]of [[[],[check]],[[check],[]],[[check,check],[check]],[[check],[check,currentLocalCheck('verify-bacteria-region-covers')]]])assert.throws(()=>doubleCheckLocalChecks(checks,selected));
+ assert.throws(()=>currentLocalCheck('verify-bacteria-normal-unknown'));
+ assert.throws(()=>doubleCheckLocalChecks([{...check,command:check.command+' && node src/test/js/bacteriaRegionCovers.test.mjs'}]));
+});
+
 test('Resident presentation protocol rejects incomplete and altered checks',()=>{
  const check=currentLocalCheck('verify-resident-exchange-presentation');
  assert(check.command.includes('residentDrawPresentation.test.mjs'));assert.equal(check.timeoutSeconds,60);

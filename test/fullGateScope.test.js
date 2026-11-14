@@ -12,7 +12,7 @@ function project(root){
  put(root,'src/main/java/com/zly/hospital/service/catalog/CatalogDatabaseUpgradeService.java','class CatalogDatabaseUpgradeService { private static final int MARKER_VERSION = 20; }');
 }
 test('all registered features have bounded current contracts, manual archives stay outside selected leaves',()=>{
- const checks=Object.keys(catalog).map(currentLocalCheck);assert.equal(checks.length,22);assert(catalog['verify-resident-exchange-presentation']);doubleCheckLocalChecks(checks);
+ const checks=Object.keys(catalog).map(currentLocalCheck);assert.equal(checks.length,23);assert(catalog['verify-resident-exchange-presentation']);doubleCheckLocalChecks(checks);
  const plan=selectLeaves(checks);assert.equal(new Set(plan.leaves.map(l=>l.id)).size,plan.leaves.length);
  for(const leaf of plan.leaves)assert(!/Evidence\.test|validate-.*evidence|docs\/evidence|readiness|npm/.test(leaf.id),leaf.id);
  assert(plan.leaves.length<checks.reduce((n,c)=>n+plan.owners.get(c.key).length,0));
@@ -64,6 +64,38 @@ test('actual R34-shaped plan carries all five current contracts without historic
  assert.throws(()=>createPlan(root,request,{...env,RELEASE_PUBLISHER_CONFIG:process.env.RELEASE_PUBLISHER_CONFIG}),/artifact drift/);
  assert.equal(createPlan(root,{...request,dryRun:false},{...env,RELEASE_PUBLISHER_CONFIG:process.env.RELEASE_PUBLISHER_CONFIG}).dryRunChecks.length,0);
 }));
+test('normal startup assessment selects its single executable step while retaining mandatory safety',()=>fixture(root=>{
+ project(root);const file='src/main/resources/static/js/gameplay/bacteriaLab/BacteriaLabPrototype.js';put(root,file,'// exit presentation fixture');
+ const mandatory=['test-game-backend','verify-game-static-assets-predeploy','pre-deploy-checklist','final-runtime-check','verify-game-static-delivery'];
+ const write=checks=>put(root,'release/release-impact.json',JSON.stringify({schemaVersion:1,assessmentId:'20261114-normal-startup',summary:'Scoped exit presentation',targets:{game:{riskLevel:'low',codeImpact:'Mobile exit presentation and startup current behavior',databaseImpact:'none',checklistDecision:'checklist-updated',coveredRuntimePaths:[file],requiredChecks:checks.map(stepKey=>({stepKey,reason:'Current candidate behavior and mandatory production safety'}))}}}));
+ const request={appTag:'20261114',dryRun:true,includeStackDeploy:true,changeAnalysis:{targets:{game:{changed:true,changedPaths:[file],ignoredPaths:['release/release-impact.json']}}}};
+ write([...mandatory,'verify-bacteria-normal-startup']);
+ const plan=createPlan(root,request,{...env,RELEASE_PUBLISHER_CONFIG:process.env.RELEASE_PUBLISHER_CONFIG}),preflight=plan.steps.find(s=>s.key==='validate-game-release-preflight');
+ const checks=JSON.parse(Buffer.from(preflight.command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/)[1],'base64').toString()).checks;
+ assert.deepEqual(checks,[currentLocalCheck('verify-bacteria-normal-startup')]);
+ const step=plan.steps.find(s=>s.key===checks[0].key);assert(step.executable);assert.equal(step.command,checks[0].command);assert.equal(step.coveredByPreflight,preflight.key);
+ assert(plan.steps.indexOf(step)<plan.steps.findIndex(s=>s.key==='build-image'));
+ assert(!plan.steps.some(s=>s.key==='verify-bacteria-region-covers'));
+ for(const key of mandatory)assert(plan.steps.some(s=>s.key===key),key);
+ write([...mandatory,'verify-bacteria-normal-unknown']);assert.throws(()=>createPlan(root,request,{...env,RELEASE_PUBLISHER_CONFIG:process.env.RELEASE_PUBLISHER_CONFIG}));
+ write([...mandatory.filter(k=>k!=='test-game-backend'),'verify-bacteria-normal-startup']);assert.throws(()=>createPlan(root,request,{...env,RELEASE_PUBLISHER_CONFIG:process.env.RELEASE_PUBLISHER_CONFIG}));
+}));
+
+test('actual normal startup CLI isolates unrelated cover failure and rejects current or archive failure',()=>fixture(root=>{
+ const check=currentLocalCheck('verify-bacteria-normal-startup');
+ const args=[path.resolve(__dirname,'../scripts/run-game-release-preflight.mjs'),'--checks-base64',Buffer.from(JSON.stringify({version:1,checks:[check]})).toString('base64')];
+ const childEnv={...process.env};delete childEnv.NODE_TEST_CONTEXT;
+ const run=()=>spawnSync(process.execPath,args,{cwd:root,env:childEnv,encoding:'utf8',timeout:10000,windowsHide:true});
+ put(root,'src/test/js/bacteriaRegionCovers.test.mjs',"throw Error('unrelated old version');");
+ put(root,'docs/evidence/old.json','invalid history');
+ put(root,'src/test/js/bacteriaNormalStartup.test.mjs',"import test from 'node:test';test('current startup',()=>{});");
+ let r=run();assert.equal(r.status,0,r.stdout+r.stderr);assert.match(r.stdout,/game_release_preflight=PASS checks=1 leaves=1/);
+ put(root,'src/test/js/bacteriaNormalStartup.test.mjs',"import test from 'node:test';test('current startup',()=>{throw Error('current fault');});");
+ r=run();assert.notEqual(r.status,0);assert(!r.stdout.includes('game_release_preflight=PASS'));
+ put(root,'src/test/js/bacteriaNormalStartup.test.mjs',"import test from 'node:test';import fs from 'node:fs';test('bad history',()=>fs.readFileSync('docs/evidence/old.json'));");
+ r=run();assert.notEqual(r.status,0);assert.match(r.stdout+r.stderr,/ARCHIVE_DEPENDENCY/);
+}));
+
 test('archive guard rejects actual sync async and subprocess history reads while current fixtures work',()=>fixture(root=>{
  const guard=path.resolve(__dirname,'../src/currentBehaviorGuard.cjs'),script=path.join(root,'probe.cjs');
  put(root,'current.json','{}');put(root,'docs/evidence/old.json','corrupt old bytes');

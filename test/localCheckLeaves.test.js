@@ -2,6 +2,15 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const {selectLeaves,runLeaves,verifyServerArtifact}=require('../src/localCheckLeaves');
 const {currentLocalCheck}=require('../src/localCheckPolicy');
 const output='# tests 1\n# pass 1\n# fail 0\n# skipped 0\n# cancelled 0\n# todo 0\n';
+
+test('independent normal startup never runs unrelated covers and shared selection deduplicates it',async()=>{
+ const check=currentLocalCheck('verify-bacteria-normal-startup'),seen=[];
+ await runLeaves([check],{run:async leaf=>{seen.push(leaf.args.at(-1));assert.equal(leaf.args.at(-1),'src/test/js/bacteriaNormalStartup.test.mjs');return {status:0,output};}});
+ assert.deepEqual(seen,['src/test/js/bacteriaNormalStartup.test.mjs']);
+ const both=selectLeaves([check,currentLocalCheck('verify-bacteria-region-covers')]);
+ assert.equal(both.leaves.filter(l=>l.args.at(-1)===seen[0]).length,1);
+ for(const result of [{status:1,output},{status:0,output:'historical PASS'}, {status:0,output:output.replace('# skipped 0','# skipped 1')}])await assert.rejects(runLeaves([check],{run:async()=>result}));
+});
 test('shared current behavior leaves execute once and report both owners',async()=>{
  const checks=['verify-bacteria-region-covers','verify-bacteria-authoritative-challenges'].map(currentLocalCheck),seen=new Set(),observed=[];
  const plan=selectLeaves(checks);assert(plan.leaves.length<checks.reduce((n,c)=>n+plan.owners.get(c.key).length,0));
