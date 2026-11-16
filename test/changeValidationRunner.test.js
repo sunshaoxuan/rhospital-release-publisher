@@ -5,6 +5,18 @@ const {gate,text,snapshot,copyDependencies}=require('../src/changeValidationGit'
 const {execFileSync}=require('node:child_process');
 const good='# tests 1\n# pass 1\n# fail 0\n# skipped 0\n# cancelled 0\n# todo 0\n';
 
+test('skin asset contract rejects changed dimensions, opaque exterior and corrupt decode',()=>fixture(root=>{
+ const {validateSkinAssets,assertResult}=require('../src/changeValidationRunner');
+ fs.writeFileSync(path.join(root,'floor.png'),'synthetic decoder contract fixture');
+ const assets=[{path:'floor.png',width:2,height:1,transparent:true}];
+ const decode=()=>({width:2,height:1,data:Buffer.from([1,2,3,0,4,5,6,255])});
+ const result=validateSkinAssets(root,assets,decode);assertResult({kind:'skin-assets',assets},result);
+ assert.throws(()=>validateSkinAssets(root,[{...assets[0],width:3}],decode),/dimensions/);
+ assert.throws(()=>validateSkinAssets(root,assets,()=>({...decode(),data:Buffer.alloc(8,255)})),/transparent/);
+ assert.throws(()=>validateSkinAssets(root,assets,()=>{throw new Error('CRC error');}),/CRC/);
+ assert.throws(()=>assertResult({kind:'skin-assets',assets},{...result,files:0}),/protocol/);
+}));
+
 test('Resident leaf identity rejects relevant drift and ignores absent unrelated archives',()=>fixture(root=>{
   const check=require('../src/changeValidationPolicy').planChanges('game',['src/main/resources/static/js/scenes/utils/ResidentRewardDialog.mjs']).checks[0];
   for(const file of check.inputs){const target=path.join(root,file);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,'source');}
@@ -90,7 +102,7 @@ test('real staged Git snapshot ignores dirty working bytes and push reuses exact
   for(const name of ['changeValidationPolicy','changeValidationRunner','changeValidationReceipts','changeValidationGit','residentMigrationCheck','skinAdminCheck','bacteriaOperatorCheck','giftPackCheck']) {
     fs.mkdirSync(path.join(policy,'src'),{recursive:true});fs.copyFileSync(path.join(__dirname,'../src',name+'.js'),path.join(policy,'src',name+'.js'));
   }
-  for(const file of ['currentBehaviorInputs.json','publisherGateInputs.json','skinAdminCheckInputs.json','bacteriaOperatorCheckInputs.json','giftPackCheckInputs.json','catalogIconCheckInputs.json'])fs.copyFileSync(path.join(__dirname,'../src',file),path.join(policy,'src',file));
+  for(const file of ['currentBehaviorInputs.json','publisherGateInputs.json','skinAdminCheckInputs.json','bacteriaOperatorCheckInputs.json','giftPackCheckInputs.json','catalogIconCheckInputs.json','skinAssetInputs.json','currentBehaviorChecks.json'])fs.copyFileSync(path.join(__dirname,'../src',file),path.join(policy,'src',file));
   command(policy,'add','.');command(policy,'commit','-m','policy');
   fs.writeFileSync(path.join(repo,'README.md'),'initial');command(repo,'add','.');command(repo,'commit','-m','base');
   fs.writeFileSync(path.join(repo,'README.md'),'accepted');command(repo,'add','.');fs.writeFileSync(path.join(repo,'README.md'),'[dirty](missing.md)');
@@ -99,6 +111,18 @@ test('real staged Git snapshot ignores dirty working bytes and push reuses exact
   command(repo,'commit','-m','docs');
   const result=await gate(repo,{repository:'game',policyRoot:policy,phase:'push',write:s=>logs.push(s)});
   assert.equal(result.checks[0].reused,true);assert(logs.join('').includes('paths=1 checks=1'));
+  command(repo,'switch','-c','codex/floor-one');
+  const baseline=command(repo,'rev-parse','HEAD');
+  fs.writeFileSync(path.join(repo,'README.md'),'floor documentation');command(repo,'add','.');
+  const scoped=await gate(repo,{repository:'game',policyRoot:policy,phase:'source',baseline,validate:true,write:()=>{}});
+  assert.equal(scoped.state,'PASS');assert.equal(scoped.baseline,baseline);assert.deepEqual(scoped.selectedKeys,['documents']);
+  assert.equal(scoped.candidateTree,command(repo,'write-tree'));
+  await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,phase:'source',baseline,coveredKeys:['verify-toilet-market'],write:()=>{}}),/formal preflight/);
+  await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,phase:'release-source',baseline,coveredKeys:['unknown'],write:()=>{}}),/Unknown covered/);
+  await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,phase:'source',baseline:'HEAD',write:()=>{}}),/explicit ancestor/);
+  command(repo,'switch','-c','unowned-branch');
+  await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,write:()=>{}}),/dedicated codex/);
+  command(repo,'switch','codex/floor-one');
   fs.writeFileSync(path.join(repo,'unknown.js'),'x');command(repo,'add','.');
   await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,write:()=>{}}),/UNMAPPED_CHANGE/);
   const exported=snapshot(repo,'HEAD',['README.md']);try{assert.equal(fs.readFileSync(path.join(exported.root,'README.md'),'utf8'),'accepted');}finally{exported.close();}

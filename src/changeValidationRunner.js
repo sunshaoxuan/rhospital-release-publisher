@@ -98,6 +98,19 @@ function assertResult(check,result) {
   else if(check.kind==='skin-admin')require('./skinAdminCheck').assertProtocol(result,check.testClasses);
   else if(check.kind==='bacteria-operator')require('./bacteriaOperatorCheck').assertProtocol(result,check.testClasses);
   else if(check.kind==='gift-pack')require('./giftPackCheck').assertProtocol(result,check.testClasses);
+  else if(check.kind==='skin-assets'&&(result.protocol!=='skin-assets/v1'||result.files!==check.assets.length))throw new Error('Invalid skin asset protocol');
+}
+function validateSkinAssets(root,assets,decode) {
+  if(!decode) {const {PNG}=require('node:module').createRequire(path.join(root,'package.json'))('pngjs');decode=bytes=>PNG.sync.read(bytes,{checkCRC:true});}
+  if(!assets.length||new Set(assets.map(a=>a.path)).size!==assets.length)throw new Error('Invalid asset selection');
+  for(const asset of assets) {
+    safePath(asset.path);
+    if(!Number.isInteger(asset.width)||asset.width<=0||!Number.isInteger(asset.height)||asset.height<=0)throw new Error('Missing approved asset dimensions');
+    const image=decode(fs.readFileSync(path.join(root,asset.path)));
+    if(image.width!==asset.width||image.height!==asset.height)throw new Error('Skin dimensions differ: '+asset.path);
+    if(asset.transparent&&!image.data.some((v,i)=>i%4===3&&v===0))throw new Error('Skin transparent exterior missing: '+asset.path);
+  }
+  return {state:'PASS',protocol:'skin-assets/v1',files:assets.length};
 }
 async function validateChange(root,plan,{cacheDirectory,requireReceipts=false,write=s=>process.stdout.write(s),execute, ...context}={}) {
   if(plan.scope!=='local-change'||plan.productionActions!==false||new Set(plan.checks.map(c=>c.key)).size!==plan.checks.length)throw new Error('Invalid bounded validation plan');
@@ -116,6 +129,7 @@ async function validateChange(root,plan,{cacheDirectory,requireReceipts=false,wr
       for(const file of check.inputs){const r=spawnSync(process.execPath,['--check',file],{cwd:root,encoding:'utf8',windowsHide:true,timeout:check.timeoutSeconds*1000});if(r.status!==0||r.error||r.signal)throw new Error('Invalid archive tooling syntax: '+file);}
       result={state:'PASS',protocol:'syntax/v1',files:check.inputs.length};
     }
+    else if(check.kind==='skin-assets')result=validateSkinAssets(root,check.assets);
     else if(check.kind==='node-tests'||check.kind==='catalog-icon')result={state:'PASS',output:nodeTests(root,check.tests,check.timeoutSeconds)};
     else if(check.kind==='resident') {
       const output=nodeTests(root,['src/test/js/residentSchemaOracle.test.cjs'],30);
@@ -134,4 +148,4 @@ async function validateChange(root,plan,{cacheDirectory,requireReceipts=false,wr
   }
   return {state:'PASS',checks:results};
 }
-module.exports={validateChange,identity,fileHash,nodeTests,assertNodeResult,validateDocuments,assertResult};
+module.exports={validateChange,identity,fileHash,nodeTests,assertNodeResult,validateDocuments,assertResult,validateSkinAssets};

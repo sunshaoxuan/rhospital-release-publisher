@@ -1,0 +1,77 @@
+{
+  "schema": 1,
+  "assets": [
+    {
+      "path": "src/main/resources/static/img/game/hospital/hospital-midautumn.png",
+      "width": 1520,
+      "height": 1000,
+      "transparent": true
+    },
+    {
+      "path": "src/main/resources/static/img/game/hospital/hospital-sec-midautumn.png",
+      "width": 1520,
+      "height": 1000,
+      "transparent": true
+    },
+    {
+      "path": "src/main/resources/static/img/game/hospital/dixiashi-midautumn.png",
+      "width": 1520,
+      "height": 1000,
+      "transparent": true
+    },
+    {
+      "path": "src/main/resources/static/img/game/hospital/hospital-halloween.png",
+      "width": 1520,
+      "height": 1000,
+      "transparent": true
+    },
+    {
+      "path": "src/main/resources/static/img/game/hospital/hospital-sec-halloween.png",
+      "width": 1520,
+      "height": 1000,
+      "transparent": true
+    },
+    {
+      "path": "src/main/resources/static/img/game/hospital/dixiashi-halloween.png",
+      "width": 1520,
+      "height": 1000,
+      "transparent": true
+    },
+    {
+      "path": "src/main/resources/static/img/game/bg/midautumn-1022.png",
+      "width": 1520,
+      "height": 1000,
+      "transparent": false
+    },
+    {
+      "path": "src/main/resources/static/img/game/bg/halloween-1024.png",
+      "width": 1520,
+      "height": 1000,
+      "transparent": false
+    },
+    {
+      "path": "src/main/resources/static/img/game/themes/resident-evil/first-floor.png",
+      "width": 1520,
+      "height": 1000,
+      "transparent": true
+    },
+    {
+      "path": "src/main/resources/static/img/game/themes/resident-evil/second-floor.png",
+      "width": 1520,
+      "height": 1000,
+      "transparent": true
+    },
+    {
+      "path": "src/main/resources/static/img/game/themes/resident-evil/basement.png",
+      "width": 1520,
+      "height": 1000,
+      "transparent": true
+    },
+    {
+      "path": "src/main/resources/static/img/game/themes/resident-evil/basement-wall.png",
+      "width": 1520,
+      "height": 1000,
+      "transparent": true
+    }
+  ]
+}

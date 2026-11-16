@@ -32,7 +32,10 @@ test('actual game plan keeps production safety and replaces every displayed loca
  project(root);
  const plan=createPlan(root,{appTag:'20261112',dryRun:true,includeStackDeploy:true},{...env,RELEASE_PUBLISHER_CONFIG:process.env.RELEASE_PUBLISHER_CONFIG});
  const keys=plan.steps.map(s=>s.key);
- for(const key of ['test-game-backend','build-image','game-database-preflight','backup-game-release','pre-deploy-checklist','deploy-stack','final-runtime-check','verify-game-static-assets-predeploy','verify-game-static-delivery','game-rollback-decision','game-fatal-rollback-decision'])assert(keys.includes(key),key);
+ for(const key of ['validate-game-source-impact','test-game-backend','build-image','game-database-preflight','backup-game-release','pre-deploy-checklist','deploy-stack','final-runtime-check','verify-game-static-assets-predeploy','verify-game-static-delivery','game-rollback-decision','game-fatal-rollback-decision'])assert(keys.includes(key),key);
+ const scoped=plan.steps.find(s=>s.key==='validate-game-source-impact');
+ assert(scoped.command.startsWith('node scripts/localSourceBuild.mjs --release . '));
+ assert(keys.indexOf('validate-game-source-impact')<keys.indexOf('test-game-backend'));
  const sso=plan.steps.find(s=>s.key==='validate-game-sso-source');assert(!sso.command.includes('merge-base --is-ancestor'));assert(sso.command.includes('MARKER_VERSION'));
  assert.deepEqual(plan.dryRunChecks,[]);
  assert(plan.steps.find(s=>s.key==='final-runtime-check').command);

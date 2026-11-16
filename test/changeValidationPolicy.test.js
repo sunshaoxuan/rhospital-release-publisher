@@ -63,9 +63,25 @@ test('Resident presentation changes select one bounded leaf without backend or u
  for(const f of files)assert.throws(()=>planChanges('forum',[f]));
  assert.deepEqual(planChanges('game',['docs/tasks/resident-fix.md']).checks.map(c=>c.key),['documents']);
 });
+test('a registered floor asset selects only its own asset checks; unknown art remains closed',()=>{
+ const a='src/main/resources/static/img/game/hospital/hospital-sec-halloween.png';
+ const b='src/main/resources/static/img/game/hospital/dixiashi-midautumn.png';
+ const plan=planChanges('game',[a,b,a]);assert.deepEqual(plan.checks.map(c=>c.key),['skin-assets']);
+ assert.deepEqual(plan.checks[0].inputs,[b,a]);assert.equal(plan.checks[0].assets.length,2);
+ assert(!plan.checks.some(c=>c.kind==='skin-admin'||c.tests?.some(t=>/bacteria|resident|steam/i.test(t))));
+ assert.throws(()=>planChanges('game',[a.replace('halloween','unregistered-theme')]),/UNMAPPED_CHANGE/);
+});
 test('documents select static validation only; duplicate paths select once',()=>{
   const p=planChanges('game',['CHANGELOG.md','docs/release.md','CHANGELOG.md']);
   assert.deepEqual(p.checks.map(c=>c.key),['documents']);assert.equal(p.changedPaths.length,2);
+});
+test('Source and branch gate changes select policy and Git runner, never unrelated feature groups',()=>{
+ for(const file of ['src/changeValidationGit.js','src/changeValidationPolicy.js'])assert.deepEqual(
+   planChanges('publisher',[file]).checks.map(c=>c.key),['publisher-policy','publisher-runner']);
+ const app=planChanges('game',['scripts/localSourceBuild.mjs']);
+ assert.deepEqual(app.checks.map(c=>c.key),['game-gate']);
+ assert(app.checks[0].tests.includes('src/test/js/localSourceBuild.test.mjs'));
+ assert(!app.checks[0].tests.some(f=>/skin|resident|steam/i.test(f)));
 });
 
 test('JPEG evidence selects only documents and keeps unknown formats and runtime artwork closed',()=>{

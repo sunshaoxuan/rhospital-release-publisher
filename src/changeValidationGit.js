@@ -38,7 +38,7 @@ function loadPolicy(repository,ref='HEAD') {
   const names=['src/changeValidationPolicy.js','src/changeValidationRunner.js','src/changeValidationReceipts.js',
     'src/residentMigrationCheck.js','src/changeValidationGit.js','src/currentBehaviorInputs.json','src/publisherGateInputs.json',
     'src/skinAdminCheck.js','src/skinAdminCheckInputs.json','src/bacteriaOperatorCheck.js','src/bacteriaOperatorCheckInputs.json',
-    'src/giftPackCheck.js','src/giftPackCheckInputs.json','src/catalogIconCheckInputs.json'];
+    'src/giftPackCheck.js','src/giftPackCheckInputs.json','src/catalogIconCheckInputs.json','src/skinAssetInputs.json','src/currentBehaviorChecks.json'];
   const copy=snapshot(repository,ref,names);
   const req=createRequire(path.join(copy.root,'package.json'));
   return {...copy,plan:req('./src/changeValidationPolicy').planChanges,validate:req('./src/changeValidationRunner').validateChange};
@@ -61,19 +61,32 @@ function copyDependencies(source,target,checks) {
     copy(base,destination);
   }
 }
-async function gate(root,{repository,policyRoot=root,phase='commit',commit,remote,validate=false,write}={}) {
-  if(text(root,'branch','--show-current')!=='master')throw new Error('Validation requires master');
+function assertTaskBranch(branch) {
+  if(branch!=='master'&&!/^codex\/[a-z0-9][a-z0-9/-]*$/.test(branch))throw new Error('Validation requires master or a dedicated codex task branch');
+}
+async function gate(root,{repository,policyRoot=root,phase='commit',commit,remote,validate=false,write,baseline,coveredKeys=[]}={}) {
+  const releaseSource=phase==='release-source';
+  const branch=text(root,'branch','--show-current');
+  if(!releaseSource||branch)assertTaskBranch(branch);
   const head=text(root,'rev-parse','HEAD'),tree=text(root,'write-tree');
-  const committing=phase==='commit';
+  const sourceBuild=phase==='source'||releaseSource,committing=phase==='commit'||sourceBuild;
   if(committing&&fs.existsSync(text(root,'rev-parse','--path-format=absolute','--git-path','MERGE_HEAD')))throw new Error('Merge candidate requires an explicit integration base');
   const target=committing?tree:(commit||head);
-  const base=committing?head:(remote&& !/^0+$/.test(remote)?remote:text(root,'rev-parse',target+'^'));
+  if(sourceBuild&&(!/^[a-f0-9]{40}$/.test(baseline||'')||text(root,'merge-base',baseline,head)!==baseline))throw new Error('Source validation requires an explicit ancestor task baseline');
+  const base=sourceBuild?baseline:committing?head:(remote&& !/^0+$/.test(remote)?remote:text(root,'rev-parse',target+'^'));
   if(phase==='remote'&&text(root,'ls-remote','origin','refs/heads/master').split(/\s+/)[0]!==target)throw new Error('Remote master does not contain the delivered candidate');
   if(!committing&&text(root,'merge-base',base,target)!==base)throw new Error('Push requires an ancestor integration base');
   const files=git(root,['diff','--name-only','-z',base,target]).toString('utf8').split('\0').filter(Boolean);
-  const policy=loadPolicy(policyRoot,repository==='publisher'&&committing?tree:'HEAD');
+  const policyRef=repository==='publisher'&&committing?tree:text(policyRoot,'rev-parse','HEAD');
+  const policy=loadPolicy(policyRoot,policyRef);
   try {
     const plan=policy.plan(repository,files);
+    if(coveredKeys.length) {
+      if(!releaseSource||new Set(coveredKeys).size!==coveredKeys.length)throw new Error('Covered checks require the formal preflight phase');
+      const catalog=JSON.parse(fs.readFileSync(path.join(policy.root,'src/currentBehaviorChecks.json'),'utf8'));
+      const covered=new Set(coveredKeys.flatMap(key=>{if(!catalog[key])throw new Error('Unknown covered preflight check');return catalog[key].tests;}));
+      plan.checks=plan.checks.flatMap(check=>check.kind==='node-tests'?((tests)=>tests.length?[{...check,tests}]:[])(check.tests.filter(test=>!covered.has(test))):[check]);
+    }
     if(!committing&&remote){
       const actual=text(root,'ls-remote','origin','refs/heads/master').split(/\s+/)[0]||'0'.repeat(40);
       if(actual!==remote)throw new Error('Remote master changed; refresh the integration base');
@@ -90,8 +103,8 @@ async function gate(root,{repository,policyRoot=root,phase='commit',commit,remot
       });
       if(text(root,'rev-parse','HEAD')!==head||text(root,'write-tree')!==tree)throw new Error('HEAD or staged inputs changed during validation');
       (write||process.stdout.write.bind(process.stdout))('CHANGE_GATE_PASS phase='+phase+' paths='+files.length+' checks='+plan.checks.length+'\n');
-      return result;
+      return {...result,baseline:base,candidateTree:tree,policyIdentity:policyRef,changedPaths:files,selectedKeys:plan.checks.map(c=>c.key)};
     } finally {copy.close();}
   } finally {policy.close();}
 }
-module.exports={git,text,manifest,snapshot,loadPolicy,copyDependencies,gate};
+module.exports={git,text,manifest,snapshot,loadPolicy,copyDependencies,gate,assertTaskBranch};

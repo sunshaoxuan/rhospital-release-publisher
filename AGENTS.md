@@ -1,5 +1,10 @@
 # RHospital Release Publisher Rules
 
+## Dedicated Task Branch And Source Validation
+
+- Each specialty develops on its own codex/<task-slug> branch. Validate the exact staged candidate, integrate into master only after all applicable requirements pass, push and verify the master commit, then delete only the merged development branch. Preserve other tasks. Fast-forward integration reuses valid owned-input receipts; no hook bypass.
+- Source rebuild and its related commit/push/release checks use the explicit task baseline or actual production baseline according to their stage. Execute only affected tests, reject unknown scope, and never fall back to full Maven/npm/product suites. Formal release retains migration, image identity, pre-deploy, runtime and rollback safety. Existing unconditional full-backend wording below is superseded for this workflow.
+
 ## Verification Freeze And Rerun Stop Rule (Mandatory)
 
 - 执行前冻结本批变更路径、直接消费者、检查清单、预计耗时和停止条件。先完成廉价前检；由原生提交或发布门禁负责的检查交给该门禁执行，不先预跑同一套。

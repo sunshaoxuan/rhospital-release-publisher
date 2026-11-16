@@ -48,6 +48,7 @@ const REQUIRED_RELEASE_CHECKS = {
 };
 const KNOWN_RELEASE_CHECKS = {
   game: new Set([
+    'validate-game-source-impact',
     'validate-game-startup-contract',
     'validate-game-sso-source',
     'test-game-backend',
@@ -409,14 +410,15 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'local-check',
       executable: true
     }),
-    ...(localEvidenceChecks.length ? [releaseStep({
+    releaseStep({
       key: 'install-game-release-node-dependencies',
       title: '安装发布证据依赖',
       summary: '依据目标提交的锁文件在隔离工作树安装本地证据检查所需 Node.js 依赖',
       command: 'npm ci --no-audit --no-fund',
       validation: 'package-lock.json 必须可复现安装全部证据检查依赖',
       actionType: 'build', executable: true, timeoutSeconds: 900
-    }), releaseStep({
+    }),
+    ...(localEvidenceChecks.length ? [releaseStep({
       key: 'validate-game-release-preflight',
       title: '验证候选相关行为',
       summary: '在生产动作前执行选中功能的当前行为叶子，共用测试只执行一次；历史审计单独手动运行',
@@ -426,9 +428,17 @@ function createPlan(projectRoot, request, env = process.env) {
       timeoutSeconds: Math.max(3600, localEvidenceChecks.reduce((total, check) => total + check.timeoutSeconds, 60))
     })] : []),
     releaseStep({
+      key: 'validate-game-source-impact',
+      title: '验证本次源码影响范围',
+      summary: '按生产基线差异验证相关后端与剩余检查，已由前置检查覆盖的Node测试不重复执行；未知影响阻断',
+      command: `node scripts/localSourceBuild.mjs --release . '${request.changeAnalysis?.targets?.game?.baselineCommit || ''}' '${Buffer.from(JSON.stringify(localEvidenceChecks.map(c=>c.key))).toString('base64')}'`,
+      validation: '必须输出FORMAL_SOURCE_IMPACT_PASS；编译镜像仅打包，迁移及生产现场检查仍独立执行',
+      actionType: 'local-check', executable: true, timeoutSeconds: 1800
+    }),
+    releaseStep({
       key: 'test-game-backend',
       title: '批量测试并编译后端产物',
-      summary: '在同一个 Docker 构建阶段运行完整 Maven 测试并生成产物，后续镜像和静态资源复用该缓存',
+      summary: '前置影响范围检查完成后编译并打包后端产物，镜像与静态资源复用同一候选，不运行全量测试',
       command: chainPowerShellCommands([dockerEngineReadinessCommand(dockerTarget), dockerCommand(dockerTarget, [
         'build',
         '--target', 'build',
