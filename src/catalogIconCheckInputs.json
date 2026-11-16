@@ -13,6 +13,8 @@
     "src/test/js/equipmentLabels.test.mjs"
   ],
   "frontendInputs": [
+    "src/main/resources/static/img/game/item/1805-20260918.png",
+    "src/main/resources/static/img/game/item/1815-20260918.png",
     "src/main/resources/static/img/game/item/1025.png",
     "src/main/resources/static/img/game/themes/resident-evil/background.png",
     "src/main/resources/static/js/config/yiquBossLayoutConfig.js",
