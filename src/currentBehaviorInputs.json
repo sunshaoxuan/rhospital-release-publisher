@@ -803,6 +803,26 @@
         "docs/evidence/resident-exchange-motion-20261113/mobile-menu/measure-menu-pixels.cjs"
       ],
       "timeoutSeconds": 30
+    },
+    {
+      "key": "current-editor-rewards",
+      "kind": "node-tests",
+      "inputs": [
+        "src/main/resources/templates/design.html",
+        "src/main/resources/static/css/design.css",
+        "src/main/resources/static/js/design/RewardSettings.mjs",
+        "src/main/resources/static/js/design/Workbench.mjs",
+        "src/main/resources/static/js/design/QueueMechanicDialogs.mjs",
+        "src/main/resources/static/js/design/vendor/lucide-icons.mjs",
+        "src/main/resources/static/js/gameplay/BacteriaPackageFormat.mjs",
+        "scripts/bacteria-lab/reward-settings.test.mjs",
+        "src/test/js/bacteriaWorkbench.test.mjs"
+      ],
+      "tests": [
+        "scripts/bacteria-lab/reward-settings.test.mjs",
+        "src/test/js/bacteriaWorkbench.test.mjs"
+      ],
+      "timeoutSeconds": 60
     }
   ]
 }

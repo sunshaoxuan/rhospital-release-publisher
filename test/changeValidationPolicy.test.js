@@ -131,3 +131,20 @@ test('each changed behavior selects its own consumers without unrelated game fea
  const one=planChanges('game',['src/test/js/toiletMarket.test.mjs']);assert.equal(one.checks.length,1);assert.deepEqual(one.checks[0].tests,['src/test/js/toiletMarket.test.mjs']);
  const design=planChanges('game',['src/test/resources/design/user-60x60-32color-request.json']);assert(design.checks.length>0);assert(design.checks.every(c=>c.key.startsWith('current-design-')));
 });
+
+test('reward tab inputs select a bounded current reward leaf',()=>{
+  for(const path of ['src/main/resources/templates/design.html','src/main/resources/static/css/design.css','src/main/resources/static/js/design/RewardSettings.mjs','scripts/bacteria-lab/reward-settings.test.mjs']) {
+    const plan=require('../src/changeValidationPolicy').planChanges('game',[path]);
+    assert(plan.checks.some(c=>c.key==='current-editor-rewards'));
+    const reward=plan.checks.find(c=>c.key==='current-editor-rewards');
+    assert.deepEqual(reward.tests,['scripts/bacteria-lab/reward-settings.test.mjs','src/test/js/bacteriaWorkbench.test.mjs']);
+    assert(!reward.inputs.some(p=>p.startsWith('docs/evidence/')));
+  }
+});
+test('shared tabs retain freeze consumers and unknown changes stay closed',()=>{
+  const checks=require('../src/changeValidationPolicy').planChanges('game',['src/main/resources/static/js/design/Workbench.mjs']).checks;
+  assert(checks.some(c=>c.key==='current-editor-rewards'));
+  assert(checks.some(c=>c.key==='current-bacteria-freeze-editor'));
+  assert.throws(()=>require('../src/changeValidationPolicy').planChanges('game',['src/main/resources/static/js/unknown-reward.mjs']),/UNMAPPED_CHANGE/);
+  assert(!require('../src/changeValidationPolicy').planChanges('game',['CHANGELOG.md']).checks.some(c=>c.key==='current-editor-rewards'));
+});
