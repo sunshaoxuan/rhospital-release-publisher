@@ -18,6 +18,24 @@ test('formal duplicate suppression requires signed complete same-tree same-envir
  fs.appendFileSync(path.join(root,'README.md'),'changed');command('add','.');
  assert.throws(()=>coverage.requireCoverage(root,keys),/authentic completed/);
 }));
+test('signed coverage matches LF Git snapshots and CRLF Windows checkout without claiming raw byte equality',()=>fixture(root=>{
+ execFileSync('git',['-C',root,'init','-b','master'],{stdio:'pipe'});
+ fs.writeFileSync(path.join(root,'README.md'),'source');execFileSync('git',['-C',root,'add','.'],{stdio:'pipe'});
+ const lf=path.join(root,'lf'),crlf=path.join(root,'crlf');
+ for(const destination of [lf,crlf]){
+  fs.mkdirSync(destination);
+  for(const file of fs.readdirSync(path.join(__dirname,'../src'))){
+   if(!/\.(?:js|cjs|json)$/.test(file))continue;
+   const text=fs.readFileSync(path.join(__dirname,'../src',file),'utf8').replace(/\r\n/g,'\n');
+   fs.writeFileSync(path.join(destination,file),destination===crlf?text.replace(/\n/g,'\r\n'):text);
+  }
+ }
+ const issuer=require(path.join(lf,'preflightCoverage.js')),reader=require(path.join(crlf,'preflightCoverage.js'));
+ const keys=['verify-toilet-market'];issuer.writeCoverage(root,keys,[{key:keys[0],status:0,output:good}]);
+ assert(reader.requireCoverage(root,keys));
+ assert.deepEqual(issuer.coverageIdentity(root,keys),reader.coverageIdentity(root,keys));
+ assert.notDeepEqual(fs.readFileSync(path.join(lf,'preflightCoverage.js')),fs.readFileSync(path.join(crlf,'preflightCoverage.js')));
+}));
 
 test('skin asset contract rejects changed dimensions, opaque exterior and corrupt decode',()=>fixture(root=>{
  const {validateSkinAssets,assertResult}=require('../src/changeValidationRunner');

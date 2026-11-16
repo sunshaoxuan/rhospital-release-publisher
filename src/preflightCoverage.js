@@ -12,8 +12,8 @@ function coverageIdentity(root,keys) {
  const catalog=require('./currentBehaviorChecks.json');
  if(keys.some(k=>!Object.hasOwn(catalog,k)))throw new Error('Unknown covered preflight check');
  const tree=git(root,'write-tree');
- return {kind:'completed-preflight-coverage/v1',tree,keys:[...keys].sort(),
-   executors:Object.fromEntries(executorFiles.map(f=>[f,hash(fs.readFileSync(path.join(__dirname,f)))])),
+ return {kind:'completed-preflight-coverage/v2',tree,keys:[...keys].sort(),
+   executorsCanonicalSha256:Object.fromEntries(executorFiles.map(f=>[f,hash(fs.readFileSync(path.join(__dirname,f),'utf8').replace(/\r\n/g,'\n'))])),
    node:hash(fs.readFileSync(process.execPath)),version:process.version,
    environment:hash(Object.fromEntries(['NODE_OPTIONS','NODE_PATH','NODE_ENV','TZ','LANG'].map(k=>[k,process.env[k]||''])))};
 }
@@ -27,12 +27,13 @@ function writeCoverage(root,keys,results) {
  if(!fs.existsSync(path.join(root,'.git')))return false; // Non-Git isolated test fixtures cannot issue build authority.
  assertResults(keys,results);
  const identity=coverageIdentity(root,keys);
- store(root).write(identity,{state:'PASS',protocol:'completed-preflight-coverage/v1',results});
+ const rawExecutorSha256=Object.fromEntries(executorFiles.map(f=>[f,hash(fs.readFileSync(path.join(__dirname,f)))]));
+ store(root).write(identity,{state:'PASS',protocol:'completed-preflight-coverage/v2',rawExecutorSha256,results});
  return true;
 }
 function requireCoverage(root,keys) {
  const result=store(root).read(coverageIdentity(root,keys));
- if(result?.protocol!=='completed-preflight-coverage/v1')throw new Error('Missing authentic completed preflight coverage');
+ if(result?.protocol!=='completed-preflight-coverage/v2')throw new Error('Missing authentic completed preflight coverage');
  assertResults(keys,result.results);return true;
 }
 module.exports={coverageIdentity,writeCoverage,requireCoverage,executorFiles};
