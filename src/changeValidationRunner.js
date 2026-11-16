@@ -51,14 +51,14 @@ function validateDocuments(root,files,{baseFile=()=>'',exists=file=>fs.existsSyn
   }
   return {state:'PASS',protocol:'documents/v1',files:files.length};
 }
-function environment(check,{dockerIdentity}={}) {
+function environment(check,{dockerIdentity,jvmIdentity}={}) {
   const result={node:process.version,executable:hash(fs.readFileSync(process.execPath)),platform:process.platform,arch:process.arch,os:os.release(),
     variables:hash(Object.fromEntries(['NODE_OPTIONS','NODE_PATH','NODE_ENV','PATH','Path','ComSpec','SystemRoot','TZ','LANG'].map(k=>[k,process.env[k]||''])))};
   if(check.kind==='resident')result.docker=dockerIdentity?dockerIdentity(check.images):require('./residentMigrationCheck').dockerIdentity(check.images);
   if(check.kind==='bacteria-operator')result.tools=require('./bacteriaOperatorCheck').toolIdentity();
   if(check.kind==='gift-pack')result.tools=require('./giftPackCheck').toolIdentity();
-  if(check.kind==='skin-admin'){
-    result.tools=require('./skinAdminCheck').toolIdentity();
+  if(check.kind==='skin-admin'||check.kind==='catalog-icon'){
+    result.tools=jvmIdentity?jvmIdentity():require('./skinAdminCheck').toolIdentity();
     result.docker=dockerIdentity?dockerIdentity(check.images):require('./residentMigrationCheck').dockerIdentity(check.images);
   }
   return result;
@@ -84,6 +84,7 @@ function identity(root,check,context={}) {
   const executorFiles=['changeValidationRunner.js','changeValidationReceipts.js','changeValidationPolicy.js','changeValidationGit.js',...(check.kind==='resident'?['residentMigrationCheck.js']:[]),...(check.kind==='skin-admin'?['skinAdminCheck.js','residentMigrationCheck.js']:[])];
   if(check.kind==='bacteria-operator')executorFiles.push('bacteriaOperatorCheck.js','skinAdminCheck.js');
   if(check.kind==='gift-pack')executorFiles.push('giftPackCheck.js','skinAdminCheck.js');
+  if(check.kind==='catalog-icon')executorFiles.push('skinAdminCheck.js','residentMigrationCheck.js');
   const executor=hash(Object.fromEntries(executorFiles.map(f=>[f,hash(fs.readFileSync(path.join(__dirname,f)))])));
   const baseline=check.kind==='documents'?Object.fromEntries(check.inputs.map(f=>[f,hash(context.baseFile?.(f)||'')])):{};
   return {schema:1,check,inputs,executor,baseline,environment:environment(check,context)};
@@ -91,7 +92,7 @@ function identity(root,check,context={}) {
 function assertResult(check,result) {
   if(result?.state!=='PASS')throw new Error('Missing validation PASS');
   if(check.kind==='syntax'&&(result.protocol!=='syntax/v1'||result.files!==check.inputs.length))throw new Error('Invalid syntax protocol');
-  if(check.kind==='node-tests')assertNodeResult({status:0,output:result.output});
+  if(check.kind==='node-tests'||check.kind==='catalog-icon')assertNodeResult({status:0,output:result.output});
   else if(check.kind==='documents'&&result.protocol!=='documents/v1')throw new Error('Invalid document protocol');
   else if(check.kind==='resident'&&(result.protocol!=='resident-schema/v1'||result.versions?.length!==2||result.cases<20))throw new Error('Invalid migration protocol');
   else if(check.kind==='skin-admin')require('./skinAdminCheck').assertProtocol(result,check.testClasses);
@@ -115,7 +116,7 @@ async function validateChange(root,plan,{cacheDirectory,requireReceipts=false,wr
       for(const file of check.inputs){const r=spawnSync(process.execPath,['--check',file],{cwd:root,encoding:'utf8',windowsHide:true,timeout:check.timeoutSeconds*1000});if(r.status!==0||r.error||r.signal)throw new Error('Invalid archive tooling syntax: '+file);}
       result={state:'PASS',protocol:'syntax/v1',files:check.inputs.length};
     }
-    else if(check.kind==='node-tests')result={state:'PASS',output:nodeTests(root,check.tests,check.timeoutSeconds)};
+    else if(check.kind==='node-tests'||check.kind==='catalog-icon')result={state:'PASS',output:nodeTests(root,check.tests,check.timeoutSeconds)};
     else if(check.kind==='resident') {
       const output=nodeTests(root,['src/test/js/residentSchemaOracle.test.cjs'],30);
       result={...await require('./residentMigrationCheck').runResident(root,check.images),output};

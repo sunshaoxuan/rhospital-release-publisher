@@ -25,14 +25,16 @@ const RESIDENT_INPUTS = [
 const POLICY_FILES = ["src/changeValidationPolicy.js", "src/changeValidationRunner.js", "src/changeValidationReceipts.js", "src/residentMigrationCheck.js", "src/changeValidationGit.js", "src/currentBehaviorInputs.json", "src/publisherGateInputs.json"];
 const PUBLISHER_GATE_INPUTS = [...["src/changeValidationPolicy.js", "src/changeValidationRunner.js", "src/changeValidationReceipts.js", "src/residentMigrationCheck.js", "src/changeValidationGit.js", "src/currentBehaviorInputs.json", "src/publisherGateInputs.json", ".gitattributes", "src/localCheckPolicy.js", "src/localCheckLeaves.js", "src/currentBehaviorChecks.json", "src/currentBehaviorGuard.cjs", "scripts/run-game-release-preflight.mjs", "scripts/audit-historical-evidence.mjs", "scripts/validate-local-change.mjs", ".githooks/pre-commit", ".githooks/pre-push", "test/changeValidationPolicy.test.js", "test/changeValidationRunner.test.js", "test/localCheckLeaves.test.js", "test/localCheckPolicy.test.js", "test/fullGateScope.test.js", "test/releasePublisherCore.test.js"],...require('./publisherGateInputs.json').files];
 
-POLICY_FILES.push('src/skinAdminCheck.js','src/skinAdminCheckInputs.json');
+POLICY_FILES.push('src/skinAdminCheck.js','src/skinAdminCheckInputs.json','src/catalogIconCheckInputs.json');
 POLICY_FILES.push('src/bacteriaOperatorCheck.js','src/bacteriaOperatorCheckInputs.json');
 POLICY_FILES.push('src/giftPackCheck.js','src/giftPackCheckInputs.json');
 PUBLISHER_GATE_INPUTS.push('src/giftPackCheck.js','src/giftPackCheckInputs.json','test/giftPackCheck.test.js');
+PUBLISHER_GATE_INPUTS.push('src/catalogIconCheckInputs.json','test/catalogIconGate.test.js');
 PUBLISHER_GATE_INPUTS.push('src/bacteriaOperatorCheck.js','src/bacteriaOperatorCheckInputs.json','test/bacteriaOperatorCheck.test.js');
 PUBLISHER_GATE_INPUTS.push('src/skinAdminCheck.js','src/skinAdminCheckInputs.json','test/skinAdminCheck.test.js');
 const gateBase=[...POLICY_FILES,'src/localCheckPolicy.js','src/currentBehaviorChecks.json'];
 const publisherGroups=[
+ {key:'publisher-catalog-icon',tests:['test/catalogIconGate.test.js'],inputs:[...POLICY_FILES,'test/catalogIconGate.test.js']},
  {key:'publisher-gift-pack',tests:['test/giftPackCheck.test.js'],inputs:[...POLICY_FILES,'test/giftPackCheck.test.js']},
  {key:'publisher-bacteria-operator',tests:['test/bacteriaOperatorCheck.test.js','test/changeValidationPolicy.test.js','test/changeValidationRunner.test.js'],inputs:[...POLICY_FILES,'test/bacteriaOperatorCheck.test.js','test/changeValidationPolicy.test.js','test/changeValidationRunner.test.js']},
  {key:'publisher-skin',tests:['test/skinAdminCheck.test.js'],inputs:[...POLICY_FILES,'test/skinAdminCheck.test.js']},
@@ -66,7 +68,8 @@ function planChanges(repository, changedPaths) {
     if(repository==='game'&&['.gitattributes','docs/evidence/bacteria-question-center-20261020/.gitattributes','src/test/js/evidenceAttributes.test.mjs'].includes(file)) {selected.add('evidence-attributes');continue;}
 
     if(document(file)) {docs.push(file);continue;}
-    if(repository==='game' && APP_GATE_INPUTS.includes(file)) selected.add('game-gate');
+    if(repository==='game' && require('./catalogIconCheckInputs.json').triggers.includes(file)) selected.add('catalog-icon');
+    else if(repository==='game' && APP_GATE_INPUTS.includes(file)) selected.add('game-gate');
     else if(repository==='game' && require('./giftPackCheckInputs.json').triggers.includes(file)) selected.add('gift-pack');
     else if(repository==='game' && require('./bacteriaOperatorCheckInputs.json').triggers.includes(file)) selected.add('bacteria-operator');
     else if(repository==='game' && require('./skinAdminCheckInputs.json').triggers.includes(file)) selected.add('skin-admin');
@@ -82,6 +85,14 @@ function planChanges(repository, changedPaths) {
   }
   if(unmapped.length) throw new Error('UNMAPPED_CHANGE: register owned checks before validation: '+unmapped.join(', '));
   const checks=[];
+  if(selected.has('catalog-icon')) {
+    const owned=require('./catalogIconCheckInputs.json');
+    // Compile closure is shared data only; no skin feature validator is invoked.
+    const compile=require('./skinAdminCheckInputs.json').inputs.filter(p=>p.endsWith('.java')
+      || /^src\/main\/resources\/[^/]+$/.test(p)||['pom.xml','mvnw','mvnw.cmd','.mvn/wrapper/maven-wrapper.properties'].includes(p));
+    checks.push({key:'catalog-icon',kind:'catalog-icon',inputs:[...new Set([...compile,...owned.triggers,...owned.tests,...owned.frontendInputs])].sort(),
+      tests:owned.tests,timeoutSeconds:300,images:['postgres:18.6-alpine']});
+  }
   if(selected.has('gift-pack')) checks.push({...require('./giftPackCheckInputs.json'),key:'gift-pack',kind:'gift-pack',timeoutSeconds:900});
   if(docs.length) checks.push({key:'documents',kind:'documents',inputs:docs,timeoutSeconds:30});
   if(selected.has('bacteria-operator')) checks.push({...require('./bacteriaOperatorCheckInputs.json'),key:'bacteria-operator',kind:'bacteria-operator',timeoutSeconds:900});

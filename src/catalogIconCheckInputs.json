@@ -1,0 +1,32 @@
+{
+  "triggers": [
+    "scripts/migration/20261116_upgrade_resident_shop_icon.sql",
+    "src/main/java/com/zly/hospital/service/catalog/CatalogIconPathResolver.java",
+    "src/main/resources/static/img/game/item/1025.png",
+    "src/test/java/com/zly/hospital/service/ResidentStoreTest.java",
+    "src/test/js/storeIconAssetRouting.test.mjs",
+    "src/test/js/residentShopIcon.test.cjs"
+  ],
+  "tests": [
+    "src/test/js/residentShopIcon.test.cjs",
+    "src/test/js/storeIconAssetRouting.test.mjs",
+    "src/test/js/equipmentLabels.test.mjs"
+  ],
+  "frontendInputs": [
+    "src/main/resources/static/img/game/item/1025.png",
+    "src/main/resources/static/img/game/themes/resident-evil/background.png",
+    "src/main/resources/static/js/config/yiquBossLayoutConfig.js",
+    "src/main/resources/static/js/scenes/components/StoreViewer.js",
+    "src/main/resources/static/js/scenes/utils/EquipmentLabels.js",
+    "src/main/resources/static/js/scenes/utils/PanelAssetGate.js",
+    "src/main/resources/static/js/scenes/utils/residentEvilTheme.mjs",
+    "src/main/resources/static/js/shared/GuildBuffAssetConfig.js",
+    "src/main/resources/static/js/utils/AccountAssetManifest.js",
+    "src/main/resources/static/js/utils/AnimationHelper.js",
+    "src/main/resources/static/js/utils/AssetLoader.js",
+    "src/main/resources/static/js/utils/GameAssetCatalog.js",
+    "src/main/resources/static/js/utils/GameAssetGroups.js",
+    "src/main/resources/static/js/utils/GameAssetLoader.js",
+    "src/main/resources/static/js/utils/GameAssetPlan.js"
+  ]
+}
