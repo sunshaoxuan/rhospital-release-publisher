@@ -113,7 +113,8 @@ function planChanges(repository, changedPaths) {
     timeoutSeconds:240,images:['postgres:18.6-alpine','postgres:16-alpine']});
   if(selected.has('evidence-attributes')) checks.push({key:'evidence-attributes',kind:'node-tests',inputs:[
     '.gitattributes','docs/evidence/bacteria-question-center-20261020/.gitattributes','src/test/js/evidenceAttributes.test.mjs'],tests:['src/test/js/evidenceAttributes.test.mjs'],timeoutSeconds:30});
-  if(selected.has('game-gate')) checks.push({key:'game-gate',kind:'node-tests',inputs:APP_GATE_INPUTS,
+  if(selected.has('game-gate')) checks.push({key:'game-gate',kind:'node-tests',inputs:[...APP_GATE_INPUTS,
+    'scripts/migration/20260926_databaseize_design_image_settings.sql','scripts/migration/20260928_align_design_image_settings_owner.sql'],
     tests:['src/test/js/changeValidationGate.test.mjs','src/test/js/releaseCurrentBehavior.test.mjs','src/test/js/localSourceBuild.test.mjs','src/test/js/releaseCandidateCommitGate.test.mjs'],timeoutSeconds:300});
   for(const check of require('./currentBehaviorInputs.json').checks)if(selected.has(check.key))checks.push(check);
   if(selected.has('archive-syntax')) checks.push({key:'archive-syntax',kind:'syntax',inputs:paths.filter(file=>/\.(?:mjs|cjs|js)$/.test(file)&&!APP_GATE_INPUTS.includes(file)),timeoutSeconds:30});
