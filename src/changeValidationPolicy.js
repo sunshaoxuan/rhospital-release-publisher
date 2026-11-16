@@ -33,6 +33,7 @@ POLICY_FILES.push('src/skinAdminCheck.js','src/skinAdminCheckInputs.json','src/c
 POLICY_FILES.push('src/bacteriaOperatorCheck.js','src/bacteriaOperatorCheckInputs.json');
 POLICY_FILES.push('src/giftPackCheck.js','src/giftPackCheckInputs.json');
 POLICY_FILES.push('src/skinAssetInputs.json');
+POLICY_FILES.push('src/preflightCoverage.js','src/localCheckLeaves.js','src/currentBehaviorGuard.cjs');
 PUBLISHER_GATE_INPUTS.push('src/giftPackCheck.js','src/giftPackCheckInputs.json','test/giftPackCheck.test.js');
 PUBLISHER_GATE_INPUTS.push('src/catalogIconCheckInputs.json','test/catalogIconGate.test.js');
 PUBLISHER_GATE_INPUTS.push('src/bacteriaOperatorCheck.js','src/bacteriaOperatorCheckInputs.json','test/bacteriaOperatorCheck.test.js');
@@ -86,7 +87,7 @@ function planChanges(repository, changedPaths) {
       || file==='scripts/bacteria-lab/design-validation-leaves.json')) selected.add('archive-syntax');
     else if(repository==='publisher' && ['test/gameReleasePreflight.test.js', 'test/bacteriaAuthoritativeBudget.test.js', 'test/gameRecoverySafety.test.js', 'test/helpers/ownedFixtures.js', 'scripts/game-service-recovery.mjs', 'scripts/game-service-recovery.py'].includes(file)) selected.add('publisher-preflight');
     else if(repository==='publisher' && ['src/publisherVersion.js','src/publisherLegacyBarrier.js','test/publisherVersionScope.test.js'].includes(file)) selected.add('publisher-version');
-    else if(repository==='publisher' && ['src/changeValidationGit.js','src/changeValidationPolicy.js','src/changeValidationRunner.js','src/skinAssetInputs.json','test/changeValidationPolicy.test.js','test/changeValidationRunner.test.js'].includes(file)) {selected.add('publisher-policy');selected.add('publisher-runner');}
+    else if(repository==='publisher' && ['src/changeValidationGit.js','src/changeValidationPolicy.js','src/changeValidationRunner.js','src/preflightCoverage.js','src/skinAssetInputs.json','test/changeValidationPolicy.test.js','test/changeValidationRunner.test.js'].includes(file)) {selected.add('publisher-policy');selected.add('publisher-runner');}
     else if(repository==='publisher' && PUBLISHER_GATE_INPUTS.includes(file)) {for(const group of publisherGroups)if(group.inputs.includes(file))selected.add(group.key);}
     else unmapped.push(file);
   }

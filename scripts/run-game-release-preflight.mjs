@@ -4,6 +4,7 @@ import {resolve} from 'node:path';
 
 import checkPolicy from '../src/localCheckPolicy.js';
 import leafPolicy from '../src/localCheckLeaves.js';
+import coverage from '../src/preflightCoverage.js';
 const {TOILET_MARKET_CHECK} = checkPolicy;
 export const {doubleCheckLocalChecks, assertLocalCheckResult} = checkPolicy;
 
@@ -120,7 +121,12 @@ function streamChild(executable,args,input,timeoutMs,onChunk,launch) {
 }
 
 export async function runChecksStreaming(checks, {run = runPowerShellCheckStreaming, write = text => process.stdout.write(text)} = {}) {
-  if(run===runPowerShellCheckStreaming) return leafPolicy.runLeaves(checks,{write,run:(leaf,onChunk)=>streamChild(process.execPath,leaf.args,'',leaf.timeoutSeconds*1000,onChunk,spawn)});
+  if(run===runPowerShellCheckStreaming) {
+    const results=[];
+    const result=await leafPolicy.runLeaves(checks,{write,onCheck:(check,result)=>results.push({key:check.key,...result}),run:(leaf,onChunk)=>streamChild(process.execPath,leaf.args,'',leaf.timeoutSeconds*1000,onChunk,spawn)});
+    coverage.writeCoverage(process.cwd(),checks.map(c=>c.key),results);
+    return result;
+  }
   doubleCheckLocalChecks(checks);
   const failures = [];
   for (const check of checks) {

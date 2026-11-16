@@ -5,6 +5,20 @@ const {gate,text,snapshot,copyDependencies}=require('../src/changeValidationGit'
 const {execFileSync}=require('node:child_process');
 const good='# tests 1\n# pass 1\n# fail 0\n# skipped 0\n# cancelled 0\n# todo 0\n';
 
+test('formal duplicate suppression requires signed complete same-tree same-environment coverage',()=>fixture(root=>{
+ const command=(...args)=>execFileSync('git',['-C',root,...args],{encoding:'utf8',windowsHide:true,stdio:['pipe','pipe','pipe']});
+ command('init','-b','master');fs.writeFileSync(path.join(root,'README.md'),'source');command('add','.');
+ const coverage=require('../src/preflightCoverage'),keys=['verify-toilet-market'];
+ assert.throws(()=>coverage.requireCoverage(root,keys),/authentic completed/);
+ assert.throws(()=>coverage.writeCoverage(root,keys,[]),/Incomplete/);
+ coverage.writeCoverage(root,keys,[{key:keys[0],status:0,output:good}]);assert(coverage.requireCoverage(root,keys));
+ const previous=process.env.TZ;
+ try {process.env.TZ='test-scope-change';assert.throws(()=>coverage.requireCoverage(root,keys),/authentic completed/);}
+ finally {if(previous===undefined)delete process.env.TZ;else process.env.TZ=previous;}
+ fs.appendFileSync(path.join(root,'README.md'),'changed');command('add','.');
+ assert.throws(()=>coverage.requireCoverage(root,keys),/authentic completed/);
+}));
+
 test('skin asset contract rejects changed dimensions, opaque exterior and corrupt decode',()=>fixture(root=>{
  const {validateSkinAssets,assertResult}=require('../src/changeValidationRunner');
  fs.writeFileSync(path.join(root,'floor.png'),'synthetic decoder contract fixture');
@@ -99,10 +113,10 @@ test('real staged Git snapshot ignores dirty working bytes and push reuses exact
   const repo=path.join(root,'repo'),policy=path.join(root,'policy');fs.mkdirSync(repo);fs.mkdirSync(policy);
   const command=(r,...args)=>execFileSync('git',['-C',r,...args],{encoding:'utf8',windowsHide:true,stdio:['pipe','pipe','pipe']}).trim();
   for(const r of [repo,policy]){command(r,'init','-b','master');command(r,'config','user.name','Fixture');command(r,'config','user.email','fixture@example.invalid');}
-  for(const name of ['changeValidationPolicy','changeValidationRunner','changeValidationReceipts','changeValidationGit','residentMigrationCheck','skinAdminCheck','bacteriaOperatorCheck','giftPackCheck']) {
+  for(const name of ['changeValidationPolicy','changeValidationRunner','changeValidationReceipts','changeValidationGit','residentMigrationCheck','skinAdminCheck','bacteriaOperatorCheck','giftPackCheck','preflightCoverage','localCheckLeaves']) {
     fs.mkdirSync(path.join(policy,'src'),{recursive:true});fs.copyFileSync(path.join(__dirname,'../src',name+'.js'),path.join(policy,'src',name+'.js'));
   }
-  for(const file of ['currentBehaviorInputs.json','publisherGateInputs.json','skinAdminCheckInputs.json','bacteriaOperatorCheckInputs.json','giftPackCheckInputs.json','catalogIconCheckInputs.json','skinAssetInputs.json','currentBehaviorChecks.json'])fs.copyFileSync(path.join(__dirname,'../src',file),path.join(policy,'src',file));
+  for(const file of ['currentBehaviorInputs.json','publisherGateInputs.json','skinAdminCheckInputs.json','bacteriaOperatorCheckInputs.json','giftPackCheckInputs.json','catalogIconCheckInputs.json','skinAssetInputs.json','currentBehaviorChecks.json','currentBehaviorGuard.cjs'])fs.copyFileSync(path.join(__dirname,'../src',file),path.join(policy,'src',file));
   command(policy,'add','.');command(policy,'commit','-m','policy');
   fs.writeFileSync(path.join(repo,'README.md'),'initial');command(repo,'add','.');command(repo,'commit','-m','base');
   fs.writeFileSync(path.join(repo,'README.md'),'accepted');command(repo,'add','.');fs.writeFileSync(path.join(repo,'README.md'),'[dirty](missing.md)');
@@ -119,6 +133,13 @@ test('real staged Git snapshot ignores dirty working bytes and push reuses exact
   assert.equal(scoped.candidateTree,command(repo,'write-tree'));
   await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,phase:'source',baseline,coveredKeys:['verify-toilet-market'],write:()=>{}}),/formal preflight/);
   await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,phase:'release-source',baseline,coveredKeys:['unknown'],write:()=>{}}),/Unknown covered/);
+  await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,phase:'release-source',baseline,coveredKeys:['verify-toilet-market'],write:()=>{}}),/authentic completed/);
+  const coverage=require('../src/preflightCoverage');
+  coverage.writeCoverage(repo,['verify-toilet-market'],[{key:'verify-toilet-market',status:0,output:good}]);
+  const covered=await gate(repo,{repository:'game',policyRoot:policy,phase:'release-source',baseline,coveredKeys:['verify-toilet-market'],write:()=>{}});
+  assert.equal(covered.state,'PASS');
+  fs.appendFileSync(path.join(repo,'README.md'),'new staged identity');command(repo,'add','.');
+  await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,phase:'release-source',baseline,coveredKeys:['verify-toilet-market'],write:()=>{}}),/authentic completed/);
   await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,phase:'source',baseline:'HEAD',write:()=>{}}),/explicit ancestor/);
   command(repo,'switch','-c','unowned-branch');
   await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,write:()=>{}}),/dedicated codex/);

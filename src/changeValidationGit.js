@@ -38,7 +38,8 @@ function loadPolicy(repository,ref='HEAD') {
   const names=['src/changeValidationPolicy.js','src/changeValidationRunner.js','src/changeValidationReceipts.js',
     'src/residentMigrationCheck.js','src/changeValidationGit.js','src/currentBehaviorInputs.json','src/publisherGateInputs.json',
     'src/skinAdminCheck.js','src/skinAdminCheckInputs.json','src/bacteriaOperatorCheck.js','src/bacteriaOperatorCheckInputs.json',
-    'src/giftPackCheck.js','src/giftPackCheckInputs.json','src/catalogIconCheckInputs.json','src/skinAssetInputs.json','src/currentBehaviorChecks.json'];
+    'src/giftPackCheck.js','src/giftPackCheckInputs.json','src/catalogIconCheckInputs.json','src/skinAssetInputs.json','src/currentBehaviorChecks.json',
+    'src/preflightCoverage.js','src/localCheckLeaves.js','src/currentBehaviorGuard.cjs'];
   const copy=snapshot(repository,ref,names);
   const req=createRequire(path.join(copy.root,'package.json'));
   return {...copy,plan:req('./src/changeValidationPolicy').planChanges,validate:req('./src/changeValidationRunner').validateChange};
@@ -84,6 +85,7 @@ async function gate(root,{repository,policyRoot=root,phase='commit',commit,remot
     if(coveredKeys.length) {
       if(!releaseSource||new Set(coveredKeys).size!==coveredKeys.length)throw new Error('Covered checks require the formal preflight phase');
       const catalog=JSON.parse(fs.readFileSync(path.join(policy.root,'src/currentBehaviorChecks.json'),'utf8'));
+      createRequire(path.join(policy.root,'package.json'))('./src/preflightCoverage').requireCoverage(root,coveredKeys);
       const covered=new Set(coveredKeys.flatMap(key=>{if(!catalog[key])throw new Error('Unknown covered preflight check');return catalog[key].tests;}));
       plan.checks=plan.checks.flatMap(check=>check.kind==='node-tests'?((tests)=>tests.length?[{...check,tests}]:[])(check.tests.filter(test=>!covered.has(test))):[check]);
     }
