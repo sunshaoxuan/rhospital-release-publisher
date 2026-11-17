@@ -1,0 +1,13 @@
+{
+  "result": "PASS",
+  "removed": [
+    "C:\\workspace\\codex-work\\bacteria-plan-classification-fix-20261117\\.task-tmp",
+    "C:\\workspace\\codex-work\\classification-release-environment-20261117\\.task-tmp"
+  ],
+  "protected": [
+    "committed application release evidence",
+    "committed environment record",
+    "both production image archives",
+    "publisher activation files still pending"
+  ]
+}

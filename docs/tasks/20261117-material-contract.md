@@ -21,3 +21,7 @@
 Node语法前检通过。原生门禁选中documents、policy、runner、console、recovery、plan、source，取本仓直接消费者并集，无应用检查或全量npm。recovery补既有technology切换8例，避免只测注册而漏掉实际脚本消费者。预计3至5分钟，跟踪原门禁；不预跑相同测试。正式验证开始后只修具体失败。
 
 首次门禁documents、policy、runner、console及recovery全部PASS，recovery91.773秒；plan132例中131通过，唯一失败为旧静态断言仍要求可变标签docker rollback命令，实际新功能和故障正反例通过。失效输入仅test/releasePublisherCore.test.js，将断言改为验证原快照检查先于摘要固定的apply，并拒绝旧命令。最小重跑为原生门禁publisher-plan，已有其他组输入未变，保留PASS；publisher-source尚未运行，按原清单接续。预计plan约3分钟，不扩大检查。
+
+最终源码441b4b3原生7组PASS，plan132/132，source87.744秒；master/origin精确相同，push全部REUSED。应用材料70b93feac已交付；独立原四项现场收尾全部PASS，生产仍2026111701健康，原job历史不改写。环境本地master a849c77保存现场与精确清理，原仓库无origin；其他根工作区修改精确保留。详见docs/evidence/20261117-material-contract/FINAL_ACCEPTANCE.md。
+
+现有scripts/update-publisher.ps1的候选已具备完整可审查结果且服务空闲；通过Windows Start-Process -Verb RunAs请求系统管理员权限，系统返回用户取消，脚本未启动，服务仍47c7673。未使用其他权限通道，未绕过UAC或重试。已请用户决定重新发起系统确认或先保留源码。当前服务启用必需项保持待完成；文档、回执与临时清理仅相关静态检查，不重复产品门禁。
