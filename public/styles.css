@@ -1027,9 +1027,12 @@ button.danger {
 .activity-summary strong::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--ink); }
 .activity-busy strong::before { background: var(--blue); }
 .activity-summary > span { color: var(--muted); }
-.outcome-grid { display: grid; grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.15fr); align-items: start; gap: 24px; margin-top: 18px; }
-.outcome-card { min-width: 0; padding: 0; }
-.outcome-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.outcome-grid { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 16px; margin-top: 18px; }
+.outcome-card { min-width: 0; padding: 16px; border: 1px solid var(--soft-line); background: var(--paper); }
+.outcome-card-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 8px 12px; margin-bottom: 12px; }
+.outcome-notice { margin: 10px 0; font-size: 12px; line-height: 1.7; color: #795012; overflow-wrap: anywhere; }
+.outcome-failure { margin-top: 12px; padding: 12px; border-left: 3px solid #b43a2d; background: #fff2ed; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.outcome-failure p { margin: 6px 0 0; }
 .outcome-card h3 { font-size: 14px; font-weight: 650; color: var(--muted); }
 .outcome-eyebrow { color: var(--muted); font-size: 11px; }
 .outcome-version { display: block; color: var(--ink); font-size: 18px; line-height: 1.45; overflow-wrap: anywhere; }

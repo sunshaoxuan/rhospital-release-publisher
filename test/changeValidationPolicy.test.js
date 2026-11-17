@@ -19,8 +19,15 @@ test('publisher controller owns its public contract and production safety consum
 test('changed shared gate infrastructure selects only explicit direct consumers',()=>{
  assert.deepEqual(keys(['src/changeValidationGit.js']),['publisher-policy','publisher-runner','publisher-plugin','publisher-source']);
  assert.deepEqual(keys(['src/changeValidationPolicy.js']),['publisher-policy','publisher-runner']);
- assert.deepEqual(keys(['src/changeValidationRunner.js']),['publisher-policy','publisher-runner','publisher-console','publisher-recovery','publisher-version','publisher-plugin','publisher-plan','publisher-source']);
+ assert.deepEqual(keys(['src/changeValidationRunner.js']),['publisher-policy','publisher-runner','publisher-console','publisher-outcome','publisher-recovery','publisher-version','publisher-plugin','publisher-plan','publisher-source']);
  assert.deepEqual(keys(['scripts/game-service-recovery.py']),['publisher-recovery']);
+});
+
+test('deployment status owns its Python sampler and dedicated business-free regression',()=>{
+ assert.deepEqual(keys(['src/releaseOutcomeStatus.js','public/release-status.js']),['publisher-console','publisher-outcome']);
+ assert.deepEqual(keys(['scripts/read-game-runtime-status.py']),['publisher-outcome']);
+ const check=planChanges('publisher',['test/releaseOutcomeStatus.test.js']).checks[0];assert.equal(check.key,'publisher-outcome');
+ assert(check.inputs.includes('scripts/read-game-runtime-status.py'));assert(!check.inputs.includes('src/releasePublisherCore.js'));
 });
 test('documents and image evidence remain static while archive metadata is excluded from runtime checks',()=>{
  const files=['CHANGELOG.md','docs/tasks/change.md','docs/evidence/run/scene.jpg','docs/evidence/run/crop.jpeg'];

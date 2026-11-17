@@ -6,11 +6,11 @@ const path=require('node:path');
 const crypto=require('node:crypto');
 const http=require('node:http');
 const {spawnSync}=require('node:child_process');
-const {validateSnapshot,readSupplemental,createOutcomeReader}=require('../src/releaseOutcomeStatus');
+const {validateSnapshot,readSupplemental,createOutcomeReader,historyView}=require('../src/releaseOutcomeStatus');
 const view=require('../public/release-status');
 const now=Date.parse('2026-10-27T06:00:00Z');
 const imageId='sha256:'+'a'.repeat(64),container='b'.repeat(64),commit='c'.repeat(40);
-function snapshot(){return {schemaVersion:1,host:'92.113.124.185',service:'hospital_stack_hospital-backend',sampledAt:new Date(now).toISOString(),image:'hospital-backend:fixture@'+imageId,replicas:1,version:10,updateState:'completed',containers:[{id:container,imageId,image:'hospital-backend:fixture@'+imageId,running:true,health:'healthy'}]};}
+function snapshot(){return {schemaVersion:2,imageId,host:'92.113.124.185',service:'hospital_stack_hospital-backend',sampledAt:new Date(now).toISOString(),image:'hospital-backend:fixture@sha256:'+'e'.repeat(64),replicas:1,version:10,updateState:'completed',containers:[{id:container,imageId,image:'hospital-backend:fixture',running:true,health:'healthy'}]};}
 function evidence(root){
  const h={id:'history',releaseTarget:'game',status:'RECOVERY_REQUIRED',appTag:'fixture',imageTag:'hospital-backend:fixture',gitCommit:commit,releaseCommit:commit,projectRoot:'C:\\removed\\123-abc'};
  const r={schemaVersion:1,kind:'SUPPLEMENTAL_VERIFICATION',runId:'123-abc',originalHistoryId:h.id,originalStatus:h.status,candidateCommit:commit,candidateTree:'d'.repeat(40),publisherCommit:'e'.repeat(40),imageId,
@@ -75,7 +75,7 @@ test('compact UI keeps full identities copyable and warnings visible with closed
  const deployment={...validateSnapshot(snapshot(),now),freshness:'CURRENT'};
  const data={activity:{busy:false},deployment,latestHistory:{id:r.historyId,appTag:'fixture',status:'RECOVERY_REQUIRED'},supplemental:{records:[r]}};
  const html=view.markup(data,now);
- assert.match(html,/value="hospital-backend:fixture@sha256:a{64}"/);
+ assert.match(html,/value="hospital-backend:fixture@sha256:e{64}"/);
  assert.match(html,/value="receipt-a{180}\.json"/);
  assert.match(html,/aria-label="完整镜像，可选中复制"/);
  assert.match(html,/RECOVERY_REQUIRED/);assert.match(html,/PARTIAL · 验收尚未闭合/);
@@ -100,24 +100,53 @@ test('status repaint preserves only disclosures for the same evidence identity',
 
 test('actual runtime sampler reads only selected Docker metadata and rejects concurrent changes',()=>{
  const source=fs.readFileSync(require.resolve('../scripts/read-game-runtime-status.py'),'utf8');
- function run(changed){
+ function run(changed,imageChanged=false){
    const s=snapshot();const service={version:s.version,image:s.image,replicas:s.replicas,updateState:s.updateState};
-   const harness='import json,sys\nfrom unittest.mock import patch\nf=json.load(sys.stdin)\ncalls=0\n'+String.raw`
+   const harness='import json,sys\nfrom unittest.mock import patch\nf=json.load(sys.stdin)\ncalls=0\nimage_calls=0\n'+String.raw`
 def read(args,**kw):
-    global calls
-    assert args[0]=='docker' and args[1] in ('service','ps','inspect')
+    global calls,image_calls
+    assert args[0]=='docker' and args[1] in ('service','ps','inspect','image')
     assert not any('Env' in a or 'Secret' in a for a in args)
     if args[1]=='service':
         calls+=1
         value=dict(f['service'])
         if calls>1 and f['changed']:value['version']+=1
         return json.dumps(value)
+    if args[1]=='image':
+        image_calls+=1
+        return 'sha256:'+'f'*64 if f['imageChanged'] and image_calls>1 else f['container']['imageId']
     if args[1]=='ps':return f['container']['id']
     return json.dumps(f['container'])
 with patch('subprocess.check_output',side_effect=read):
 `+'    exec('+JSON.stringify(source)+')\n';
-   return spawnSync(process.platform==='win32'?'python':'python3',['-c',harness],{encoding:'utf8',input:JSON.stringify({service,container:s.containers[0],changed}),timeout:30000,windowsHide:true});
+   return spawnSync(process.platform==='win32'?'python':'python3',['-c',harness],{encoding:'utf8',input:JSON.stringify({service,container:s.containers[0],changed,imageChanged}),timeout:30000,windowsHide:true});
  }
- const good=run(false);assert.equal(good.status,0,good.stderr);assert.equal(JSON.parse(good.stdout).containers[0].health,'healthy');
+ const good=run(false);assert.equal(good.status,0,good.stderr);assert.equal(validateSnapshot(JSON.parse(good.stdout),Date.now()).healthy,true);
  const bad=run(true);assert.notEqual(bad.status,0);assert.equal(bad.stdout.trim(),'');
+ const retag=run(false,true);assert.notEqual(retag.status,0);assert.equal(retag.stdout.trim(),'');
+});
+
+test('tag-only service reference is valid and registry digest is distinct from config identity',()=>{
+ const value=snapshot();value.image='hospital-backend:fixture';assert.equal(validateSnapshot(value,now).healthy,true);
+ const digest=snapshot();assert.notEqual(digest.image.split('@')[1],digest.imageId);assert.equal(validateSnapshot(digest,now).healthy,true);
+ for(const mutate of [v=>v.imageId='invalid',v=>v.schemaVersion=1,v=>v.image='other:fixture']){const bad=snapshot();mutate(bad);assert.throws(()=>validateSnapshot(bad,now));}
+ const mismatched=snapshot();mismatched.containers[0].imageId='sha256:'+'f'.repeat(64);assert.equal(validateSnapshot(mismatched,now).healthy,false);
+});
+
+test('legacy cache refreshes and safe error codes preserve stale identity without leaking private details',async t=>{
+ const root=temporary(t);fs.mkdirSync(path.join(root,'.runtime-status'));fs.writeFileSync(path.join(root,'.runtime-status/game.json'),JSON.stringify({...snapshot(),schemaVersion:1}));
+ let calls=0;const read=createOutcomeReader(root,{now:()=>now,sample:async()=>{calls++;return snapshot();}});
+ assert.equal((await read([],{})).deployment.freshness,'CURRENT');assert.equal(calls,1);
+ const bad=createOutcomeReader(root,{now:()=>now+121000,sample:async()=>({bad:'PRIVATE_TOKEN'})});const result=await bad([],{});
+ assert.equal(result.deployment.failureCode,'STATUS_SNAPSHOT_INVALID');assert.equal(result.deployment.freshness,'UNAVAILABLE');assert.doesNotMatch(JSON.stringify(result),/PRIVATE_TOKEN/);
+});
+
+test('history projection exposes exact failed step and safe mapped error while retaining original record',()=>{
+ const record={id:'original',appTag:'20261117',status:'ERROR',createdAt:new Date(now).toISOString(),releaseCommit:commit,
+   stepSummary:[{key:'validate-game-source-impact',title:'验证本次源码影响范围',status:'failed',logs:['ERROR: PLUGIN_CANDIDATE_BLOCKED: UNMAPPED_PLUGIN_CHANGE: release/release-impact.json','password=PRIVATE_VALUE']} ]};
+ const original=JSON.stringify(record),projected=historyView(record);assert.equal(projected.firstFailure.stepKey,'validate-game-source-impact');assert.equal(projected.firstFailure.path,'release/release-impact.json');
+ assert.equal(projected.createdAt,record.createdAt);assert.equal(JSON.stringify(record),original);assert.doesNotMatch(JSON.stringify(projected),/PRIVATE_VALUE|password|logs/);
+ const markup=view.markup({deployment:{freshness:'UNAVAILABLE',failureCode:'STATUS_SNAPSHOT_INVALID'},latestHistory:projected},now);
+ assert.match(markup,/aria-label="当前部署状态"/);assert.match(markup,/aria-label="历史执行结果"/);assert.match(markup,/失败步骤：验证本次源码影响范围/);assert.match(markup,/UNMAPPED_PLUGIN_CHANGE/);
+ assert.equal(historyView(null),null);
 });

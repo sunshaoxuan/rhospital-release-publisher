@@ -101,6 +101,7 @@ const groups=[
  {key:'publisher-policy',tests:['test/changeValidationPolicy.test.js'],inputs:[...POLICY_FILES,'test/changeValidationPolicy.test.js']},
  {key:'publisher-runner',tests:['test/changeValidationRunner.test.js'],inputs:[...POLICY_FILES,...pluginInputs,'src/releasePluginDocuments.js','.gitattributes','test/changeValidationRunner.test.js']},
  {key:'publisher-console',tests:['test/releaseConsole.test.js'],inputs:CONSOLE_INPUTS},
+ {key:'publisher-outcome',tests:['test/releaseOutcomeStatus.test.js'],inputs:['src/releaseOutcomeStatus.js','public/release-status.js','scripts/read-game-runtime-status.py','test/releaseOutcomeStatus.test.js']},
  {key:'publisher-recovery',tests:['test/gameRecoverySafety.test.js'],inputs:RECOVERY_INPUTS},
  {key:'publisher-version',tests:['test/publisherVersionScope.test.js'],inputs:['src/publisherVersion.js','src/publisherLegacyBarrier.js','test/publisherVersionScope.test.js']},
  {key:'publisher-plugin',tests:['test/releaseWorktree.test.js'],inputs:pluginInputs},
@@ -135,7 +136,9 @@ function planChanges(repository,changedPaths){
   else if(file==='test/releasePlanSources.test.js')keys=['publisher-plan'];
   else if(file==='server.js')keys=['publisher-plan','publisher-console'];
   else if(file==='test/fullGateScope.test.js')keys=['publisher-source'];
-  else if(['public/app.js','public/index.html','public/styles.css','public/release-status.js','src/releaseConsoleView.js','test/releaseConsole.test.js'].includes(file))keys=['publisher-console'];
+  else if(['src/releaseOutcomeStatus.js','public/release-status.js'].includes(file))keys=['publisher-console','publisher-outcome'];
+  else if(['scripts/read-game-runtime-status.py','test/releaseOutcomeStatus.test.js'].includes(file))keys=['publisher-outcome'];
+  else if(['public/app.js','public/index.html','public/styles.css','src/releaseConsoleView.js','test/releaseConsole.test.js'].includes(file))keys=['publisher-console'];
   else if(PUBLISHER_GATE_INPUTS.includes(file))keys=['publisher-plan'];
   else unmapped.push(file);
   for(const key of keys)selected.add(key);

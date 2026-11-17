@@ -1,6 +1,7 @@
 """Read only selected Docker metadata; never inspect environment or secret data."""
 import datetime
 import json
+import re
 import subprocess
 
 
@@ -11,14 +12,17 @@ def read(args):
 service = 'hospital_stack_hospital-backend'
 view = '{"version":{{json .Version.Index}},"image":{{json .Spec.TaskTemplate.ContainerSpec.Image}},"replicas":{{json .Spec.Mode.Replicated.Replicas}},"updateState":{{json .UpdateStatus.State}}}'
 before = json.loads(read(['service', 'inspect', service, '--format', view]))
+if not re.fullmatch(r'hospital-backend:[A-Za-z0-9_.-]+(?:@sha256:[a-f0-9]{64})?', before['image']):
+    raise RuntimeError('Invalid service image reference')
+image_id = read(['image', 'inspect', before['image'], '--format', '{{.Id}}'])
 ids = read(['ps', '-q', '--filter', 'label=com.docker.swarm.service.name=' + service]).split()
 containers = []
 for identity in ids:
     container_view = '{"id":{{json .Id}},"imageId":{{json .Image}},"image":{{json .Config.Image}},"running":{{json .State.Running}},"health":{{if .State.Health}}{{json .State.Health.Status}}{{else}}"none"{{end}}}'
     containers.append(json.loads(read(['inspect', identity, '--format', container_view])))
 after = json.loads(read(['service', 'inspect', service, '--format', view]))
-if before != after:
+if before != after or image_id != read(['image', 'inspect', after['image'], '--format', '{{.Id}}']):
     raise RuntimeError('Concurrent service change')
-print(json.dumps({'schemaVersion': 1, 'service': service, 'host': '92.113.124.185',
+print(json.dumps({'schemaVersion': 2, 'imageId': image_id, 'service': service, 'host': '92.113.124.185',
                  'sampledAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
                  **before, 'containers': containers}, sort_keys=True))

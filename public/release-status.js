@@ -25,19 +25,24 @@
     const health=!d.sampledAt?'尚无已验证健康快照':fresh?(d.healthy?'健康快照':'健康快照未达标'):'旧快照，当前健康未确认';
     const state=d.freshness==='CURRENT'&&!fresh?'采样已过期':({CURRENT:'采样有效',STALE:'采样已过期',UNAVAILABLE:'本次采样失败',UNKNOWN:'尚未采样'}[d.freshness]||'尚未采样');
     const h=data.latestHistory,record=(data.supplemental?.records||[]).find(r=>r.historyId===h?.id);
+    const failureReason={STATUS_TARGET_INVALID:'采样目标配置不完整',STATUS_SSH_UNAVAILABLE:'SSH采样程序无法启动',STATUS_SAMPLE_LIMIT:'采样超时或输出超限',STATUS_REMOTE_FAILED:'远端只读采样命令失败',STATUS_JSON_INVALID:'采样输出格式错误',STATUS_SNAPSHOT_INVALID:'采样身份或数据校验失败',STATUS_SAMPLE_UNAVAILABLE:'采样暂不可用'}[d.failureCode]||'当前采样未取得有效结果';
     const busy=Boolean(data.activity?.busy),tone=fresh?(d.healthy?'tone-good':'tone-alert'):'tone-attention';
     return `<div class="activity-summary ${busy?'activity-busy':'activity-idle'}"><strong>${busy?'发布器有活动任务':'发布器空闲'}</strong><span>${busy?'下方流程用于显示活动任务或准备下一计划。':'无正在执行的流水线。下方流程用于准备下一份计划，未自动执行。'}</span></div>
       <div class="outcome-grid">
-        <article class="outcome-card deployment-card"><div class="outcome-card-head"><h3>当前部署</h3><span class="status-chip ${tone}">${escape(state)}</span></div>
+        <article class="outcome-card deployment-card" aria-label="当前部署状态"><div class="outcome-card-head"><h3>当前部署状态</h3><span class="status-chip ${tone}">${escape(state)}</span></div>
+          ${!fresh?`<p class="outcome-notice">${escape(failureReason)}${d.failureCode?`（${escape(d.failureCode)}）`:''}。${d.sampledAt?'以下保留上次成功采样的信息。':'等待取得新的部署快照。'}</p>`:''}
+          <p class="outcome-eyebrow">${fresh?'本次采样镜像':'上次采样镜像'}</p>
           <strong class="outcome-version">${escape(d.image?.split('@')[0]||'尚未核实')}</strong>
           <p class="outcome-health ${tone}">${escape(health)}</p>
           ${d.sampledAt?`<dl class="outcome-facts"><div><dt>快照中的健康副本</dt><dd>${escape(d.healthyCount)}/${escape(d.replicas)}</dd></div><div><dt>Swarm 状态</dt><dd>${escape(d.updateState)}</dd></div></dl>`:''}
-          <p class="outcome-meta">采样时间 ${time(d.sampledAt)}</p>
+          <p class="outcome-meta">${fresh?'本次采样时间':'上次成功采样时间'} ${time(d.sampledAt)}</p>
           <p class="outcome-note">健康快照不等于整体验收通过。</p>
           <details class="outcome-details" data-status-detail="${escape('deployment:'+d.image)}"><summary>查看完整部署身份</summary>${identity('完整镜像',d.image)}</details>
         </article>
-        <article class="outcome-card history-outcome-card"><div class="outcome-card-head"><h3>最近一次游戏执行记录</h3><span class="outcome-eyebrow">历史记录</span></div>
+        <article class="outcome-card history-outcome-card" aria-label="历史执行结果"><div class="outcome-card-head"><h3>历史执行结果</h3><span class="outcome-eyebrow">最近一次游戏发布任务</span></div>
           ${h?`<div class="outcome-history-line"><strong class="outcome-version">${escape(h.appTag)}</strong><span class="status-chip ${h.status==='EXECUTED'?'tone-good':'tone-attention'}">${escape(h.status)}</span></div>
+          <p class="outcome-meta">执行时间 ${time(h.createdAt)} · 记录中的目标版本</p>
+          ${h.firstFailure?`<div class="outcome-failure"><strong>失败步骤：${escape(h.firstFailure.title)}</strong>${h.firstFailure.errorCode?`<p>${escape(h.firstFailure.errorCode)}${h.firstFailure.path?`：${escape(h.firstFailure.path)}`:''}</p>`:''}<p>原始记录保留，详细输出见本次任务日志。</p></div>`:''}
           <details class="outcome-details history-identity" data-status-detail="${escape('history:'+h.id)}"><summary>查看原执行记录身份</summary>${identity('原记录',h.id)}</details>`:'<p class="outcome-meta">暂无游戏执行历史。</p>'}
           ${record?supplemental(!fresh&&record.applicability==='MATCHED'?{...record,applicability:'UNKNOWN'}:record,now):'<p class="outcome-meta">尚无可关联的有效补验收证据。</p>'}
         </article>
