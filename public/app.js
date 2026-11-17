@@ -384,13 +384,13 @@
     if(!step){steps.innerHTML='<p class="empty-detail">生成计划后，在这里查看具体步骤。</p>';return;}
     const detail=selectedDetail?.key===step.key?selectedDetail:null;
     const fingerprint=JSON.stringify({key:step.key,title:step.title,summary:step.summary,status:step.status,detail,error:detailError});
-    if(fingerprint===lastDetailMarkup){const timer=steps.querySelector('.step-timer');if(timer)timer.textContent=stepTimerLabel(step);return;}
+    if(fingerprint===lastDetailMarkup){const timer=steps.querySelector('.step-timer');if(timer)timer.textContent=statusWithDuration(step,step.status||'pending');return;}
     const oldLog=steps.querySelector('.step-logs'),oldScroll=oldLog?{top:oldLog.scrollTop,nearBottom:oldLog.scrollTop+oldLog.clientHeight>=oldLog.scrollHeight-8}:null;
     const commandOpen=steps.querySelector('.detail-command')?.open===true;
     const item=document.createElement('article'),state=step.status||'pending';
     item.className=executionClasses(step,'step');
     item.dataset.stepKey=step.key;
-    item.innerHTML='<div class="step-title"><div class="step-index">'+String(index+1).padStart(2,'0')+'</div><div><h3>'+escapeHtml(step.title)+'</h3><p>'+escapeHtml(step.summary||'')+'</p></div><div class="step-meta"><span class="step-timer">'+escapeHtml(stepTimerLabel(step))+'</span><span class="badge '+badgeClass(step)+'">'+actionTypeLabel(step)+'</span></div></div>';
+    item.innerHTML='<div class="step-title"><div class="step-index">'+String(index+1).padStart(2,'0')+'</div><div><h3>'+escapeHtml(step.title)+'</h3><p>'+escapeHtml(step.summary||'')+'</p></div><div class="step-meta"><span class="step-timer">'+escapeHtml(statusWithDuration(step,state))+'</span><span class="badge '+badgeClass(step)+'">'+actionTypeLabel(step)+'</span></div></div>';
     if(!detail){
       const message=document.createElement('p');message.className='empty-detail';message.textContent=detailError||'正在读取本步骤的检查与日志…';
       if(detailError)message.setAttribute('role','alert');item.appendChild(message);

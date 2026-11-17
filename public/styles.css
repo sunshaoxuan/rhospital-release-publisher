@@ -1117,7 +1117,7 @@ button.danger {
 .step-navigation button { min-height: 46px; padding: 10px 16px; white-space: nowrap; }
 .detail-panel .steps { display: block; }
 .detail-panel .step { min-width: 0; margin: 0; }
-.detail-panel .command { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.detail-panel .command { max-height: 320px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; word-break: normal; }
 .detail-panel .step-logs, .detail-panel .logs { max-height: 440px; overflow: auto; }
 .detail-panel .step-logs li, .detail-panel .logs li { white-space: pre-wrap; overflow-wrap: anywhere; }
 .detail-command { margin: 18px 0; border-top: 1px solid var(--soft-line); }
