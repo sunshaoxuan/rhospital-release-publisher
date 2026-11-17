@@ -1,0 +1,18 @@
+{
+  "apiVersion": "release-plugin/v1",
+  "pluginId": "example.application",
+  "target": "example",
+  "coverage": [
+    {"paths": ["src/catalog-icon.js", "test/catalog-icon.test.mjs"], "prefixes": [], "units": ["catalog-icon.contract"]}
+  ],
+  "units": [
+    {
+      "id": "catalog-icon.contract",
+      "phase": "source",
+      "requires": ["engine-context@1", "node-test@1"],
+      "inputs": ["src/catalog-icon.js", "test/catalog-icon.test.mjs", "package-lock.json"],
+      "run": {"kind": "node-test", "entrypoints": ["test/catalog-icon.test.mjs"], "timeoutSeconds": 60, "protocol": "tap-v1"}
+    }
+  ],
+  "migrations": []
+}

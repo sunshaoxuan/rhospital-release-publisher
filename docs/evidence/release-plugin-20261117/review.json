@@ -1,0 +1,31 @@
+{
+  "scope": "Design/schema/example static validation only",
+  "state": "PASS",
+  "schemaDialect": "2020-12",
+  "validator": "Existing host Python jsonschema; no installation",
+  "positiveCases": 3,
+  "negativeCases": [
+    "unknown-field-cannot-grant-production",
+    "unsupported-protocol",
+    "parent-directory-escape",
+    "absolute-windows-path",
+    "business-kind-not-core-runner",
+    "timeout-exceeds-contract",
+    "inline-shell-command",
+    "non-sql-migration",
+    "control-character-argument"
+  ],
+  "semanticReview": [
+    "unique unit IDs",
+    "nonempty impact rule",
+    "resolved unit references",
+    "entrypoints in owned inputs"
+  ],
+  "runtimeImplementation": "NOT_IMPLEMENTED",
+  "productTestsRun": 0,
+  "productionActions": 0,
+  "sha256": {
+    "release-plugin-v1.schema.json": "2f262437c84ff66d00874c01e32959654d35b87d7cec5fa8cce5ec2ac2abb701",
+    "release-plugin-v1.example.json": "a03c7a3242a6d8aef0c221029faf9d32cdaa61768c3749f85907169a70f542f7"
+  }
+}

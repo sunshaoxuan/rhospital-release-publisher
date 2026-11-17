@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "incidentId": "2026-11-16T23:07:43.079Z-20261117",
+  "historyRecordTimeUtc": "2026-11-16T23:07:43.079Z",
+  "status": "ERROR",
+  "version": "20261117",
+  "applicationCommit": "c16f104461b5766374562adf3888e4a3171f9a86",
+  "publisherCommit": "771205872ca149ca0d2e4394c4f3b03f8100403b",
+  "historySha256": "042fb4d42e1d4996a3d25e30af354dbcb6d23b245ff1483872205ec026f0a9ae",
+  "completedSteps": 11,
+  "totalSteps": 43,
+  "failedStep": {
+    "key": "validate-game-source-impact",
+    "durationMs": 258411,
+    "tests": 37,
+    "pass": 36,
+    "fail": 1,
+    "error": "Committed local release publisher repository not found",
+    "testFile": "src/test/js/releaseCandidateCommitGate.test.mjs",
+    "testLine": 315,
+    "helperFile": "scripts/releasePublisherPolicy.mjs",
+    "helperLine": 40
+  },
+  "productionSteps": [
+    {
+      "key": "publish-image",
+      "status": "pending"
+    },
+    {
+      "key": "stage-game-static-assets",
+      "status": "pending"
+    },
+    {
+      "key": "backup-game-release",
+      "status": "pending"
+    },
+    {
+      "key": "apply-database-migrations",
+      "status": "pending"
+    },
+    {
+      "key": "update-remote-compose",
+      "status": "pending"
+    },
+    {
+      "key": "pause-meelok-services",
+      "status": "pending"
+    },
+    {
+      "key": "deploy-stack",
+      "status": "pending"
+    },
+    {
+      "key": "cleanup-game-release-containers",
+      "status": "pending"
+    },
+    {
+      "key": "restore-meelok-services",
+      "status": "pending"
+    },
+    {
+      "key": "game-config-compensation",
+      "status": "pending"
+    }
+  ],
+  "cause": {
+    "observed": "Exported test snapshot uses findPublisherRoot(process.cwd()); formal entry forwards process.env without guaranteeing explicit publisher context to the leaf.",
+    "precheckDifference": "The precheck harness in the prior chat provided RHOSPITAL_RELEASE_PUBLISHER_ROOT explicitly.",
+    "receiptMiss": "game-gate executed fresh; the exact mismatching fingerprint field is not recorded.",
+    "receiptIdentityGap": "environment() does not include RHOSPITAL_RELEASE_PUBLISHER_ROOT among its explicit environment keys."
+  },
+  "sourceBindings": {
+    "application": [
+      {
+        "file": "scripts/releasePublisherPolicy.mjs",
+        "sha256": "2b7f3b0d5c19bb2490c993012ae7642b9473399a497aa9b6d0684824dcb4575d"
+      },
+      {
+        "file": "scripts/changeValidationGate.mjs",
+        "sha256": "2cd32e9e9f078fd12583c99b83f30eaac682af1e1b04c202b053770de68b4eb6"
+      },
+      {
+        "file": "scripts/validate-release-candidate-commit.mjs",
+        "sha256": "61dcf169821b738a6972f293e4e6650990c6ddf5fa730637046bfef87f46591e"
+      },
+      {
+        "file": "src/test/js/releaseCandidateCommitGate.test.mjs",
+        "sha256": "4d3b83f3ad14d50438bff3cd2f1dd4dfcc0c2e1338b7322796cca6dd9792e88d"
+      }
+    ],
+    "publisher": [
+      {
+        "file": "server.js",
+        "sha256": "b3f2192f8a1d3a72015b42af7ae78cace800581d12f865247cd83e9640061350"
+      },
+      {
+        "file": "src/changeValidationGit.js",
+        "sha256": "a1a303a1cbd84ce0a1cbc930724687d239c1b003fd2f7d960235857ea48f8f41"
+      },
+      {
+        "file": "src/changeValidationRunner.js",
+        "sha256": "ec990f10ecfe271ced5b4165886e0263c3bdd1f1e737dd68ede56c4533a77370"
+      },
+      {
+        "file": "src/changeValidationPolicy.js",
+        "sha256": "a5c9cfcac81620fd07beba4b1da0e9a6be1f64798e6f50141f4dcfeb5e737b7f"
+      },
+      {
+        "file": "src/currentBehaviorInputs.json",
+        "sha256": "aa6821920df02f2ad974f0efeae9f9460e63a345b7209ef89b3b5d1397bc33ee"
+      },
+      {
+        "file": "src/currentBehaviorChecks.json",
+        "sha256": "55e0dda0c426169b9bc569399d26467a0432fafea40dca3c88676a6aaec7e8d4"
+      },
+      {
+        "file": "src/localCheckPolicy.js",
+        "sha256": "89ad04e383f1eb3c879cecd53bcaf9945d02d3f01b900fbc692708df5ca315ac"
+      }
+    ]
+  },
+  "conclusionWithdrawn": "Formal execution-equivalence readiness; preserve actual artifact and scoped test evidence.",
+  "verificationMethod": "Read-only original history and committed source inspection; no production retry or product suite replay."
+}

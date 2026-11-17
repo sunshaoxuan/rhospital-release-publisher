@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:rhospital:release-plugin:v1",
+  "$comment": "Design contract only. Not loaded by the current publisher. Semantic graph, Git ownership, capability and safety admission remain interpreter responsibilities.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "pluginId", "target", "coverage", "units", "migrations"],
+  "properties": {
+    "apiVersion": {"const": "release-plugin/v1"},
+    "pluginId": {"$ref": "#/$defs/id"},
+    "target": {"$ref": "#/$defs/id"},
+    "coverage": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/coverage"}},
+    "units": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/unit"}},
+    "migrations": {"type": "array", "uniqueItems": true, "items": {"allOf": [{"$ref": "#/$defs/path"}, {"pattern": "\\.sql$"}]}}
+  },
+  "$defs": {
+    "id": {"type": "string", "minLength": 1, "maxLength": 100, "pattern": "^[a-z0-9][a-z0-9.-]*$"},
+    "path": {"type": "string", "minLength": 1, "maxLength": 512, "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_./-]+$"},
+    "paths": {"type": "array", "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+    "ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/id"}},
+    "coverage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["paths", "prefixes", "units"],
+      "properties": {
+        "paths": {"$ref": "#/$defs/paths"},
+        "prefixes": {"type": "array", "uniqueItems": true, "items": {"allOf": [{"$ref": "#/$defs/path"}, {"pattern": "/$"}]}},
+        "units": {"$ref": "#/$defs/ids"}
+      }
+    },
+    "unit": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "phase", "requires", "inputs", "run"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "phase": {"enum": ["source", "artifact", "pre-deploy", "post-deploy"]},
+        "requires": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z][a-z0-9-]*@[1-9][0-9]*$"}},
+        "inputs": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+        "run": {"oneOf": [{"$ref": "#/$defs/nodeTest"}, {"$ref": "#/$defs/mavenTest"}, {"$ref": "#/$defs/nodeModule"}]}
+      }
+    },
+    "nodeTest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "entrypoints", "timeoutSeconds", "protocol"],
+      "properties": {
+        "kind": {"const": "node-test"},
+        "entrypoints": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"$ref": "#/$defs/path"}},
+        "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "protocol": {"const": "tap-v1"}
+      }
+    },
+    "mavenTest": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "testClasses", "timeoutSeconds", "protocol"],
+      "properties": {
+        "kind": {"const": "maven-test"},
+        "testClasses": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "pattern": "^[A-Za-z_$][A-Za-z0-9_.$]*$"}},
+        "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "protocol": {"const": "junit-xml-v1"}
+      }
+    },
+    "nodeModule": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "entrypoint", "args", "timeoutSeconds", "protocol"],
+      "properties": {
+        "kind": {"const": "node-module"},
+        "entrypoint": {"$ref": "#/$defs/path"},
+        "args": {"type": "array", "items": {"type": "string", "pattern": "^[^\\u0000-\\u001f]*$"}},
+        "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "protocol": {"const": "check-result-v1"}
+      }
+    }
+  }
+}
