@@ -131,10 +131,13 @@ async function executeReleasePlugin(plan, context, {boundary, stage, receiptsDir
       fs.writeFileSync(bootstrap, `import fs from 'node:fs';import {fileURLToPath} from 'node:url';
 const file=fileURLToPath(new URL('./context.json',import.meta.url));
 const context=JSON.parse(fs.readFileSync(file,'utf8'));
+const testContext=process.env.NODE_TEST_CONTEXT;
+if(testContext!==undefined&&!['child','child-v8'].includes(testContext))throw new Error('Unsupported Node internal test context');
 for(const key of Object.keys(process.env))delete process.env[key];
 for(const [key,value] of Object.entries(context.environment))process.env[key]=value;
 process.env.RELEASE_CONTEXT_FILE=file;
 process.env.NODE_OPTIONS='--import '+import.meta.url;
+if(testContext!==undefined)process.env.NODE_TEST_CONTEXT=testContext;
 `, {flag:'wx', mode:0o400});
       const args = ['--import', pathToFileURL(bootstrap).href, ...(unit.run.kind === 'node-test'
         ? ['--experimental-vm-modules', '--test', '--test-reporter=tap', '--test-concurrency=1', ...unit.run.entrypoints]

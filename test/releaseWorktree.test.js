@@ -220,3 +220,23 @@ test('real child failure retains bounded redacted diagnostics and never issues P
     assert(!JSON.stringify(redacted).includes('fixtureCredential'));assert(!JSON.stringify(redacted).includes('fixtureToken'));assert(!JSON.stringify(redacted).includes('fixture@example.invalid'));
   } finally {plan?.close();f.close();}
 });
+
+test('native Node worker context retains inner TAP totals and rejects real skip or TODO',async()=>{
+  const f=pluginFixture();let plan;
+  try {
+    f.unit.requires=['engine-context@1','node-test@1'];f.unit.inputs=['leaf.test.mjs','value.txt'];
+    f.unit.run={kind:'node-test',entrypoints:['leaf.test.mjs'],timeoutSeconds:15,protocol:'tap-v1'};
+    const positive="import test from 'node:test';import assert from 'node:assert/strict';test('first',()=>assert.equal(process.env.NODE_TEST_CONTEXT,'child-v8'));test('second',()=>{});\n";
+    fs.writeFileSync(path.join(f.repo,'leaf.test.mjs'),positive);f.commit();plan=f.load();
+    const result=await executeReleasePlugin(plan,f.context(plan),f.options);assert.equal(result.counts.executed,1);
+    const records=fs.readdirSync(f.options.receiptsDirectory).filter(name=>name.endsWith('.json')).map(name=>JSON.parse(fs.readFileSync(path.join(f.options.receiptsDirectory,name),'utf8')));
+    assert.equal(records.length,1);assert.match(records[0].result.execution.output,/^# tests 2$/m);assert.match(records[0].result.execution.output,/^# pass 2$/m);
+    assert.doesNotMatch(records[0].result.execution.output,/# [ℹ#] tests/);
+    assert.throws(()=>createReleaseContext({...f.context(plan),environment:{NODE_TEST_CONTEXT:'child-v8'}}),/UNDECLARED_ENVIRONMENT/);
+    for(const declaration of ["test.skip('must reject skip',()=>{});","test.todo('must reject TODO');"]) {
+      fs.writeFileSync(path.join(f.repo,'leaf.test.mjs'),positive+declaration);f.commit();const negative=f.load();
+      try {await assert.rejects(executeReleasePlugin(negative,f.context(negative),f.options),/INCOMPLETE_PLUGIN_TAP/);}finally{negative.close();}
+    }
+    assert.equal(fs.readdirSync(f.options.receiptsDirectory).filter(name=>name.endsWith('.json')).length,1);
+  } finally {plan?.close();f.close();}
+});
