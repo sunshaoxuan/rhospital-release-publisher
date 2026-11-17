@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "sourceCandidate": "e2f0e36bf3ebe685f9dcf74ee626a9f07149ba6c",
+  "sourceBaseline": "069a7699a8cf3e1c90b5b3c31a8cfab2985933e0",
+  "sampling": {
+    "originalFailure": "Valid tag-only Docker metadata was rejected by the registry-digest-only snapshot validator; registry digest was also incorrectly compared to image config ID",
+    "readOnlySshExit": 0,
+    "stderrEmpty": true,
+    "observedAt": "2026-11-17T11:13:57.186322+00:00",
+    "image": "hospital-backend:2026111501",
+    "imageId": "sha256:130e7bd12b0824fb0aea89c564f81303f9eaad3ab1a5cc43cf3399a8dcc818a5",
+    "serviceVersion": 50869,
+    "healthyReplicas": "1/1",
+    "schema": 2,
+    "newValidatorHealthy": true,
+    "actualServiceStillOnOldPublisher": true
+  },
+  "historicalExecution": {
+    "id": "2026-11-17T04:01:24.973Z-20261117",
+    "originalStatus": "ERROR",
+    "candidate": "f643145383105c368d4873e78c7f6e68ed56eb4a",
+    "step": "validate-game-source-impact",
+    "title": "验证本次源码影响范围",
+    "error": "PLUGIN_CANDIDATE_BLOCKED: UNMAPPED_PLUGIN_CHANGE: release/release-impact.json",
+    "durationMs": 5107,
+    "completedProductionActions": 0,
+    "oldCandidateImpactCoverage": [],
+    "currentApplicationImpactCoverage": ["application-release-contract.release-plugin-producer"],
+    "currentApplicationChangedByThisTask": false,
+    "historyRewritten": false,
+    "applicationTestsOrReleaseRerun": false
+  },
+  "nativeChecks": {
+    "policy": "10/10 PASS",
+    "runner": "10/10 PASS",
+    "console": "15/15 PASS",
+    "outcome": "11/11 PASS",
+    "totalAssertions": 46,
+    "aggregateNpmOrProductTests": false,
+    "lastUiRerun": "Only Console and Outcome plus static documents; policy and runner remain valid"
+  },
+  "browser": {
+    "kind": "isolated actual status view and CSS with read-only copied metadata and fixed sampling clock",
+    "viewports": ["1440x1000", "390x844"],
+    "scenarios": ["healthy sampling and original history ERROR", "failed sampling with stale snapshot and original history ERROR"],
+    "consoleErrors": 0,
+    "networkFailures": 0,
+    "historyIdentityDisclosure": "PASS",
+    "horizontalOverflow": false,
+    "cardSeparation": "PASS",
+    "geometry": "Noninteractive status badges: min glyph margin6px, max center deviation0.797px; all within frozen budget; no primary controls added"
+  },
+  "delivery": {
+    "source": "PENDING_NATIVE_DOCUMENT_COMMIT_AND_PUSH",
+    "activation": "REQUIRES_WINDOWS_ADMINISTRATOR",
+    "applicationProductionActions": 0
+  }
+}

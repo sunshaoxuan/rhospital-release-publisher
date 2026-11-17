@@ -1,0 +1,222 @@
+{
+  "environment": "isolated actual view module and stylesheet; read-only captured deployment/history; failed sampling is an explicit scenario",
+  "evidence": [
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "name": "desktop"
+      },
+      "mode": "healthy",
+      "width": 1440,
+      "scrollWidth": 1425,
+      "deployment": "当前部署状态\n采样有效\n\n本次采样镜像\n\nhospital-backend:2026111501\n\n健康快照\n\n快照中的健康副本\n1/1\nSwarm 状态\ncompleted\n\n本次采样时间 2026/11/17 20:13:57\n\n健康快照不等于整体验收通过。\n\n查看完整部署身份",
+      "history": "历史执行结果\n执行失败 · ERROR\n最近一条游戏执行历史\n目标版本\n20261117\n\n执行记录时间 2026/11/17 13:01:24\n\n失败步骤：验证本次源码影响范围\n\nUNMAPPED_PLUGIN_CHANGE：release/release-impact.json\n\n原始记录保留，详细输出见本次任务日志。\n\n查看原执行记录身份\n\n尚无可关联的有效补验收证据。",
+      "deploymentBox": {
+        "x": 235.5,
+        "y": 140.703125,
+        "width": 954,
+        "height": 275.75,
+        "top": 140.703125,
+        "right": 1189.5,
+        "bottom": 416.453125,
+        "left": 235.5
+      },
+      "historyBox": {
+        "x": 235.5,
+        "y": 432.453125,
+        "width": 954,
+        "height": 326.65625,
+        "top": 432.453125,
+        "right": 1189.5,
+        "bottom": 759.109375,
+        "left": 235.5
+      },
+      "identityDisclosure": true
+    },
+    {
+      "viewport": {
+        "width": 1440,
+        "height": 1000,
+        "name": "desktop"
+      },
+      "mode": "failed",
+      "width": 1440,
+      "scrollWidth": 1425,
+      "deployment": "当前部署状态\n本次采样失败\n\n采样身份或数据校验失败（STATUS_SNAPSHOT_INVALID）。以下保留上次成功采样的信息。\n\n上次采样镜像\n\nhospital-backend:20261027\n\n旧快照，当前健康未确认\n\n快照中的健康副本\n1/1\nSwarm 状态\ncompleted\n\n上次成功采样时间 2026/10/28 20:37:53\n\n健康快照不等于整体验收通过。\n\n查看完整部署身份",
+      "history": "历史执行结果\n执行失败 · ERROR\n最近一条游戏执行历史\n目标版本\n20261117\n\n执行记录时间 2026/11/17 13:01:24\n\n失败步骤：验证本次源码影响范围\n\nUNMAPPED_PLUGIN_CHANGE：release/release-impact.json\n\n原始记录保留，详细输出见本次任务日志。\n\n查看原执行记录身份\n\n尚无可关联的有效补验收证据。",
+      "deploymentBox": {
+        "x": 235.5,
+        "y": 140.703125,
+        "width": 954,
+        "height": 306.140625,
+        "top": 140.703125,
+        "right": 1189.5,
+        "bottom": 446.84375,
+        "left": 235.5
+      },
+      "historyBox": {
+        "x": 235.5,
+        "y": 462.84375,
+        "width": 954,
+        "height": 326.65625,
+        "top": 462.84375,
+        "right": 1189.5,
+        "bottom": 789.5,
+        "left": 235.5
+      },
+      "note": "采样身份或数据校验失败（STATUS_SNAPSHOT_INVALID）。以下保留上次成功采样的信息。",
+      "identityDisclosure": true
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "name": "mobile"
+      },
+      "mode": "healthy",
+      "width": 390,
+      "scrollWidth": 375,
+      "deployment": "当前部署状态\n采样有效\n\n本次采样镜像\n\nhospital-backend:2026111501\n\n健康快照\n\n快照中的健康副本\n1/1\nSwarm 状态\ncompleted\n\n本次采样时间 2026/11/17 20:13:57\n\n健康快照不等于整体验收通过。\n\n查看完整部署身份",
+      "history": "历史执行结果\n执行失败 · ERROR\n最近一条游戏执行历史\n目标版本\n20261117\n\n执行记录时间 2026/11/17 13:01:24\n\n失败步骤：验证本次源码影响范围\n\nUNMAPPED_PLUGIN_CHANGE：release/release-impact.json\n\n原始记录保留，详细输出见本次任务日志。\n\n查看原执行记录身份\n\n尚无可关联的有效补验收证据。",
+      "deploymentBox": {
+        "x": 36,
+        "y": 184.1875,
+        "width": 303,
+        "height": 301.84375,
+        "top": 184.1875,
+        "right": 339,
+        "bottom": 486.03125,
+        "left": 36
+      },
+      "historyBox": {
+        "x": 36,
+        "y": 506.03125,
+        "width": 303,
+        "height": 378.25,
+        "top": 506.03125,
+        "right": 339,
+        "bottom": 884.28125,
+        "left": 36
+      },
+      "identityDisclosure": true
+    },
+    {
+      "viewport": {
+        "width": 390,
+        "height": 844,
+        "name": "mobile"
+      },
+      "mode": "failed",
+      "width": 390,
+      "scrollWidth": 375,
+      "deployment": "当前部署状态\n本次采样失败\n\n采样身份或数据校验失败（STATUS_SNAPSHOT_INVALID）。以下保留上次成功采样的信息。\n\n上次采样镜像\n\nhospital-backend:20261027\n\n旧快照，当前健康未确认\n\n快照中的健康副本\n1/1\nSwarm 状态\ncompleted\n\n上次成功采样时间 2026/10/28 20:37:53\n\n健康快照不等于整体验收通过。\n\n查看完整部署身份",
+      "history": "历史执行结果\n执行失败 · ERROR\n最近一条游戏执行历史\n目标版本\n20261117\n\n执行记录时间 2026/11/17 13:01:24\n\n失败步骤：验证本次源码影响范围\n\nUNMAPPED_PLUGIN_CHANGE：release/release-impact.json\n\n原始记录保留，详细输出见本次任务日志。\n\n查看原执行记录身份\n\n尚无可关联的有效补验收证据。",
+      "deploymentBox": {
+        "x": 36,
+        "y": 184.1875,
+        "width": 303,
+        "height": 346.921875,
+        "top": 184.1875,
+        "right": 339,
+        "bottom": 531.109375,
+        "left": 36
+      },
+      "historyBox": {
+        "x": 36,
+        "y": 551.109375,
+        "width": 303,
+        "height": 378.25,
+        "top": 551.109375,
+        "right": 339,
+        "bottom": 929.359375,
+        "left": 36
+      },
+      "note": "采样身份或数据校验失败（STATUS_SNAPSHOT_INVALID）。以下保留上次成功采样的信息。",
+      "identityDisclosure": true
+    }
+  ],
+  "errors": [],
+  "network": [
+    {
+      "url": "http://127.0.0.1:18790/?mode=healthy",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/styles.css",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/release-status.js",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/status?mode=healthy",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/favicon.ico",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/?mode=failed",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/styles.css",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/release-status.js",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/status?mode=failed",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/favicon.ico",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/?mode=healthy",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/styles.css",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/release-status.js",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/status?mode=healthy",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/favicon.ico",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/?mode=failed",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/styles.css",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/release-status.js",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/status?mode=failed",
+      "status": 200
+    },
+    {
+      "url": "http://127.0.0.1:18790/favicon.ico",
+      "status": 200
+    }
+  ]
+}

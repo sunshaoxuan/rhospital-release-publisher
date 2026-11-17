@@ -1,0 +1,155 @@
+{
+  "method": "Actual zh-CN rendered font glyph metrics, DOM baseline and border inner frame; labels are noninteractive badges; new cards/text left aligned. No primary action control added.",
+  "evidence": [
+    {
+      "width": 1440,
+      "measured": [
+        {
+          "text": "采样有效",
+          "background": {
+            "x": 354.5,
+            "y": 157.703125,
+            "width": 62.859375,
+            "height": 25.59375,
+            "top": 157.703125,
+            "right": 417.359375,
+            "bottom": 183.296875,
+            "left": 354.5
+          },
+          "inner": {
+            "left": 355.5,
+            "right": 416.359375,
+            "top": 158.703125,
+            "bottom": 182.296875
+          },
+          "glyph": {
+            "left": 363.5,
+            "right": 409.14453125,
+            "top": 164.703125,
+            "bottom": 174.703125
+          },
+          "center": {
+            "x": 0.392578125,
+            "y": -0.796875
+          },
+          "margins": {
+            "left": 8,
+            "right": 7.21484375,
+            "top": 6,
+            "bottom": 7.59375
+          }
+        },
+        {
+          "text": "执行失败 · ERROR",
+          "background": {
+            "x": 354.5,
+            "y": 449.453125,
+            "width": 114.421875,
+            "height": 25.59375,
+            "top": 449.453125,
+            "right": 468.921875,
+            "bottom": 475.046875,
+            "left": 354.5
+          },
+          "inner": {
+            "left": 355.5,
+            "right": 467.921875,
+            "top": 450.453125,
+            "bottom": 474.046875
+          },
+          "glyph": {
+            "left": 363.5,
+            "right": 460.4765625,
+            "top": 456.453125,
+            "bottom": 466.453125
+          },
+          "center": {
+            "x": 0.27734375,
+            "y": -0.796875
+          },
+          "margins": {
+            "left": 8,
+            "right": 7.4453125,
+            "top": 6,
+            "bottom": 7.59375
+          }
+        }
+      ]
+    },
+    {
+      "width": 390,
+      "measured": [
+        {
+          "text": "采样有效",
+          "background": {
+            "x": 155,
+            "y": 201.1875,
+            "width": 62.859375,
+            "height": 25.59375,
+            "top": 201.1875,
+            "right": 217.859375,
+            "bottom": 226.78125,
+            "left": 155
+          },
+          "inner": {
+            "left": 156,
+            "right": 216.859375,
+            "top": 202.1875,
+            "bottom": 225.78125
+          },
+          "glyph": {
+            "left": 164,
+            "right": 209.64453125,
+            "top": 208.1875,
+            "bottom": 218.1875
+          },
+          "center": {
+            "x": 0.392578125,
+            "y": -0.796875
+          },
+          "margins": {
+            "left": 8,
+            "right": 7.21484375,
+            "top": 6,
+            "bottom": 7.59375
+          }
+        },
+        {
+          "text": "执行失败 · ERROR",
+          "background": {
+            "x": 155,
+            "y": 525.03125,
+            "width": 114.421875,
+            "height": 25.59375,
+            "top": 525.03125,
+            "right": 269.421875,
+            "bottom": 550.625,
+            "left": 155
+          },
+          "inner": {
+            "left": 156,
+            "right": 268.421875,
+            "top": 526.03125,
+            "bottom": 549.625
+          },
+          "glyph": {
+            "left": 164,
+            "right": 260.9765625,
+            "top": 532.03125,
+            "bottom": 542.03125
+          },
+          "center": {
+            "x": 0.27734375,
+            "y": -0.796875
+          },
+          "margins": {
+            "left": 8,
+            "right": 7.4453125,
+            "top": 6,
+            "bottom": 7.59375
+          }
+        }
+      ]
+    }
+  ]
+}

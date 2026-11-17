@@ -20,6 +20,10 @@
 
 ## 当前状态
 
+最终Gemini3.8Flash复核确认标题与徽标一对一归属、两卡四边完整、无裁切或重叠。其对普通中文换行和指标列视觉均衡的意见经主审核属于样式偏好：中文允许自然逐字换行，指标原有28px间距及窄屏换行保持可读；不扩展本批范围。功能PASS、几何PASS、组件视觉PASS。服务启用仍待管理员权限，整体验收在启用与真实状态接口复核前保持未闭合；历史原ERROR及生产应用保持原状。
+
+最终产品候选e2f0e36：两检查组按新UI输入完成，Console15/15(1.684s)、Outcome11/11(2.788s)，此前Policy10和Runner10有效，总数46。最终4个浏览器场景均PASS，Console及网络错误0，历史ID展开/复制内容正确。当前与历史上下卡间距16px，徽标绑定各自标题，历史ERROR注明执行失败，完整错误和记录时间分区。实际中文字体字形边界测量：最小内框余量6px、最大中心误差0.797px，徽标为非交互状态文字；原有身份展开是次要操作，没有新增主要操作控件。截图、浏览器与几何数据位于docs/evidence/20261117-outcome-status。外部视觉结论保留独立来源，主Agent依实际截图作最终判断。只读生产采样成功及历史问题已定位；服务仍旧版，启用本候选需要现有Windows管理员更新脚本。源码交付、组件验收和服务启用分别记录，不把历史ERROR改写为成功。
+
 首轮原生f30a093通过46断言：policy10/10、runner10/10、console15/15、outcome11/11；documents静态通过。实际只读schema2采样及本地validator确认当前2026111501健康，原服务尚未更新。浏览器复用仓库现有Chrome/CDP工具，因本会话无CUA/node_repl工具，使用独立headless浏览器测试本次实际视图模块及CSS，原始生产快照/历史只读复制，固定采样时钟；失败状态显式注入，非生产操作。4个桌面/手机成功/失败场景无JS/网络错误，展开历史ID成功。Gemini3.1Pro上游失败；3.8Flash视觉请求成功。主审核：桌面卡四边完整，模型边框缺失判断与截图不符；移动镜像标签换行完整、详情可复制，不改变；采纳历史ERROR直接归属标题，补“执行失败”及目标版本标签，记录时间明确。失效输入public/release-status.js、styles.css及其UI断言；最小原生重跑documents+console15+outcome11，policy/runner仍可复用，预计12秒。无后端业务测试。
 
 根因证据：实际服务仍e194且空闲。只读SSH采样退出0，生产镜像hospital-backend:2026111501、副本healthy、服务version50869；旧validator强制@sha256并将仓库摘要与配置ID混比，拒收合法标签。改用schema2独立imageId，采样前后核对服务及解析出的配置ID，旧schema1缓存重新采样。原历史2026-11-17T04:01:24.973Z-20261117在validate-game-source-impact失败，UNMAPPED_PLUGIN_CHANGE: release/release-impact.json，候选f6431453；生产动作done数量0。该提交清单的影响映射为空；当前游戏HEAD已明确映射到application-release-contract.release-plugin-producer。保持历史ERROR，修复状态展示，应用仓库无须本次修改或重跑。
