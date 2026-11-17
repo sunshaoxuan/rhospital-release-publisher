@@ -59,5 +59,25 @@
     "wholeChainAcceptance": "NOT_COMPLETE",
     "serviceActivation": "NOT_AUTHORIZED",
     "productionDeployment": "NOT_AUTHORIZED"
+  },
+  "consumerC1": {
+    "scope": "Committed native consumer/tool/dependency/staged contract checkpoint; formal server switch remains C2",
+    "implementationCommit": "112937a",
+    "nativeSelected": ["documents", "publisher-plugin", "publisher-policy", "publisher-runner"],
+    "tests": 38,
+    "passed": 38,
+    "failed": 0,
+    "pluginFixture": {"tests": 6, "elapsedMs": 39589, "identityDigest": "443fb7e61de52112574482a8fbdf9e3a29f6263d78976d5b699bd8e1da809dae"},
+    "policy": {"tests": 20, "elapsedMs": 390},
+    "runner": {"tests": 12, "elapsedMs": 34882},
+    "documentStaticElapsedMs": 1096,
+    "receiptSignatures": "Verified all four without re-execution",
+    "nativeAdapter": "PASS; real Git index tree, detached candidate object, baseline, documents and source/formal owned reuse",
+    "dependency": "PASS; copied declared locked fixture dependency, version/byte identity, relevant drift rejects reuse",
+    "localTools": "Negative endpoint/image admission verified without real tool execution; actual producer/tool positive path belongs to cross-project C2 acceptance",
+    "formalEntry": "NOT_SWITCHED",
+    "wholeChain": "NOT_COMPLETE",
+    "serviceActivated": false,
+    "productionActions": 0
   }
 }

@@ -1,5 +1,9 @@
 # 变更记录
 
+## 2026-11-17 Plugin Native Contract C1
+
+- Add the committed generic candidate CLI, real staged-tree identity, dynamic document admission, explicitly granted local tools/images and locked dependency exports. Keep precheck/formal worker execution shared, strip ambient environment in nested Node children, and report scoped candidate PASS with exact counts. C1 is the producer handoff checkpoint; real server atomic switching and replaced legacy registry removal remain C2. No service activation, application check or production operation is included.
+
 ## 2026-11-17 Plugin Consumer Batch A
 
 - Add an isolated release-plugin/v1 consumer, explicit release-context/v1 admission before cache, shared before-production Node execution, owned-input signed receipts and data-only fixture extension. Reuse the existing worktree fixture and bounded native checks. Publish producer fields and remaining tool/staged/server migration requirements. Existing server, application data and production are unchanged; source delivery does not activate the service.

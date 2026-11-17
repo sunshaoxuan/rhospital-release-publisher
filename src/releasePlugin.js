@@ -6,9 +6,10 @@ const {hash} = require('./changeValidationReceipts');
 const VERSION = 'release-plugin/v1';
 const CONTEXT_VERSION = 'release-context/v1';
 const PHASES = ['source', 'artifact', 'pre-deploy', 'post-deploy'];
-const CAPABILITIES = ['engine-context@1', 'node-test@1', 'node-module@1'];
+const CAPABILITIES = ['engine-context@1', 'node-test@1', 'node-module@1', 'local-tools@1', 'node-dependencies@1'];
 const ID = /^[a-z0-9][a-z0-9.-]{0,99}$/;
-const ENVIRONMENT = new Set(['SystemRoot', 'TEMP', 'TMP', 'TZ', 'LANG', 'NODE_ENV']);
+const ENVIRONMENT = new Set(['SystemRoot', 'TEMP', 'TMP', 'TZ', 'LANG', 'NODE_ENV', 'MAVEN_OPTS', 'MAVEN_ARGS', 'MAVEN_SKIP_RC']);
+const isDocument=file=>/^(?:AGENTS|README|CHANGELOG)\.md$/.test(file)||/^(?:docs|release\/evidence)\/.+\.(?:md|json)$/.test(file)||file==='release/release-impact.json';
 function fail(code, detail = '') { throw new Error(code + (detail ? ': ' + detail : '')); }
 function freeze(value) {
   if (value && typeof value === 'object') { for (const child of Object.values(value)) freeze(child); Object.freeze(value); }
@@ -36,11 +37,18 @@ function validatePlugin(data) {
   list(data.units, () => {}, 1, 128);
   const ids = new Set();
   for (const unit of data.units) {
-    shape(unit, ['id', 'phase', 'requires', 'inputs', 'run']); id(unit.id);
+    shape(unit, ['id', 'phase', 'requires', 'inputs', 'run', ...['dependencies','images'].filter(k=>Object.hasOwn(unit,k))]); id(unit.id);
     if (ids.has(unit.id)) fail('DUPLICATE_UNIT_ID', unit.id); ids.add(unit.id);
     if (!PHASES.includes(unit.phase)) fail('UNKNOWN_PHASE');
     list(unit.requires, c => { if (typeof c !== 'string' || !/^[a-z][a-z0-9-]*@[1-9][0-9]*$/.test(c)) fail('INVALID_CAPABILITY'); }, 1, 32);
     list(unit.inputs, p => pluginPath(p), 1);
+    if(unit.dependencies!==undefined)list(unit.dependencies,name=>{if(typeof name!=='string'||!/^(@[a-z0-9_.-]+\/)?[a-z0-9][a-z0-9_.-]*$/.test(name))fail('INVALID_DEPENDENCY_NAME');},1,128);
+    if(unit.requires.includes('node-dependencies@1')!==Boolean(unit.dependencies?.length))fail('MISSING_DECLARED_DEPENDENCIES');
+    if(unit.requires.includes('local-tools@1')&&!Array.isArray(unit.images))fail('MISSING_LOCAL_IMAGE_DECLARATION');
+    if(unit.images!==undefined){
+      list(unit.images,name=>{if(typeof name!=='string'||!(/^[a-z0-9][a-z0-9:._/@-]{0,255}$/).test(name))fail('INVALID_LOCAL_IMAGE');},0,32);
+      if(!unit.requires.includes('local-tools@1'))fail('UNGRANTED_LOCAL_IMAGE');
+    }
     const run = unit.run;
     if (!run || !['node-test', 'node-module', 'maven-test'].includes(run.kind)) fail('UNKNOWN_RUNNER');
     const fields = run.kind === 'node-test' ? ['entrypoints'] : run.kind === 'node-module' ? ['entrypoint', 'args'] : ['testClasses'];
@@ -88,7 +96,8 @@ function directory(value) {
   return fs.realpathSync(value);
 }
 function createReleaseContext(options) {
-  const {candidateRoot, checkRoot, artifactRoot, target, capabilities, nodeExecutable, environment} = options || {};
+  const {candidateRoot, checkRoot, artifactRoot, target, capabilities, nodeExecutable, environment,
+    tools={},dependencyRoot='',dockerHost='',dockerConfigRoot=''} = options || {};
   id(target);
   list(capabilities, c => { if (!CAPABILITIES.includes(c)) fail('UNKNOWN_CAPABILITY', c); }, 1, 32);
   if (!capabilities.includes('engine-context@1')) fail('MISSING_CONTEXT_CAPABILITY');
@@ -96,7 +105,8 @@ function createReleaseContext(options) {
     || Object.entries(environment).some(([k, v]) => !ENVIRONMENT.has(k) || typeof v !== 'string' || v.includes('\0'))) fail('UNDECLARED_ENVIRONMENT');
   if (typeof nodeExecutable !== 'string' || !path.isAbsolute(nodeExecutable) || !fs.statSync(nodeExecutable).isFile()) fail('MISSING_NODE_TOOL');
   return {apiVersion:CONTEXT_VERSION, target, candidateRoot:directory(candidateRoot), checkRoot:directory(checkRoot), artifactRoot:directory(artifactRoot),
-    capabilities:[...capabilities].sort(), nodeExecutable:fs.realpathSync(nodeExecutable), environment:{...environment}};
+    capabilities:[...capabilities].sort(), nodeExecutable:fs.realpathSync(nodeExecutable), environment:{...environment},
+    tools:{...tools},dependencyRoot:dependencyRoot?directory(dependencyRoot):'',dockerHost,dockerConfigRoot:dockerConfigRoot?directory(dockerConfigRoot):''};
 }
 function loadReleasePlugin({repositoryRoot, candidateCommit, baselineCommit, manifestPath, target, changedPaths, workspaceRoot}) {
   if (!/^[a-f0-9]{40}$/.test(candidateCommit || '') || text(repositoryRoot, 'rev-parse', candidateCommit + '^{commit}') !== candidateCommit) fail('EXACT_CANDIDATE_REQUIRED');
@@ -113,7 +123,7 @@ function loadReleasePlugin({repositoryRoot, candidateCommit, baselineCommit, man
   const plugin = validatePlugin(JSON.parse(bytes.toString('utf8')));
   if (plugin.target !== target) fail('TARGET_MISMATCH');
   list(changedPaths, p => pluginPath(p), 0, 4096);
-  const selected = new Set();
+  const selected = new Set(),documents=[];
   for (const file of changedPaths) {
     if (file === manifestPath) {
       if (!/^[a-f0-9]{40}$/.test(baselineCommit || '') || text(repositoryRoot, 'merge-base', baselineCommit, candidateCommit) !== baselineCommit) fail('EXPLICIT_METADATA_BASELINE_REQUIRED');
@@ -129,13 +139,16 @@ function loadReleasePlugin({repositoryRoot, candidateCommit, baselineCommit, man
       continue;
     }
     const matches = plugin.coverage.filter(r => r.paths.includes(file) || r.prefixes.some(p => file.startsWith(p)));
-    if (!matches.length) fail('UNMAPPED_PLUGIN_CHANGE', file);
+    if (!matches.length) {
+      if(isDocument(file)&&!plugin.units.some(unit=>unit.inputs.includes(file))){documents.push(file);continue;}
+      fail('UNMAPPED_PLUGIN_CHANGE', file);
+    }
     for (const rule of matches) for (const unit of rule.units) selected.add(unit);
   }
   const units = plugin.units.filter(u => selected.has(u.id)).sort((a, b) => PHASES.indexOf(a.phase) - PHASES.indexOf(b.phase) || a.id.localeCompare(b.id));
   for (const unit of units) for (const capability of unit.requires) if (!CAPABILITIES.includes(capability)) fail('UNSUPPORTED_CAPABILITY', capability);
   const files = new Map();
-  const selectedFiles = [...new Set([...units.flatMap(u => u.inputs), ...plugin.migrations])];
+  const selectedFiles = [...new Set([...units.flatMap(u => u.inputs), ...plugin.migrations, ...documents.filter(f=>entries.has(f))])];
   if (selectedFiles.length > 16384) fail('TOO_MANY_INPUTS');
   const selectedEntries = selectedFiles.map(file => {
     const entry = entries.get(file);
@@ -171,8 +184,8 @@ function loadReleasePlugin({repositoryRoot, candidateCommit, baselineCommit, man
       fs.writeFileSync(destination, content, {flag:'wx', mode:0o400});
     }
     return freeze({apiVersion:VERSION, pluginId:plugin.pluginId, target, candidateCommit, baselineCommit, manifestDigest:hash(bytes), units,
-      inputDigests:Object.fromEntries([...files].map(([f, b]) => [f, hash(b)])), migrations:plugin.migrations, sourceRoot:root,
+      inputDigests:Object.fromEntries([...files].map(([f, b]) => [f, hash(b)])), migrations:plugin.migrations,documents,sourceRoot:root,
       close:() => fs.rmSync(root, {recursive:true, force:true})});
   } catch (error) { fs.rmSync(root, {recursive:true, force:true}); throw error; }
 }
-module.exports = {VERSION, CONTEXT_VERSION, PHASES, CAPABILITIES, validatePlugin, loadReleasePlugin, createReleaseContext, regular, fail};
+module.exports = {VERSION, CONTEXT_VERSION, PHASES, CAPABILITIES, validatePlugin, loadReleasePlugin, createReleaseContext, regular, fail,isDocument};

@@ -39,7 +39,8 @@ PUBLISHER_GATE_INPUTS.push('src/catalogIconCheckInputs.json','test/catalogIconGa
 PUBLISHER_GATE_INPUTS.push('src/bacteriaOperatorCheck.js','src/bacteriaOperatorCheckInputs.json','test/bacteriaOperatorCheck.test.js');
 PUBLISHER_GATE_INPUTS.push('src/skinAdminCheck.js','src/skinAdminCheckInputs.json','test/skinAdminCheck.test.js');
 const gateBase=[...POLICY_FILES,'src/localCheckPolicy.js','src/currentBehaviorChecks.json'];
-const pluginInputs=['src/releasePlugin.js','src/releasePluginRunner.js','src/changeValidationReceipts.js',
+const pluginInputs=['src/releasePlugin.js','src/releasePluginRunner.js','src/releasePluginContext.js','src/releasePluginCandidate.js',
+  'scripts/validate-plugin-candidate.mjs','src/releasePluginDocuments.js','src/changeValidationReceipts.js',
   'src/changeValidationGit.js','src/changeValidationPolicy.js','src/releaseWorktree.js','test/releaseWorktree.test.js'];
 const publisherGroups=[
  {key:'publisher-plugin',tests:['test/releaseWorktree.test.js'],inputs:pluginInputs},
@@ -88,7 +89,7 @@ function planChanges(repository, changedPaths) {
     else if(repository==='game' && (/Archive\.test\.mjs$/.test(file)||/Evidence\.test\.mjs$/.test(file)
       || /^scripts\/bacteria-lab\/(?:validate-.+-evidence|r34-source-successor)\.mjs$/.test(file)
       || file==='scripts/bacteria-lab/design-validation-leaves.json')) selected.add('archive-syntax');
-    else if(repository==='publisher' && ['src/releasePlugin.js','src/releasePluginRunner.js','test/releaseWorktree.test.js'].includes(file)) selected.add('publisher-plugin');
+    else if(repository==='publisher' && ['src/releasePlugin.js','src/releasePluginRunner.js','src/releasePluginContext.js','src/releasePluginCandidate.js','src/releasePluginDocuments.js','scripts/validate-plugin-candidate.mjs','test/releaseWorktree.test.js'].includes(file)) selected.add('publisher-plugin');
     else if(repository==='publisher' && ['test/gameReleasePreflight.test.js', 'test/bacteriaAuthoritativeBudget.test.js', 'test/gameRecoverySafety.test.js', 'test/helpers/ownedFixtures.js', 'scripts/game-service-recovery.mjs', 'scripts/game-service-recovery.py'].includes(file)) selected.add('publisher-preflight');
     else if(repository==='publisher' && ['src/publisherVersion.js','src/publisherLegacyBarrier.js','test/publisherVersionScope.test.js'].includes(file)) selected.add('publisher-version');
     else if(repository==='publisher' && ['src/changeValidationGit.js','src/changeValidationPolicy.js','src/changeValidationRunner.js','src/preflightCoverage.js','src/skinAssetInputs.json','test/changeValidationPolicy.test.js','test/changeValidationRunner.test.js'].includes(file)) {selected.add('publisher-policy');selected.add('publisher-runner');}

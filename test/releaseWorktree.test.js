@@ -69,7 +69,7 @@ function pluginFixture() {
   fs.writeFileSync(path.join(repo,'value.txt'),'fixture input');fs.writeFileSync(path.join(repo,'second.txt'),'second input');
   fs.writeFileSync(path.join(repo,'leaf.mjs'),`import fs from 'node:fs';
 const c=JSON.parse(fs.readFileSync(process.env.RELEASE_CONTEXT_FILE,'utf8'));
-if(c.apiVersion!=='release-context/v1'||!c.candidateRoot||!c.checkRoot||!c.artifactRoot||process.env.RHOSPITAL_RELEASE_PUBLISHER_ROOT||process.env.NODE_OPTIONS||process.env.PATH)process.exit(2);
+if(c.apiVersion!=='release-context/v1'||!c.candidateRoot||!c.checkRoot||!c.artifactRoot||process.env.RHOSPITAL_RELEASE_PUBLISHER_ROOT||!process.env.NODE_OPTIONS.startsWith('--import file:')||process.env.PATH)process.exit(2);
 console.log(JSON.stringify({protocol:'check-result-v1',unitId:c.unitId,state:'PASS',inputDigest:c.inputDigest,checks:1,passed:1,failed:0,skipped:0,cancelled:0,todo:0}));`);
   fs.writeFileSync(path.join(repo,'leaf.test.mjs'),`import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
 test('explicit exported context',()=>{const c=JSON.parse(fs.readFileSync(process.env.RELEASE_CONTEXT_FILE));assert.equal(c.apiVersion,'release-context/v1');assert.equal(fs.readFileSync('value.txt','utf8'),'fixture input');});`);
@@ -148,5 +148,45 @@ test('plugin admission and complete protocols reject unsafe declarations before 
     runGit(f.repo,['update-index','--cacheinfo','120000,'+oid+',value.txt']);runGit(f.repo,['commit','-m','unsafe link mode']);
     assert.throws(()=>loadReleasePlugin({repositoryRoot:f.repo,candidateCommit:runGit(f.repo,['rev-parse','HEAD']).stdout.trim(),
       manifestPath:'release/publisher/fixture.json',target:'fixture',changedPaths:['value.txt'],workspaceRoot:f.root}),/UNSAFE_OR_MISSING_CANDIDATE_INPUT/);
+  } finally {plan?.close();f.close();}
+});
+
+test('native staged adapter validates dynamic docs and reuses the same locked dependency unit formally',async()=>{
+  const f=pluginFixture();
+  try {
+    const baseline=f.candidate(),dependencies=path.join(f.root,'installed/node_modules'),pkg=path.join(dependencies,'fixture-dep');fs.mkdirSync(pkg,{recursive:true});
+    fs.writeFileSync(path.join(pkg,'package.json'),JSON.stringify({name:'fixture-dep',version:'1.0.0'}));fs.writeFileSync(path.join(pkg,'index.js'),'module.exports=1;');
+    fs.writeFileSync(path.join(f.repo,'package.json'),JSON.stringify({dependencies:{'fixture-dep':'1.0.0'}}));
+    fs.writeFileSync(path.join(f.repo,'package-lock.json'),JSON.stringify({packages:{'node_modules/fixture-dep':{version:'1.0.0'}}}));
+    f.unit.requires.push('node-dependencies@1');f.unit.dependencies=['fixture-dep'];f.unit.inputs.push('package.json','package-lock.json');
+    f.plugin.coverage[0].paths.push('package.json','package-lock.json');f.commit();
+    fs.writeFileSync(path.join(f.repo,'README.md'),'candidate document');runGit(f.repo,['add','README.md']);
+    const {validatePluginCandidate}=require('../src/releasePluginCandidate');
+    const options={phase:'source',target:'fixture',manifestPath:'release/publisher/fixture.json',baseline,environment:{},
+      workspaceRoot:f.root,dependencyRoot:dependencies,receiptsDirectory:f.options.receiptsDirectory};
+    const staged=await validatePluginCandidate(f.repo,options);
+    assert.equal(staged.protocol,'release-candidate-validation/v1');assert.equal(staged.state,'PASS');assert.equal(staged.scope,'before-production');
+    assert.equal(staged.candidateTree,runGit(f.repo,['write-tree']).stdout.trim());
+    assert.deepEqual(staged.counts,{selected:1,executed:1,reused:0,pending:0});assert.deepEqual(staged.documents,{files:1,executed:1,reused:0});
+    runGit(f.repo,['commit','-m','actual candidate']);
+    const formal=await validatePluginCandidate(f.repo,{...options,phase:'release-source',environment:{PATH:'irrelevant lookup change'},requireReceipts:true});
+    assert.deepEqual(formal.counts,{selected:1,executed:0,reused:1,pending:0});assert.deepEqual(formal.documents,{files:1,executed:0,reused:1});
+    fs.appendFileSync(path.join(pkg,'index.js'),'// dependency drift');
+    await assert.rejects(validatePluginCandidate(f.repo,{...options,phase:'release-source',requireReceipts:true}),/MISSING_PLUGIN_RECEIPT/);
+    fs.writeFileSync(path.join(f.repo,'README.md'),'[bad](missing-current.md)');runGit(f.repo,['add','README.md']);
+    await assert.rejects(validatePluginCandidate(f.repo,options),/Broken new document link/);
+  } finally {f.close();}
+});
+
+test('controlled tool admission rejects remote target and missing image declarations without launching Docker',async()=>{
+  const f=pluginFixture();let plan;
+  try {
+    f.unit.requires.push('local-tools@1');assert.throws(()=>validatePlugin(f.plugin),/MISSING_LOCAL_IMAGE_DECLARATION/);
+    f.unit.images=[];f.commit();plan=f.load();
+    const config=path.join(f.root,'docker-config');fs.mkdirSync(config);fs.writeFileSync(path.join(config,'config.json'),'{}');
+    const context=createReleaseContext({...f.context(plan),capabilities:[...f.context(plan).capabilities,'local-tools@1'],
+      tools:Object.fromEntries(['java','python','git','docker','cmd'].map(k=>[k,process.execPath])),dockerHost:'tcp://remote.invalid:2375',dockerConfigRoot:config});
+    let lookups=0;
+    await assert.rejects(executeReleasePlugin(plan,context,{...f.options,storeFactory:()=>{lookups++;}}),/LOCAL_DOCKER_ENDPOINT_REQUIRED/);assert.equal(lookups,0);
   } finally {plan?.close();f.close();}
 });

@@ -5,6 +5,7 @@ const {execFile} = require('node:child_process');
 const {pathToFileURL} = require('node:url');
 const {hash, receiptStore} = require('./changeValidationReceipts');
 const {VERSION, CONTEXT_VERSION, createReleaseContext, regular, fail} = require('./releasePlugin');
+const {dependencyClosure,installDependencies,assertDependencyExport,localIdentity,localEnvironment}=require('./releasePluginContext');
 
 function digestFile(file) { return hash(fs.readFileSync(file)); }
 function artifactIdentity(root) {
@@ -29,20 +30,23 @@ function prepare(plan, context, onlyUnit) {
   for (const unit of plan.units) for (const capability of unit.requires) {
     if (!admitted.capabilities.includes(capability)) fail('MISSING_CONTEXT_CAPABILITY', capability);
   }
-  const executor = hash(Object.fromEntries(['releasePlugin.js', 'releasePluginRunner.js', 'changeValidationReceipts.js', 'changeValidationGit.js']
+  const executor = hash(Object.fromEntries(['releasePluginRunner.js', 'releasePluginContext.js', 'changeValidationReceipts.js']
     .map(f => [f, hash(fs.readFileSync(path.join(__dirname, f), 'utf8').replace(/\r\n/g, '\n'))])));
   const environment = Object.fromEntries(Object.entries(admitted.environment).filter(([k]) => !['TEMP', 'TMP'].includes(k)));
   const tools = {node:digestFile(admitted.nodeExecutable), platform:process.platform, arch:process.arch, os:os.release()};
   const prepared = plan.units.filter(unit => !onlyUnit || unit.id === onlyUnit).map(unit => {
+    const dependencies=dependencyClosure(unit,admitted);
     const inputs = Object.fromEntries(unit.inputs.slice().sort().map(file => {
       const actual = digestFile(regular(admitted.checkRoot, file));
       if (actual !== plan.inputDigests[file]) fail('PLUGIN_INPUT_DRIFT', file);
       return [file, actual];
     }));
     const identity = {schema:VERSION, pluginId:plan.pluginId, target:plan.target, unit, inputs, executor, tools,
-      context:{apiVersion:CONTEXT_VERSION, requires:unit.requires.slice().sort(), environment},
-      artifacts:unit.phase === 'source' ? {} : artifactIdentity(admitted.artifactRoot)};
-    return {unit, identity, inputDigest:hash(inputs)};
+      context:{apiVersion:CONTEXT_VERSION, requires:unit.requires.slice().sort(),
+        environment:Object.fromEntries(Object.entries(environment).filter(([k])=>unit.requires.includes('local-tools@1')||!k.startsWith('MAVEN_')))},
+      dependencies:Object.fromEntries(Object.entries(dependencies).map(([name,spec])=>[name,{version:spec.version,files:spec.files}])),
+      localTools:localIdentity(unit,admitted),artifacts:unit.phase === 'source' ? {} : artifactIdentity(admitted.artifactRoot)};
+    return {unit, identity, dependencies,inputDigest:hash(inputs)};
   });
   for (const file of onlyUnit ? [] : plan.migrations) {
     if (digestFile(regular(admitted.candidateRoot, file)) !== plan.inputDigests[file]) fail('PLUGIN_MIGRATION_DRIFT', file);
@@ -76,20 +80,21 @@ function launch(executable, args, options) {
   });
 }
 async function executeReleasePlugin(plan, context, {boundary, stage, receiptsDirectory, signal,
-  write = () => {}, run = launch, storeFactory = receiptStore} = {}) {
+  requireReceipts=false,beforeExecute=()=>{},write = () => {}, run = launch, storeFactory = receiptStore} = {}) {
   if (boundary !== 'before-production' || !['precheck', 'formal'].includes(stage)) fail('UNSUPPORTED_EXECUTION_BOUNDARY');
   if (typeof receiptsDirectory !== 'string' || !path.isAbsolute(receiptsDirectory)) fail('EXPLICIT_RECEIPT_DIRECTORY_REQUIRED');
   const {context:admitted, prepared} = prepare(plan, context);
   if (signal?.aborted) fail('PLUGIN_CANCELLED');
+  await beforeExecute();
   const store = storeFactory(receiptsDirectory), checks = [], pending = [];
   const counts = {selected:prepared.length, executed:0, reused:0, pending:0};
-  for (const {unit, identity, inputDigest} of prepared) {
+  for (const {unit, identity, dependencies,inputDigest} of prepared) {
     if (['pre-deploy', 'post-deploy'].includes(unit.phase)) { pending.push(unit.id); counts.pending++; continue; }
     if (signal?.aborted) fail('PLUGIN_CANCELLED');
     const current = prepare(plan, context, unit.id).prepared[0];
     if (hash(current.identity) !== hash(identity)) fail('PLUGIN_INPUTS_CHANGED_BEFORE_EXECUTION', unit.id);
     const identityParts = {definition:hash(unit), inputs:hash(identity.inputs), executor:identity.executor,
-      tools:hash(identity.tools), context:hash(identity.context), artifacts:hash(identity.artifacts)};
+      tools:hash({tools:identity.tools,localTools:identity.localTools}),dependencies:hash(identity.dependencies),context:hash(identity.context), artifacts:hash(identity.artifacts)};
     const prior = store.read(identity);
     if (prior) {
       assertPluginResult(unit, prior.execution, inputDigest);
@@ -97,13 +102,22 @@ async function executeReleasePlugin(plan, context, {boundary, stage, receiptsDir
       write({unitId:unit.id, stage, result:'REUSED', reason:'OWNED_INPUTS_TOOL_CONTEXT_MATCH', identityParts}); continue;
     }
     write({unitId:unit.id, stage, result:'CACHE_MISS', reason:'NO_AUTHENTIC_OWNED_INPUT_RECEIPT', identityParts});
+    if(requireReceipts)fail('MISSING_PLUGIN_RECEIPT',unit.id);
     const scratch = fs.mkdtempSync(path.join(path.dirname(plan.sourceRoot), 'plugin-context-'));
     let result;
     try {
+      const workerRoot=path.join(scratch,'source');fs.mkdirSync(workerRoot);
+      for(const file of unit.inputs) {
+        const destination=path.join(workerRoot,file);fs.mkdirSync(path.dirname(destination),{recursive:true});
+        fs.copyFileSync(regular(admitted.checkRoot,file),destination);
+      }
+      installDependencies(dependencies,workerRoot);
+      const workerContext=createReleaseContext({...admitted,candidateRoot:workerRoot,checkRoot:workerRoot});
       const contextFile = path.join(scratch, 'context.json');
-      fs.writeFileSync(contextFile, JSON.stringify({apiVersion:CONTEXT_VERSION, candidateRoot:admitted.candidateRoot,
-        checkRoot:admitted.checkRoot, artifactRoot:admitted.artifactRoot, target:admitted.target, unitId:unit.id, inputDigest,
-        environment:admitted.environment}), {flag:'wx', mode:0o400});
+      fs.writeFileSync(contextFile, JSON.stringify({apiVersion:CONTEXT_VERSION, candidateRoot:workerRoot,
+        checkRoot:workerRoot, artifactRoot:admitted.artifactRoot, target:admitted.target, unitId:unit.id, inputDigest,
+        environment:unit.requires.includes('local-tools@1')?localEnvironment(admitted):Object.fromEntries(Object.entries(admitted.environment).filter(([k])=>!k.startsWith('MAVEN_'))),
+        tools:unit.requires.includes('local-tools@1')?admitted.tools:{}}), {flag:'wx', mode:0o400});
       // Windows may add user defaults even to an explicit child environment. Preload in every test worker too.
       const bootstrap = path.join(scratch, 'bootstrap.mjs');
       fs.writeFileSync(bootstrap, `import fs from 'node:fs';import {fileURLToPath} from 'node:url';
@@ -112,15 +126,19 @@ const context=JSON.parse(fs.readFileSync(file,'utf8'));
 for(const key of Object.keys(process.env))delete process.env[key];
 for(const [key,value] of Object.entries(context.environment))process.env[key]=value;
 process.env.RELEASE_CONTEXT_FILE=file;
+process.env.NODE_OPTIONS='--import '+import.meta.url;
 `, {flag:'wx', mode:0o400});
       const args = ['--import', pathToFileURL(bootstrap).href, ...(unit.run.kind === 'node-test'
         ? ['--experimental-vm-modules', '--test', '--test-reporter=tap', '--test-concurrency=1', ...unit.run.entrypoints]
         : [unit.run.entrypoint, ...unit.run.args])];
-      result = await run(admitted.nodeExecutable, args, {cwd:admitted.checkRoot,
+      result = await run(admitted.nodeExecutable, args, {cwd:workerRoot,
         env:{...admitted.environment, RELEASE_CONTEXT_FILE:contextFile}, signal, windowsHide:true, shell:false,
         timeout:unit.run.timeoutSeconds * 1000, maxBuffer:8 * 1024 * 1024});
       assertPluginResult(unit, result, inputDigest);
       if (signal?.aborted) fail('PLUGIN_CANCELLED');
+      const workerAfter=prepare(plan,workerContext,unit.id).prepared[0];
+      if(hash(workerAfter.identity)!==hash(identity))fail('PLUGIN_WORKER_INPUT_DRIFT',unit.id);
+      assertDependencyExport(dependencies,workerRoot);
       const after = prepare(plan, context, unit.id).prepared[0];
       if (hash(after.identity) !== hash(identity)) fail('PLUGIN_INPUTS_CHANGED_DURING_EXECUTION', unit.id);
       store.write(identity, {state:'PASS', execution:result});
