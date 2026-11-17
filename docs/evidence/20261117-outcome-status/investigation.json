@@ -13,7 +13,11 @@
     "healthyReplicas": "1/1",
     "schema": 2,
     "newValidatorHealthy": true,
-    "actualServiceStillOnOldPublisher": true
+    "actualServiceStillOnOldPublisher": false,
+    "postActivationEvidence": "activation.json",
+    "postActivationFreshness": "CURRENT",
+    "postActivationImage": "hospital-backend:20261117",
+    "postActivationHealthy": true
   },
   "historicalExecution": {
     "id": "2026-11-17T04:01:24.973Z-20261117",
@@ -51,8 +55,14 @@
     "geometry": "Noninteractive status badges: min glyph margin6px, max center deviation0.797px; all within frozen budget; no primary controls added"
   },
   "delivery": {
-    "source": "PENDING_NATIVE_DOCUMENT_COMMIT_AND_PUSH",
-    "activation": "REQUIRES_WINDOWS_ADMINISTRATOR",
+    "source": "47c7673bed9867421076725da46cb64292141161 merged and pushed; native push reused all5 selected groups",
+    "activation": "PASS",
+    "installedCommit": "47c7673bed9867421076725da46cb64292141161",
+    "installedStatus": "UP_TO_DATE",
+    "auditHistoryPreserved": true,
+    "originalErrorRecordHashPreserved": true,
+    "realBrowser": "desktop/mobile installed service PASS;0 JS errors; affected assets HTTP200; existing unrelated favicon404 retained",
+    "overall": "PASS",
     "applicationProductionActions": 0
   }
 }

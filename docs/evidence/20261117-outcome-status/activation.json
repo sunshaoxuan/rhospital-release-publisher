@@ -1,0 +1,38 @@
+{
+  "scope": "publisher-only",
+  "expected": "47c7673bed9867421076725da46cb64292141161",
+  "runtime": "47c7673bed9867421076725da46cb64292141161",
+  "versionStatus": "UP_TO_DATE",
+  "busy": false,
+  "deployment": {
+    "freshness": "CURRENT",
+    "schemaVersion": 2,
+    "image": "hospital-backend:20261117",
+    "imageId": "sha256:a09f246de8e960c83165f79de9a5cbbfaae782c0fc6191c61294e8bf262126c4",
+    "healthy": true,
+    "sampledAt": "2026-11-17T12:04:28.092799+00:00"
+  },
+  "originalHistory": {
+    "id": "2026-11-17T04:01:24.973Z-20261117",
+    "status": "ERROR",
+    "stillPresent": true,
+    "originalFailure": "validate-game-source-impact",
+    "apiRecordHash": "31b7509c5d1426e923001dc3f226817379feba3718960c3aa04d94b9c6ec7c77",
+    "persistedRecordHash": "31b7509c5d1426e923001dc3f226817379feba3718960c3aa04d94b9c6ec7c77",
+    "identicalToReadApi": true
+  },
+  "assets": [
+    {
+      "file": "public/release-status.js",
+      "http": 200,
+      "sourceMatches": true,
+      "sha256": "7cdf91efd86edc72fcba34028977a4df5494bbf99a7eb40854d6cfc1993e900c"
+    },
+    {
+      "file": "public/styles.css",
+      "http": 200,
+      "sourceMatches": true,
+      "sha256": "b1d7adda4b7d886c53e1fbbe014e44ba8458035ad9c45a1e1cfe2b2c6d7e4f94"
+    }
+  ]
+}
