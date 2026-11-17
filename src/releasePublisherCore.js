@@ -14,7 +14,7 @@ const {gameMeelokStatusCommands, gameMeelokPauseCommands, gameMeelokRestoreComma
 const {expectedTomcatVersion, tomcatJarCheckScript} = require('./tomcatSecurityCheck');
 const {gameProductionConfigGuardCommands, gameStripeAuthenticationCommands, gameProductionImageConfigCommands} = require('./gameProductionConfigGuard');
 const {resolveGameStartupContract, gameStartupContractCommands} = require('./gameStartupContract');
-const {gameRecoveryIdentityCommands} = require('./gameRecoveryIdentity');
+const {gameRecoveryIdentityCommands, gameRollbackIdentityCommands} = require('./gameRecoveryIdentity');
 const {gameRetryBaselineCommand} = require('./gameRetryBaseline');
 const deploymentTransaction=require('./gameDeploymentTransaction');
 const {gameSigningValidationViewCommands}=require('./gameSigningBinding');
@@ -1756,6 +1756,27 @@ async function diagnoseHistoryEntry(projectRoot, id, env = process.env, options 
   return diagnostics;
 }
 
+async function runCutoverObservation(projectRoot, command, env, onChunk, onHeartbeat, signal, timeoutSeconds, runCommand) {
+  const deadline = Date.now() + timeoutSeconds * 1000;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const remaining = Math.floor((deadline - Date.now()) / 1000);
+    try {
+      return await runCommand(projectRoot, command, env, onChunk, onHeartbeat, signal, Math.max(1, remaining));
+    } catch (error) {
+      const message = String(error.message || '');
+      const transient = /(?:client_loop: send disconnect: Connection reset|ssh: connect to host [^\r\n]+: (?:Connection timed out|Connection refused)|Connection to [^\r\n]+ closed by remote host)/i.test(message);
+      const unavailable = transient || /Permission denied \(publickey\)|Host key verification failed/i.test(message);
+      const fatal = /(?:^|\n)ERROR:|Swarm rollout ended|Swarm rollout did not converge/.test(message);
+      if (error.name === 'CancellationError' || signal?.aborted || !unavailable || fatal) throw error;
+      if (!transient || attempt > 0 || remaining <= 1) {
+        error.cutoverObservationUnknown = true;
+        throw error;
+      }
+      onChunk?.('[READ_ONLY_RETRY] 切换观察连接中断，在原总时限内重新读取一次；不重放部署\n');
+    }
+  }
+}
+
 async function executePlanSteps(projectRoot, request, env = process.env, options = {}) {
   const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
   const signal = options.signal;
@@ -1891,7 +1912,8 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
         let pluginOutput='';
         let maintenanceUnresolved = false;
         try {
-          const returnedOutput=await runCommand(projectRoot, step.command, env, chunk => {
+          const executeCommand = step.key === 'commit-game-cutover' ? runCutoverObservation : runCommand;
+          const returnedOutput=await executeCommand(projectRoot, step.command, env, chunk => {
             if(['validate-game-source-impact','validate-forum-source'].includes(step.key))pluginOutput+=chunk;
             if (step.key === 'capture-release-commit') {
               capturedCommitOutput += chunk;
@@ -1908,7 +1930,7 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
               pushStepLog(step.key, `[RUNNING] ${step.title} 已运行 ${elapsedSeconds} 秒，等待命令输出`);
             }
             updateStep(step.key, 'running');
-          }, signal, step.timeoutSeconds);
+          }, signal, step.timeoutSeconds, runCommand);
           if(['validate-game-source-impact','validate-forum-source'].includes(step.key))runtimePlan.config.pluginValidation=pluginPrefixReport(pluginOutput+'\n'+(returnedOutput||''),plan.releaseTarget,plan);
         } catch (error) {
           assertNotCancelled();
@@ -2004,6 +2026,11 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
       pushStepLog(failedStepKey, 'RECOVERY_REQUIRED: 科技格式停写边界已进入，保留备份与现场，禁止自动恢复旧写入者');
       return {status: 'RECOVERY_REQUIRED', plan: runtimePlan, logs: logs.slice(), completedStepKeys,
         recoveryBoundaryEntered, cutoverCommitted, cutoverCommittedAt};
+    }
+    if (failedStepKey === 'commit-game-cutover' && error.cutoverObservationUnknown) {
+      pushStepLog(failedStepKey, 'RECOVERY_REQUIRED: 切换只读连接结果未知，保留目标版本，禁止据此自动回滚');
+      return {status: 'RECOVERY_REQUIRED', plan: markStepStatus(runtimePlan, completedStepKeys, failedStepKey,
+        'failed', stepLogs, stepTiming), logs: logs.slice(), completedStepKeys, cutoverCommitted, cutoverCommittedAt};
     }
     if (failedStepKey === 'deploy-stack' && plan.config.standbyCandidate) {
       pushStepLog(failedStepKey, 'RECOVERY_REQUIRED: A候选切换提交结果需要核对，禁止依据目标版本尚未运行自动回滚');
@@ -4061,6 +4088,7 @@ function gamePreDeployChecklistCommand(remoteComposeDir, stackName, containerNam
     '(cd "$backup_dir" && sha256sum -c SHA256SUMS)',
     'test -s "$backup_dir/docker-compose.yml"',
     'test -s "$backup_dir/database/schema-status.txt"',
+    ...(offline ? [] : technologyRollbackGuardCommands('current')),
     'docker image inspect "$target_image" >/dev/null',
     ...(offline ? (codegraph ? codegraphCutover.receiptCommands(releaseMigrations, imageTag) : technologyReceiptCommands(releaseMigrations, imageTag)) : [
       'current_healthy=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | wc -l)',
@@ -4445,13 +4473,14 @@ function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName
     ...gameDatabaseContainerResolutionCommands(false),
     `database_name=${shellToken(GAME_DATABASE_NAME)}`,
     `printf %s "${suspendSqlEncoded}" | base64 -d | ${gameDatabasePsqlCommand('-f -')}`,
-    `rollback_image=$(jq -r '.[0].Spec.TaskTemplate.ContainerSpec.Image' "$backup_dir/service.inspect.json")`,
+    ...gameRollbackIdentityCommands(),
+    'rollback_image=$rollback_reference',
     `rollback_version=$(jq -r '.[0].Spec.TaskTemplate.ContainerSpec.Env[] | select(startswith("IMAGE_TAG=")) | ltrimstr("IMAGE_TAG=")' "$backup_dir/service.inspect.json")`,
     '[ -n "$rollback_image" ] && [ -n "$rollback_version" ] || { echo "ERROR: rollback image or IMAGE_TAG is missing from live snapshot"; exit 1; }',
     'if [ -f "$backup_dir/paused-retry-baseline.json" ]; then',
     gameRetryBaselineCommand('rollback'),
     'else',
-    'docker service update --detach=true --rollback "$service_name"',
+    ...gameRollbackIdentityCommands('apply'),
     'fi',
 
     `rollback_timeout_seconds="${'${RELEASE_PUBLISHER_ROLLBACK_TIMEOUT_SECONDS:-1800}'}"`,

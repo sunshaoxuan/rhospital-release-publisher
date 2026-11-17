@@ -1,6 +1,7 @@
 const crypto = require('node:crypto');
 const {GAME_DATABASE, gameDatabasePsqlCommand, gameDatabaseContainerResolutionCommands} = require('./gameProductionDatabase');
 const {gameServiceSnapshotCommands} = require('./gameFormalProductionTransition');
+const {gameRollbackIdentityCommands} = require('./gameRecoveryIdentity');
 const MIGRATIONS = ['scripts/migration/20261016_bound_supervision_income.sql', 'scripts/migration/20261016_technology_catalog.sql'];
 const ROOM_MIGRATION = 'scripts/migration/20261021_room_catalog.sql';
 const includesRoom = migrations => migrations.some(row => row.filePath === ROOM_MIGRATION);
@@ -96,18 +97,18 @@ function technologyOfflineBackupCommands(directory, serviceName, imageTag, migra
     'echo technology_offline_cutover=PASS'
   ];
 }
-function technologyRollbackGuardCommands() {
+function technologyRollbackGuardCommands(identityAction = 'verify') {
+  if (!['verify', 'current'].includes(identityAction)) throw new Error('Invalid rollback guard action');
   const sql = "BEGIN READ ONLY; SELECT (to_regclass('public.t_supervision_settlement') IS NOT NULL OR to_regclass('public.t_technology_catalog_publication') IS NOT NULL)::int; ROLLBACK;";
   const roomSql = "BEGIN READ ONLY; SELECT (to_regclass('public.t_room_catalog_publication') IS NOT NULL)::int; ROLLBACK;";
   return [
+    ...gameRollbackIdentityCommands(identityAction),
     ...gameDatabaseContainerResolutionCommands(false),
     `technology_database_floor=$(${gameDatabasePsqlCommand('-At', false)} -c ${quote(sql)} | sed '/^BEGIN$/d; /^ROLLBACK$/d')`,
     'case "$technology_database_floor" in 0|1) ;; *) echo "ERROR: unknown technology database floor"; exit 1;; esac',
     `room_database_floor=$(${gameDatabasePsqlCommand('-At', false)} -c ${quote(roomSql)} | sed '/^BEGIN$/d; /^ROLLBACK$/d')`,
     'case "$room_database_floor" in 0|1) ;; *) echo "ERROR: unknown room database floor"; exit 1;; esac',
     'if [ -f .technology-format-floor-v1 ] || [ "$technology_database_floor" = 1 ] || [ -f .room-format-floor-v1 ] || [ "$room_database_floor" = 1 ]; then',
-    '  rollback_reference=$(docker service inspect "$service_name" --format \'{{if .PreviousSpec}}{{.PreviousSpec.TaskTemplate.ContainerSpec.Image}}{{end}}\')',
-    '  if [ -n "${backup_dir:-}" ] && [ -f "$backup_dir/paused-retry-baseline.json" ]; then rollback_reference=$(jq -r \'.[0].Spec.TaskTemplate.ContainerSpec.Image\' "$backup_dir/service.inspect.json"); fi',
     '  case "$rollback_reference" in *@sha256:*) ;; *) echo "ERROR: rollback requires an immutable compatible image"; exit 1;; esac',
     '  target_image_id=$(docker image inspect "$rollback_reference" --format \'{{.Id}}\')',
     ...imageCapabilityCommands().map(row => '  ' + row),

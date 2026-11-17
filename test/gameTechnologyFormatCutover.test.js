@@ -50,7 +50,11 @@ docker() {
     *) echo "unexpected docker operation" >&2; return 92;;
   esac
 }
-python3() { cat >/dev/null; test "\${SNAPSHOT_VALID:-1}" = 1; }
+python3() {
+  cat >/dev/null
+  test "\${SNAPSHOT_VALID:-1}" = 1 || return 1
+  case "$*" in *verify|*current) echo "\${ROLLBACK_REFERENCE:-repo@sha256:abc}|sha256:target";; esac
+}
 sleep() { return 1; }
 `;
 function run(script, environment = {}) {
@@ -100,7 +104,7 @@ test('room cutover checks room capability and uses a distinct bound format floor
   assert.notEqual(run(roomReceipt).status, 0);
 });
 test('room database or partial cutover refuses a technology-only rollback image', () => {
-  const guard = 'service_name=hospital_stack_hospital-backend\n' + technologyRollbackGuardCommands().join('\n');
+  const guard = 'service_name=hospital_stack_hospital-backend\nbackup_dir=backup\n' + technologyRollbackGuardCommands().join('\n');
   reset();
   assert.equal(run(guard, {ROOM_FLOOR: '1'}).status, 0);
   assert.notEqual(run(guard, {ROOM_FLOOR: '1', ROOM_COMPATIBLE: '0'}).status, 0);
@@ -138,14 +142,14 @@ test('old containers, unconfirmed tasks and other database clients refuse migrat
     assert.equal(fs.existsSync(path.join(fixture, 'backup/database/technology-offline-backup.verified')), false);
   }
 });
-test('rollback rejects vulnerable or mutable PreviousSpec and accepts an immutable compatible image', () => {
+test('rollback rejects unbound or vulnerable references and accepts a verified immutable receipt', () => {
   reset();
-  const guard = 'service_name=hospital_stack_hospital-backend\n' + technologyRollbackGuardCommands().join('\n');
+  const guard = 'service_name=hospital_stack_hospital-backend\nbackup_dir=backup\n' + technologyRollbackGuardCommands().join('\n');
   const compatible = run(guard);
   assert.equal(compatible.status, 0, compatible.stdout + compatible.stderr);
   assert.notEqual(run(guard, {COMPATIBLE: '0'}).status, 0);
   assert.notEqual(run(guard, {ROLLBACK_REFERENCE: 'repo:mutable'}).status, 0);
-  assert.equal(run(guard, {DATABASE_FLOOR: '0', COMPATIBLE: '0', ROLLBACK_REFERENCE: 'repo:old'}).status, 0);
+  assert.notEqual(run(guard, {DATABASE_FLOOR: '0', SNAPSHOT_VALID: '0'}).status, 0);
   fs.writeFileSync(path.join(fixture, '.technology-format-floor-v1'), 'partial-migration');
   assert.notEqual(run(guard, {DATABASE_FLOOR: '0', COMPATIBLE: '0'}).status, 0);
 });

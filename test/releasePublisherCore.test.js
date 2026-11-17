@@ -2476,7 +2476,8 @@ test('game guards are repeated at deployment and Stripe authentication is a fina
   const rollback = decodedRemoteScript(byKey('game-rollback-command').command);
   assert.match(decodedScriptTree(byKey('game-rollback-command').command), /game_service_snapshot=PASS/);
   assert.ok(rollback.indexOf('python3 -') < rollback.indexOf('WARNING: suspending'));
-  assert.ok(rollback.indexOf('python3 -') < rollback.indexOf('docker service update --detach=true --rollback'));
+  assert.ok(rollback.indexOf('python3 -') < rollback.indexOf('python3 - "$backup_dir" "$service_name" apply'));
+  assert.doesNotMatch(rollback, /docker service update --detach=true --rollback/);
   assert.doesNotMatch(rollback, /docker stack deploy/);
   assert.match(rollback, /rollback_completed/);
   for (const item of plan.steps.filter(item => item.command && item.command.includes('$remoteScript ='))) {
@@ -2626,6 +2627,39 @@ test('cancellation after Meelok pause restores it without deploying the game', a
   assert.equal(result.status, 'CANCELLED');
   assert.equal(commands.some(command => decodedScriptTree(command).includes('docker stack deploy')), false);
   assert.equal(commands.filter(command => decodedScriptTree(command).includes('meelok_restore=PASS services=5')).length, 1);
+});
+
+test('cutover read-only transport retry preserves deployment and unknown-state holds without rollback', async () => {
+  for (const scenario of ['recovers', 'persistent', 'authentication', 'fatal']) {
+    const root = tempProject(sampleXml);
+    const commands = [];
+    let observations = 0;
+    const runner = async (cwd, command, env, onChunk) => {
+      commands.push(command);
+      const script = decodedScriptTree(command);
+      if (script.includes('game_cutover_observation=PASS')) {
+        observations++;
+        if (scenario === 'fatal') throw new Error('ERROR: Swarm rollout ended in paused\nclient_loop: send disconnect: Connection reset');
+        if (scenario === 'authentication') throw new Error('Permission denied (publickey)');
+        if (scenario === 'persistent' || observations === 1) throw new Error('client_loop: send disconnect: Connection reset');
+      }
+      if (script.includes('python3 - compensate --root')) return `game_deploy_transaction=ATTEMPTED id=${script.match(/--transaction '([a-f0-9-]{36})'/)[1]}\n`;
+      if (script.includes('automatic_rollback_evidence')) return 'automatic_rollback_decision=HOLD_TARGET\n';
+      onChunk?.('test_command=PASS\n');
+      return 'test_command=PASS\n';
+    };
+    const result = await executePlan(root, {appTag: '2026111701', dryRun: false, includeStackDeploy: true}, {
+      RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
+      RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'transport.json')
+    }, {runCommand: runner});
+    assert.equal(observations, ['recovers', 'persistent'].includes(scenario) ? 2 : 1, scenario);
+    assert.equal(result.status, scenario === 'recovers' ? 'EXECUTED' : 'RECOVERY_REQUIRED', scenario);
+    const scripts = commands.map(decodedScriptTree);
+    assert.equal(scripts.filter(script => script.includes('game_stack_deploy_guard=PASS')).length, 1, scenario);
+    assert.equal(scripts.some(script => script.includes('automatic_rollback_validation=PASS')), false, scenario);
+    assert.equal(scripts.some(script => script.includes('automatic_rollback_evidence')), scenario === 'fatal', scenario);
+    assert.equal(result.plan.steps.find(step => step.key === 'restore-meelok-services').status, 'done', scenario);
+  }
 });
 
 test('failed game cutover rolls back before restoring Meelok', async () => {

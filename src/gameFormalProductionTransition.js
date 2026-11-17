@@ -1,4 +1,5 @@
 const {gameRetryBaselineCommand}=require('./gameRetryBaseline');
+const {gameRollbackIdentityCommands}=require('./gameRecoveryIdentity');
 const SNAPSHOT_SCRIPT = String.raw`
 import json, subprocess, sys
 try:
@@ -22,7 +23,9 @@ function gameServiceSnapshotCommands(mode = 'current', snapshot = 'service.inspe
   if (!['service.inspect.json', 'technology-quiesced.inspect.json', 'codegraph-quiesced.inspect.json'].includes(snapshot)) throw new Error('Invalid service snapshot');
   const encoded = Buffer.from(SNAPSHOT_SCRIPT).toString('base64');
   const normal=`printf %s "${encoded}" | base64 -d | python3 - "$backup_dir/${snapshot}" "$service_name" ${mode}`;
-  if(snapshot!=='service.inspect.json' || mode==='restored') return [normal];
+  if(snapshot!=='service.inspect.json') return [normal];
+  if(mode==='restored') return ['if [ -f "$backup_dir/paused-retry-baseline.json" ]; then', normal,
+    'else', ...gameRollbackIdentityCommands('restored'), 'fi'];
   if(mode==='current') return ['if [ -f "$backup_dir/paused-retry-baseline.json" ]; then', gameRetryBaselineCommand('verify'), 'else',normal,'fi'];
   // The failed pre-retry desired Spec is PreviousSpec after the new submission;
   // the recovery Spec is the distinct healthy baseline, never that failed Spec.

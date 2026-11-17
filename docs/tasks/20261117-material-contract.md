@@ -1,0 +1,23 @@
+# 发布器与资材身份匹配
+
+主目标：修复本次2026111701暴露的生产资材与发布器身份校验不一致，减少重复失败。用户明确要求保留当前健康游戏版本，禁止回滚；已有功能和全量证据保持原身份复用。
+
+基线8f141d5657e9c677bda64cdd58d976b90e54faf1，独立分支codex/publisher-material-contract-20261117。根工作树未提交.task-tmp与旧audit属于其他任务，全部保留。原job1794922835467-115e430b14d358继续独立恢复Meelok，本任务不触发游戏发布、切换、回滚或修改生产数据。应用资材与环境现场记录各自归原仓库，本仓只交付通用发布器修复。
+
+方法：读取真实失败与官方命令，区分切换SSH传输失败、镜像引用身份、生产基线与影响评估、OCI构建证明变化。先定位生产者和校验者，沿直接消费者确定最小修复；不放宽摘要、源码、迁移或回滚安全边界，不改历史失败为成功。外部建议仅给最小匿名逻辑，由主Agent审查应用。
+
+本批成员待调查后冻结：通用镜像引用身份与提前检查、资材契约及直接回归、操作手册和更新日志。独立问题不扩入本批。完成标准为真实失败能由本地隔离fixture复现，合法身份通过，标签漂移/缺失镜像/基线不匹配明确拒绝且在生产变更前失败，游戏和论坛直接消费者不误伤，现有证据正确复用，原生提交推送交付与服务启用状态分开报告。
+
+验证：先语法、依赖和影响选择前检，再由原生门禁执行去重的针对性并集。禁止全量npm、Maven或第二次游戏部署。冻结时补精确路径、检查和预计耗时；预计局部测试不超过5分钟，超时定位原进程，不扩大范围。产品无UI修改时无需重复视觉或Gemini。全部必需项完成后停止新增检查。
+
+## 冻结与证据
+
+原job已终止为RECOVERY_REQUIRED，restore-meelok-services实际done，回滚分支未再次执行。原部署目标仍2026111701健康，HTTP200；没有新游戏动作。真实第一次失败为commit-game-cutover SSH Connection reset；错误发生在warmup采样，不能据此证明目标应用故障。备份已有game-service-recovery.json且通过原SHA256SUMS，technologyRollbackGuard未使用它，独自拒绝PreviousSpec标签。原影响评估过量路径及旧SQL属于应用资材生成错误，发布器拒绝正确，不放宽范围检查。
+
+实现范围冻结：src/gameRecoveryIdentity.js、gameTechnologyFormatCutover.js、gameFormalProductionTransition.js、releasePublisherCore.js、changeValidationPolicy.js及其三个直接测试文件，CHANGELOG、本指南和操作手册。直接消费者为游戏上线前检查、只读切换观察、正常和paused-retry恢复、恢复后完整服务核对；论坛不改变。回执解析与恢复提交共用，摘要固定、镜像身份复查及Docker API版本并发保护；科技/房间兼容性仍查原镜像ID。SSH只读重试至多一次，持续未知保留现场，明确fatal走原恢复决策。
+
+高级链路Claude5.5-high最小请求返回no available accounts，按技能转DeepSeek Flash/high匿名文本建议；主Agent采纳摘要固定、版本并发保护、未知状态保留现场和正反例，未发送秘密、生产日志或完整对话。主Agent负责实现与审查。
+
+Node语法前检通过。原生门禁选中documents、policy、runner、console、recovery、plan、source，取本仓直接消费者并集，无应用检查或全量npm。recovery补既有technology切换8例，避免只测注册而漏掉实际脚本消费者。预计3至5分钟，跟踪原门禁；不预跑相同测试。正式验证开始后只修具体失败。
+
+首次门禁documents、policy、runner、console及recovery全部PASS，recovery91.773秒；plan132例中131通过，唯一失败为旧静态断言仍要求可变标签docker rollback命令，实际新功能和故障正反例通过。失效输入仅test/releasePublisherCore.test.js，将断言改为验证原快照检查先于摘要固定的apply，并拒绝旧命令。最小重跑为原生门禁publisher-plan，已有其他组输入未变，保留PASS；publisher-source尚未运行，按原清单接续。预计plan约3分钟，不扩大检查。
