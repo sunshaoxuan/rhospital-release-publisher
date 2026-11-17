@@ -5,20 +5,47 @@
   "branch": "codex/release-plugin-core-20261117",
   "state": "PASS",
   "nativeCommitGate": {
-    "selected": ["documents", "publisher-plugin", "publisher-policy", "publisher-runner"],
+    "selected": [
+      "documents",
+      "publisher-plugin",
+      "publisher-policy",
+      "publisher-runner"
+    ],
     "executed": 4,
     "reused": 0,
     "nodeTests": 36,
     "passed": 36,
     "failed": 0,
     "checks": [
-      {"key": "documents", "elapsedMs": 1305, "protocol": "documents/v1"},
-      {"key": "publisher-plugin", "elapsedMs": 21896, "tests": 4, "pass": 4, "fail": 0,
-        "identityDigest": "8a7f73a18072e59d8afbe89bb98bcf226be911315ca6b1a7474930002e08a04c"},
-      {"key": "publisher-policy", "elapsedMs": 494, "tests": 20, "pass": 20, "fail": 0,
-        "identityDigest": "f7dc4ba4871f5895ec708e87fd4b53e3fb881b70e12126807a0f26b1c3ca3deb"},
-      {"key": "publisher-runner", "elapsedMs": 36192, "tests": 12, "pass": 12, "fail": 0,
-        "identityDigest": "6ba806a65258483836eb974956caea254e8acf246477f1bbcd6cf8da0a2af146"}
+      {
+        "key": "documents",
+        "elapsedMs": 1305,
+        "protocol": "documents/v1"
+      },
+      {
+        "key": "publisher-plugin",
+        "elapsedMs": 21896,
+        "tests": 4,
+        "pass": 4,
+        "fail": 0,
+        "identityDigest": "8a7f73a18072e59d8afbe89bb98bcf226be911315ca6b1a7474930002e08a04c"
+      },
+      {
+        "key": "publisher-policy",
+        "elapsedMs": 494,
+        "tests": 20,
+        "pass": 20,
+        "fail": 0,
+        "identityDigest": "f7dc4ba4871f5895ec708e87fd4b53e3fb881b70e12126807a0f26b1c3ca3deb"
+      },
+      {
+        "key": "publisher-runner",
+        "elapsedMs": 36192,
+        "tests": 12,
+        "pass": 12,
+        "fail": 0,
+        "identityDigest": "6ba806a65258483836eb974956caea254e8acf246477f1bbcd6cf8da0a2af146"
+      }
     ],
     "signatureReadback": "All four local receipt signatures verified without re-executing checks"
   },
@@ -28,15 +55,33 @@
     "passed": 2,
     "failed": 2,
     "elapsedMs": 9780.7061,
-    "causes": ["TAP directive regex matched the normal todo=0 summary", "Windows supplied ambient PATH to the child despite explicit environment"],
+    "causes": [
+      "TAP directive regex matched the normal todo=0 summary",
+      "Windows supplied ambient PATH to the child despite explicit environment"
+    ],
     "repair": "Correct directive matching and preload admitted environment into every leaf/test worker",
     "rerunRecord": "Original task guide A1; native hook owns revalidation"
   },
   "fixtureAcceptance": {
     "dataOnlyExtension": "PASS; existing opaque runner adds one new unit without core changes",
-    "initialPrefix": {"selected": 2, "executed": 2, "reused": 0, "pending": 0},
-    "relocatedFormalPrefix": {"selected": 2, "executed": 0, "reused": 2, "pending": 0},
-    "dataExtensionPrefix": {"selected": 3, "executed": 1, "reused": 2, "pending": 0},
+    "initialPrefix": {
+      "selected": 2,
+      "executed": 2,
+      "reused": 0,
+      "pending": 0
+    },
+    "relocatedFormalPrefix": {
+      "selected": 2,
+      "executed": 0,
+      "reused": 2,
+      "pending": 0
+    },
+    "dataExtensionPrefix": {
+      "selected": 3,
+      "executed": 1,
+      "reused": 2,
+      "pending": 0
+    },
     "missingContextBeforeCache": "PASS; store factory never invoked even with valid old receipts",
     "metadataScope": "PASS; changed one unit definition selects only that unit against explicit baseline",
     "committedBytes": "PASS; dirty invalid working manifest is ignored",
@@ -51,7 +96,16 @@
     "transitive": "New consumer imports Git object helpers and signed receipt store, never legacy business acceptance; same execute function owns both prefix stages",
     "trustBoundary": "Approved repository code executes with host Node permissions. JSON, argv, read-only file modes and preload are not an OS/network malicious-code sandbox"
   },
-  "notRun": ["npm full suite", "Maven", "application tests", "Docker build", "game release", "production upload/migration/switch/rollback", "service activation", "UI checks"],
+  "notRun": [
+    "npm full suite",
+    "Maven",
+    "application tests",
+    "Docker build",
+    "game release",
+    "production upload/migration/switch/rollback",
+    "service activation",
+    "UI checks"
+  ],
   "remaining": {
     "B": "Application manifests/leaves and exact dependency/tool contracts owned by application chat",
     "C": "Staged adapter, controlled tools/dependencies, document leaf policy, real formal entry switch and legacy registration/root removal",
@@ -63,13 +117,28 @@
   "consumerC1": {
     "scope": "Committed native consumer/tool/dependency/staged contract checkpoint; formal server switch remains C2",
     "implementationCommit": "112937a",
-    "nativeSelected": ["documents", "publisher-plugin", "publisher-policy", "publisher-runner"],
+    "nativeSelected": [
+      "documents",
+      "publisher-plugin",
+      "publisher-policy",
+      "publisher-runner"
+    ],
     "tests": 38,
     "passed": 38,
     "failed": 0,
-    "pluginFixture": {"tests": 6, "elapsedMs": 39589, "identityDigest": "443fb7e61de52112574482a8fbdf9e3a29f6263d78976d5b699bd8e1da809dae"},
-    "policy": {"tests": 20, "elapsedMs": 390},
-    "runner": {"tests": 12, "elapsedMs": 34882},
+    "pluginFixture": {
+      "tests": 6,
+      "elapsedMs": 39589,
+      "identityDigest": "443fb7e61de52112574482a8fbdf9e3a29f6263d78976d5b699bd8e1da809dae"
+    },
+    "policy": {
+      "tests": 20,
+      "elapsedMs": 390
+    },
+    "runner": {
+      "tests": 12,
+      "elapsedMs": 34882
+    },
     "documentStaticElapsedMs": 1096,
     "receiptSignatures": "Verified all four without re-execution",
     "nativeAdapter": "PASS; real Git index tree, detached candidate object, baseline, documents and source/formal owned reuse",
@@ -79,5 +148,64 @@
     "wholeChain": "NOT_COMPLETE",
     "serviceActivated": false,
     "productionActions": 0
+  },
+  "consumerC2": {
+    "sourceCommit": "e07bf51dddb46b71e15d8c9f72dd558b591bd897",
+    "sourceTree": "56c86a1704e755ed299bbb591013dded5bb30789",
+    "workerKernelCommit": "c3a6755bfa279215946426983a3a44d823cd0605",
+    "kernelUnchanged": true,
+    "state": "PUBLISHER_FIXTURE_PASS",
+    "native": {
+      "plugin": {
+        "passed": 12,
+        "seconds": 40.786
+      },
+      "policy": {
+        "passed": 7,
+        "reused": true
+      },
+      "runner": {
+        "passed": 8,
+        "seconds": 8.461
+      },
+      "version": {
+        "passed": 8,
+        "reused": true
+      },
+      "recovery": {
+        "passed": 3,
+        "seconds": 0.654
+      },
+      "plan": {
+        "passed": 147,
+        "seconds": 125.093
+      },
+      "totalPassed": 185
+    },
+    "accepted": [
+      "Existing game/forum formal Source consumes committed generic CLI",
+      "Real generated Source command executed and authentically reused in isolated before-production fixtures",
+      "Exact selected keys counts migrations and fixed core-step protection",
+      "Manifest-owning consumers and document image static admission",
+      "Tool role version and callability precede receipts and business execution",
+      "24 legacy application-owned files retired with no active runtime imports",
+      "Mandatory production safety and recovery retained",
+      "Authentic native signatures read back"
+    ],
+    "productionActions": 0,
+    "serviceActivatedByThisTask": false,
+    "producerReportedCommit": "f643145383105c368d4873e78c7f6e68ed56eb4a",
+    "producerReportedNative": {
+      "units": 42,
+      "assertions": 1184,
+      "commitPushExecuted": 0,
+      "commitPushReused": 42
+    },
+    "actualApplicationBeforeProduction": "SOURCE_OWNER_PENDING",
+    "consoleVisualAcceptance": "SEPARATE_BATCH_D",
+    "remaining": [
+      "Merge/push publisher master and verify remote",
+      "Source owner controls installed-service activation and real formal application prefix"
+    ]
   }
 }
