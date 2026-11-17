@@ -79,6 +79,14 @@ function launch(executable, args, options) {
       error:error?.message || '', signal:error?.signal || null, output:stdout || '', diagnostics:stderr || ''}));
   });
 }
+function failureDiagnostic(unitId,stage,result) {
+  const tail=(value,limit)=>String(value||'')
+    .replace(/\bBearer\s+[A-Za-z0-9._~+\/-]+=*/gi,'Bearer [REDACTED]')
+    .replace(/(\b[A-Za-z0-9_-]*(?:password|passwd|token|secret|api[_-]?key)[A-Za-z0-9_-]*["']?\s*[:=]\s*["']?)[^\s,"';}]+/gi,'$1[REDACTED]')
+    .replace(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,'[REDACTED_EMAIL]').slice(-limit);
+  return {unitId,stage,result:'FAILED',exit:result?.status??null,signal:result?.signal||null,
+    error:tail(result?.error,512),stdout:tail(result?.output,4000),stderr:tail(result?.diagnostics,4000)};
+}
 async function executeReleasePlugin(plan, context, {boundary, stage, receiptsDirectory, signal,
   requireReceipts=false,beforeExecute=()=>{},write = () => {}, run = launch, storeFactory = receiptStore} = {}) {
   if (boundary !== 'before-production' || !['precheck', 'formal'].includes(stage)) fail('UNSUPPORTED_EXECUTION_BOUNDARY');
@@ -134,7 +142,11 @@ process.env.NODE_OPTIONS='--import '+import.meta.url;
       result = await run(admitted.nodeExecutable, args, {cwd:workerRoot,
         env:{...admitted.environment, RELEASE_CONTEXT_FILE:contextFile}, signal, windowsHide:true, shell:false,
         timeout:unit.run.timeoutSeconds * 1000, maxBuffer:8 * 1024 * 1024});
-      assertPluginResult(unit, result, inputDigest);
+      try {assertPluginResult(unit, result, inputDigest);}
+      catch(error){
+        const diagnostic=failureDiagnostic(unit.id,stage,result);write(diagnostic);
+        throw new Error(error.message+'\n'+JSON.stringify(diagnostic),{cause:error});
+      }
       if (signal?.aborted) fail('PLUGIN_CANCELLED');
       const workerAfter=prepare(plan,workerContext,unit.id).prepared[0];
       if(hash(workerAfter.identity)!==hash(identity))fail('PLUGIN_WORKER_INPUT_DRIFT',unit.id);
@@ -149,4 +161,4 @@ process.env.NODE_OPTIONS='--import '+import.meta.url;
   return {state:'PREFIX_PASS', boundary, candidateCommit:plan.candidateCommit, manifestDigest:plan.manifestDigest,
     counts, checks, pending, productionActions:0, stoppedBeforeProduction:true};
 }
-module.exports = {executeReleasePlugin, assertPluginResult};
+module.exports = {executeReleasePlugin, assertPluginResult, failureDiagnostic};

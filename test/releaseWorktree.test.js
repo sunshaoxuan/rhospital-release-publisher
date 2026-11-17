@@ -203,3 +203,20 @@ test('selected tool subset executes positively and ignores unrequested Java or D
     assert.deepEqual(reused.counts,{selected:1,executed:0,reused:1,pending:0});
   } finally {plan?.close();f.close();}
 });
+
+test('real child failure retains bounded redacted diagnostics and never issues PASS',async()=>{
+  const f=pluginFixture();let plan;
+  try {
+    fs.appendFileSync(path.join(f.repo,'leaf.mjs'),"\nprocess.stderr.write('diagnostic-stack-marker');process.exit(7);\n");f.commit();plan=f.load();
+    const events=[];
+    await assert.rejects(executeReleasePlugin(plan,f.context(plan),{...f.options,write:event=>events.push(event)}),/diagnostic-stack-marker/);
+    const failure=events.find(event=>event.result==='FAILED');assert(failure);assert.equal(failure.exit,7);assert.match(failure.stderr,/diagnostic-stack-marker/);
+    assert(!events.some(event=>event.result==='EXECUTED'||event.result==='REUSED'));
+    const {failureDiagnostic}=require('../src/releasePluginRunner');
+    const redacted=failureDiagnostic('opaque','formal',{status:1,signal:'SIGTERM',error:'Authorization: Bearer fixtureCredential',
+      output:'x'.repeat(5000)+'\nPASSWORD=fixturePassword\nAPI_KEY=fixtureKey',diagnostics:'account=fixture@example.invalid\nTOKEN=fixtureToken'});
+    assert(redacted.stdout.length<=4000);assert(redacted.stderr.length<=4000);assert.equal(redacted.signal,'SIGTERM');
+    assert(!JSON.stringify(redacted).includes('fixturePassword'));assert(!JSON.stringify(redacted).includes('fixtureKey'));
+    assert(!JSON.stringify(redacted).includes('fixtureCredential'));assert(!JSON.stringify(redacted).includes('fixtureToken'));assert(!JSON.stringify(redacted).includes('fixture@example.invalid'));
+  } finally {plan?.close();f.close();}
+});
