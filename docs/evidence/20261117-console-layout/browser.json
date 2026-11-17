@@ -1,0 +1,110 @@
+{
+  "source": "33f81a9d55b2734afd5a336726ec5c1699277825",
+  "environment": "isolated localhost synthetic fixture, no remote commands",
+  "viewports": [
+    {
+      "width": 1440,
+      "height": 1000
+    },
+    {
+      "width": 390,
+      "height": 844
+    }
+  ],
+  "functional": {
+    "tabs": true,
+    "directPhaseSelection": true,
+    "previousNext": true,
+    "inputLockDuringSyntheticRun": true,
+    "logs": {
+      "total": 700,
+      "rendered": 500,
+      "downloaded": 700
+    },
+    "emptyPreview": true,
+    "emptyHistory": true,
+    "longTag": 64,
+    "lastRapidTag": "2026111704",
+    "invalidTagBusy": false,
+    "expiredPreviewHint": true,
+    "expandedCommand": true
+  },
+  "consoleErrors": [],
+  "network": [
+    {
+      "type": "response",
+      "url": "http://127.0.0.1:18789/api/version",
+      "status": 200
+    },
+    {
+      "type": "Fetch",
+      "canceled": true,
+      "errorText": "net::ERR_ABORTED",
+      "requestId": "90796.128",
+      "timestamp": 297689.339535
+    },
+    {
+      "type": "response",
+      "url": "http://127.0.0.1:18789/api/previews/266720b1-ab67-4f0a-849e-871bbab219c8/steps/git-status-before-update",
+      "status": 200
+    },
+    {
+      "type": "response",
+      "url": "http://127.0.0.1:18789/api/previews/266720b1-ab67-4f0a-849e-871bbab219c8/steps/validate-game-image",
+      "status": 200
+    },
+    {
+      "type": "response",
+      "url": "http://127.0.0.1:18789/api/version",
+      "status": 200
+    },
+    {
+      "type": "response",
+      "url": "http://127.0.0.1:18789/api/version",
+      "status": 200
+    },
+    {
+      "type": "response",
+      "url": "http://127.0.0.1:18789/api/version",
+      "status": 200
+    },
+    {
+      "type": "response",
+      "url": "http://127.0.0.1:18789/api/version",
+      "status": 200
+    },
+    {
+      "type": "response",
+      "url": "http://127.0.0.1:18789/api/version",
+      "status": 200
+    },
+    {
+      "type": "response",
+      "url": "http://127.0.0.1:18789/api/history?page=1&limit=10",
+      "status": 200
+    },
+    {
+      "type": "response",
+      "url": "http://127.0.0.1:18789/api/version",
+      "status": 200
+    },
+    {
+      "type": "response",
+      "url": "http://127.0.0.1:18789/api/version",
+      "status": 200
+    }
+  ],
+  "expectedFailures": [
+    "invalid TAG HTTP400",
+    "evicted read-only preview HTTP410",
+    "cancelled superseded step fetch net::ERR_ABORTED"
+  ],
+  "overview": {
+    "domNodes": 320,
+    "phaseCards": 9,
+    "detailCards": 0,
+    "commandBlocks": 0,
+    "documentHeightAt1440": 1549
+  },
+  "historicalLogScreenshotSource": "b2c3a6c, same log renderer; latest33 adds status text and word boundary wrapping"
+}

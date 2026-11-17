@@ -1,0 +1,1967 @@
+{
+  "schema": 1,
+  "source": "33f81a9d55b2734afd5a336726ec5c1699277825",
+  "method": "Actual rendered-font Canvas actualBoundingBox with zh-CN language, DOM text baseline, border inner frame; screenshots reviewed independently. Left-aligned native fields have separate hit rectangles.",
+  "desktopControls": [
+    {
+      "background": {
+        "bottom": 190.9375,
+        "height": 46,
+        "left": 24,
+        "right": 140,
+        "top": 144.9375,
+        "width": 116,
+        "x": 24,
+        "y": 144.9375
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 175.4375,
+        "left": 48,
+        "right": 115,
+        "top": 159.4375
+      },
+      "id": "tab-overview",
+      "inner": {
+        "bottom": 188.9375,
+        "left": 26,
+        "right": 138,
+        "top": 146.9375
+      },
+      "margins": {
+        "bottom": 13.5,
+        "left": 22,
+        "right": 23,
+        "top": 12.5
+      },
+      "text": "发布概览"
+    },
+    {
+      "background": {
+        "bottom": 190.9375,
+        "height": 46,
+        "left": 148,
+        "right": 281,
+        "top": 144.9375,
+        "width": 133,
+        "x": 148,
+        "y": 144.9375
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 175.4375,
+        "left": 171,
+        "right": 257,
+        "top": 159.4375
+      },
+      "id": "tab-details",
+      "inner": {
+        "bottom": 188.9375,
+        "left": 150,
+        "right": 279,
+        "top": 146.9375
+      },
+      "margins": {
+        "bottom": 13.5,
+        "left": 21,
+        "right": 22,
+        "top": 12.5
+      },
+      "text": "检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 190.9375,
+        "height": 46,
+        "left": 289,
+        "right": 405,
+        "top": 144.9375,
+        "width": 116,
+        "x": 289,
+        "y": 144.9375
+      },
+      "centerError": {
+        "x": 0,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 175.4375,
+        "left": 313,
+        "right": 381,
+        "top": 159.4375
+      },
+      "id": "tab-history",
+      "inner": {
+        "bottom": 188.9375,
+        "left": 291,
+        "right": 403,
+        "top": 146.9375
+      },
+      "margins": {
+        "bottom": 13.5,
+        "left": 22,
+        "right": 22,
+        "top": 12.5
+      },
+      "text": "发布历史"
+    },
+    {
+      "background": {
+        "bottom": 605.125,
+        "height": 47,
+        "left": 308,
+        "right": 352,
+        "top": 558.125,
+        "width": 44,
+        "x": 308,
+        "y": 558.125
+      },
+      "centerError": {
+        "x": -0.125,
+        "y": 0.5
+      },
+      "glyph": {
+        "bottom": 589.625,
+        "left": 320.375,
+        "right": 339.375,
+        "top": 574.625
+      },
+      "id": "git-refresh",
+      "inner": {
+        "bottom": 603.125,
+        "left": 310,
+        "right": 350,
+        "top": 560.125
+      },
+      "margins": {
+        "bottom": 13.5,
+        "left": 10.375,
+        "right": 10.625,
+        "top": 14.5
+      },
+      "text": "↻"
+    },
+    {
+      "background": {
+        "bottom": 849.921875,
+        "height": 44,
+        "left": 46,
+        "right": 142.65625,
+        "top": 805.921875,
+        "width": 96.65625,
+        "x": 46,
+        "y": 805.921875
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 835.421875,
+        "left": 76.328125,
+        "right": 111.328125,
+        "top": 819.421875
+      },
+      "id": "reload-btn",
+      "inner": {
+        "bottom": 847.921875,
+        "left": 48,
+        "right": 140.65625,
+        "top": 807.921875
+      },
+      "margins": {
+        "bottom": 12.5,
+        "left": 28.328125,
+        "right": 29.328125,
+        "top": 11.5
+      },
+      "text": "刷新"
+    },
+    {
+      "background": {
+        "bottom": 849.921875,
+        "height": 44,
+        "left": 150.65625,
+        "right": 247.328125,
+        "top": 805.921875,
+        "width": 96.671875,
+        "x": 150.65625,
+        "y": 805.921875
+      },
+      "centerError": {
+        "x": -0.5078125,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 835.421875,
+        "left": 163.984375,
+        "right": 232.984375,
+        "top": 819.421875
+      },
+      "id": "execute-btn",
+      "inner": {
+        "bottom": 847.921875,
+        "left": 152.65625,
+        "right": 245.328125,
+        "top": 807.921875
+      },
+      "margins": {
+        "bottom": 12.5,
+        "left": 11.328125,
+        "right": 12.34375,
+        "top": 11.5
+      },
+      "text": "执行流程"
+    },
+    {
+      "background": {
+        "bottom": 849.921875,
+        "height": 44,
+        "left": 255.328125,
+        "right": 352,
+        "top": 805.921875,
+        "width": 96.671875,
+        "x": 255.328125,
+        "y": 805.921875
+      },
+      "centerError": {
+        "x": -0.5078125,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 835.421875,
+        "left": 268.65625,
+        "right": 337.65625,
+        "top": 819.421875
+      },
+      "id": "cancel-btn",
+      "inner": {
+        "bottom": 847.921875,
+        "left": 257.328125,
+        "right": 350,
+        "top": 807.921875
+      },
+      "margins": {
+        "bottom": 12.5,
+        "left": 11.328125,
+        "right": 12.34375,
+        "top": 11.5
+      },
+      "text": "取消执行"
+    },
+    {
+      "background": {
+        "bottom": 549.75,
+        "height": 44,
+        "left": 624.4375,
+        "right": 741.4375,
+        "top": 505.75,
+        "width": 117,
+        "x": 624.4375,
+        "y": 505.75
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 533.75,
+        "left": 636.4375,
+        "right": 728.4375,
+        "top": 521.75
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 548.75,
+        "left": 625.4375,
+        "right": 740.4375,
+        "top": 506.75
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 549.75,
+        "height": 44,
+        "left": 1111.9375,
+        "right": 1228.9375,
+        "top": 505.75,
+        "width": 117,
+        "x": 1111.9375,
+        "y": 505.75
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 533.75,
+        "left": 1123.9375,
+        "right": 1215.9375,
+        "top": 521.75
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 548.75,
+        "left": 1112.9375,
+        "right": 1227.9375,
+        "top": 506.75
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 697.75,
+        "height": 44,
+        "left": 624.4375,
+        "right": 741.4375,
+        "top": 653.75,
+        "width": 117,
+        "x": 624.4375,
+        "y": 653.75
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 681.75,
+        "left": 636.4375,
+        "right": 728.4375,
+        "top": 669.75
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 696.75,
+        "left": 625.4375,
+        "right": 740.4375,
+        "top": 654.75
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 697.75,
+        "height": 44,
+        "left": 1111.9375,
+        "right": 1228.9375,
+        "top": 653.75,
+        "width": 117,
+        "x": 1111.9375,
+        "y": 653.75
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 681.75,
+        "left": 1123.9375,
+        "right": 1215.9375,
+        "top": 669.75
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 696.75,
+        "left": 1112.9375,
+        "right": 1227.9375,
+        "top": 654.75
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 845.75,
+        "height": 44,
+        "left": 624.4375,
+        "right": 741.4375,
+        "top": 801.75,
+        "width": 117,
+        "x": 624.4375,
+        "y": 801.75
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 829.75,
+        "left": 636.4375,
+        "right": 728.4375,
+        "top": 817.75
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 844.75,
+        "left": 625.4375,
+        "right": 740.4375,
+        "top": 802.75
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 845.75,
+        "height": 44,
+        "left": 1111.9375,
+        "right": 1228.9375,
+        "top": 801.75,
+        "width": 117,
+        "x": 1111.9375,
+        "y": 801.75
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 829.75,
+        "left": 1123.9375,
+        "right": 1215.9375,
+        "top": 817.75
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 844.75,
+        "left": 1112.9375,
+        "right": 1227.9375,
+        "top": 802.75
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 993.75,
+        "height": 44,
+        "left": 624.4375,
+        "right": 741.4375,
+        "top": 949.75,
+        "width": 117,
+        "x": 624.4375,
+        "y": 949.75
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 977.75,
+        "left": 636.4375,
+        "right": 728.4375,
+        "top": 965.75
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 992.75,
+        "left": 625.4375,
+        "right": 740.4375,
+        "top": 950.75
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 993.75,
+        "height": 44,
+        "left": 1111.9375,
+        "right": 1228.9375,
+        "top": 949.75,
+        "width": 117,
+        "x": 1111.9375,
+        "y": 949.75
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 977.75,
+        "left": 1123.9375,
+        "right": 1215.9375,
+        "top": 965.75
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 992.75,
+        "left": 1112.9375,
+        "right": 1227.9375,
+        "top": 950.75
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 1141.75,
+        "height": 44,
+        "left": 624.4375,
+        "right": 741.4375,
+        "top": 1097.75,
+        "width": 117,
+        "x": 624.4375,
+        "y": 1097.75
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 1125.75,
+        "left": 636.4375,
+        "right": 728.4375,
+        "top": 1113.75
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 1140.75,
+        "left": 625.4375,
+        "right": 740.4375,
+        "top": 1098.75
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    }
+  ],
+  "mobileControls": [
+    {
+      "background": {
+        "bottom": 280.171875,
+        "height": 46,
+        "left": 16,
+        "right": 126.328125,
+        "top": 234.171875,
+        "width": 110.328125,
+        "x": 16,
+        "y": 234.171875
+      },
+      "centerError": {
+        "x": -0.5078125,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 262.671875,
+        "left": 41.15625,
+        "right": 100.15625,
+        "top": 250.671875
+      },
+      "id": "tab-overview",
+      "inner": {
+        "bottom": 278.171875,
+        "left": 18,
+        "right": 124.328125,
+        "top": 236.171875
+      },
+      "margins": {
+        "bottom": 15.5,
+        "left": 23.15625,
+        "right": 24.171875,
+        "top": 14.5
+      },
+      "text": "发布概览"
+    },
+    {
+      "background": {
+        "bottom": 280.171875,
+        "height": 46,
+        "left": 132.328125,
+        "right": 242.671875,
+        "top": 234.171875,
+        "width": 110.34375,
+        "x": 132.328125,
+        "y": 234.171875
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 262.671875,
+        "left": 150,
+        "right": 224,
+        "top": 250.671875
+      },
+      "id": "tab-details",
+      "inner": {
+        "bottom": 278.171875,
+        "left": 134.328125,
+        "right": 240.671875,
+        "top": 236.171875
+      },
+      "margins": {
+        "bottom": 15.5,
+        "left": 15.671875,
+        "right": 16.671875,
+        "top": 14.5
+      },
+      "text": "检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 280.171875,
+        "height": 46,
+        "left": 248.671875,
+        "right": 359,
+        "top": 234.171875,
+        "width": 110.328125,
+        "x": 248.671875,
+        "y": 234.171875
+      },
+      "centerError": {
+        "x": -0.5078125,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 262.671875,
+        "left": 273.828125,
+        "right": 332.828125,
+        "top": 250.671875
+      },
+      "id": "tab-history",
+      "inner": {
+        "bottom": 278.171875,
+        "left": 250.671875,
+        "right": 357,
+        "top": 236.171875
+      },
+      "margins": {
+        "bottom": 15.5,
+        "left": 23.15625,
+        "right": 24.171875,
+        "top": 14.5
+      },
+      "text": "发布历史"
+    },
+    {
+      "background": {
+        "bottom": 690.359375,
+        "height": 47,
+        "left": 297,
+        "right": 341,
+        "top": 643.359375,
+        "width": 44,
+        "x": 297,
+        "y": 643.359375
+      },
+      "centerError": {
+        "x": -0.125,
+        "y": 0.5
+      },
+      "glyph": {
+        "bottom": 674.859375,
+        "left": 309.375,
+        "right": 328.375,
+        "top": 659.859375
+      },
+      "id": "git-refresh",
+      "inner": {
+        "bottom": 688.359375,
+        "left": 299,
+        "right": 339,
+        "top": 645.359375
+      },
+      "margins": {
+        "bottom": 13.5,
+        "left": 10.375,
+        "right": 10.625,
+        "top": 14.5
+      },
+      "text": "↻"
+    },
+    {
+      "background": {
+        "bottom": 935.15625,
+        "height": 44,
+        "left": 34,
+        "right": 131,
+        "top": 891.15625,
+        "width": 97,
+        "x": 34,
+        "y": 891.15625
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 920.65625,
+        "left": 64.5,
+        "right": 99.5,
+        "top": 904.65625
+      },
+      "id": "reload-btn",
+      "inner": {
+        "bottom": 933.15625,
+        "left": 36,
+        "right": 129,
+        "top": 893.15625
+      },
+      "margins": {
+        "bottom": 12.5,
+        "left": 28.5,
+        "right": 29.5,
+        "top": 11.5
+      },
+      "text": "刷新"
+    },
+    {
+      "background": {
+        "bottom": 935.15625,
+        "height": 44,
+        "left": 139,
+        "right": 236,
+        "top": 891.15625,
+        "width": 97,
+        "x": 139,
+        "y": 891.15625
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 920.65625,
+        "left": 152.5,
+        "right": 221.5,
+        "top": 904.65625
+      },
+      "id": "execute-btn",
+      "inner": {
+        "bottom": 933.15625,
+        "left": 141,
+        "right": 234,
+        "top": 893.15625
+      },
+      "margins": {
+        "bottom": 12.5,
+        "left": 11.5,
+        "right": 12.5,
+        "top": 11.5
+      },
+      "text": "执行流程"
+    },
+    {
+      "background": {
+        "bottom": 935.15625,
+        "height": 44,
+        "left": 244,
+        "right": 341,
+        "top": 891.15625,
+        "width": 97,
+        "x": 244,
+        "y": 891.15625
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 920.65625,
+        "left": 257.5,
+        "right": 326.5,
+        "top": 904.65625
+      },
+      "id": "cancel-btn",
+      "inner": {
+        "bottom": 933.15625,
+        "left": 246,
+        "right": 339,
+        "top": 893.15625
+      },
+      "margins": {
+        "bottom": 12.5,
+        "left": 11.5,
+        "right": 12.5,
+        "top": 11.5
+      },
+      "text": "取消执行"
+    },
+    {
+      "background": {
+        "bottom": 1929.34375,
+        "height": 44,
+        "left": 106,
+        "right": 223,
+        "top": 1885.34375,
+        "width": 117,
+        "x": 106,
+        "y": 1885.34375
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 1913.34375,
+        "left": 118,
+        "right": 210,
+        "top": 1901.34375
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 1928.34375,
+        "left": 107,
+        "right": 222,
+        "top": 1886.34375
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 2103.28125,
+        "height": 44,
+        "left": 106,
+        "right": 223,
+        "top": 2059.28125,
+        "width": 117,
+        "x": 106,
+        "y": 2059.28125
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 2087.28125,
+        "left": 118,
+        "right": 210,
+        "top": 2075.28125
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 2102.28125,
+        "left": 107,
+        "right": 222,
+        "top": 2060.28125
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 2277.21875,
+        "height": 44,
+        "left": 106,
+        "right": 223,
+        "top": 2233.21875,
+        "width": 117,
+        "x": 106,
+        "y": 2233.21875
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 2261.21875,
+        "left": 118,
+        "right": 210,
+        "top": 2249.21875
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 2276.21875,
+        "left": 107,
+        "right": 222,
+        "top": 2234.21875
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 2451.15625,
+        "height": 44,
+        "left": 106,
+        "right": 223,
+        "top": 2407.15625,
+        "width": 117,
+        "x": 106,
+        "y": 2407.15625
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 2435.15625,
+        "left": 118,
+        "right": 210,
+        "top": 2423.15625
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 2450.15625,
+        "left": 107,
+        "right": 222,
+        "top": 2408.15625
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 2625.09375,
+        "height": 44,
+        "left": 106,
+        "right": 223,
+        "top": 2581.09375,
+        "width": 117,
+        "x": 106,
+        "y": 2581.09375
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 2609.09375,
+        "left": 118,
+        "right": 210,
+        "top": 2597.09375
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 2624.09375,
+        "left": 107,
+        "right": 222,
+        "top": 2582.09375
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 2799.03125,
+        "height": 44,
+        "left": 106,
+        "right": 223,
+        "top": 2755.03125,
+        "width": 117,
+        "x": 106,
+        "y": 2755.03125
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 2783.03125,
+        "left": 118,
+        "right": 210,
+        "top": 2771.03125
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 2798.03125,
+        "left": 107,
+        "right": 222,
+        "top": 2756.03125
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 2972.96875,
+        "height": 44,
+        "left": 106,
+        "right": 223,
+        "top": 2928.96875,
+        "width": 117,
+        "x": 106,
+        "y": 2928.96875
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 2956.96875,
+        "left": 118,
+        "right": 210,
+        "top": 2944.96875
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 2971.96875,
+        "left": 107,
+        "right": 222,
+        "top": 2929.96875
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 3146.90625,
+        "height": 44,
+        "left": 106,
+        "right": 223,
+        "top": 3102.90625,
+        "width": 117,
+        "x": 106,
+        "y": 3102.90625
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 3130.90625,
+        "left": 118,
+        "right": 210,
+        "top": 3118.90625
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 3145.90625,
+        "left": 107,
+        "right": 222,
+        "top": 3103.90625
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 3320.84375,
+        "height": 44,
+        "left": 106,
+        "right": 223,
+        "top": 3276.84375,
+        "width": 117,
+        "x": 106,
+        "y": 3276.84375
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 3304.84375,
+        "left": 118,
+        "right": 210,
+        "top": 3292.84375
+      },
+      "id": "flow-open",
+      "inner": {
+        "bottom": 3319.84375,
+        "left": 107,
+        "right": 222,
+        "top": 3277.84375
+      },
+      "margins": {
+        "bottom": 15,
+        "left": 11,
+        "right": 12,
+        "top": 15
+      },
+      "text": "查看检查与日志"
+    }
+  ],
+  "desktopDetails": [
+    {
+      "background": {
+        "bottom": 190.9375,
+        "height": 46,
+        "left": 24,
+        "right": 140,
+        "top": 144.9375,
+        "width": 116,
+        "x": 24,
+        "y": 144.9375
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 175.4375,
+        "left": 48,
+        "right": 115,
+        "top": 159.4375
+      },
+      "id": "tab-overview",
+      "inner": {
+        "bottom": 188.9375,
+        "left": 26,
+        "right": 138,
+        "top": 146.9375
+      },
+      "margins": {
+        "bottom": 13.5,
+        "left": 22,
+        "right": 23,
+        "top": 12.5
+      },
+      "text": "发布概览"
+    },
+    {
+      "background": {
+        "bottom": 190.9375,
+        "height": 46,
+        "left": 148,
+        "right": 281,
+        "top": 144.9375,
+        "width": 133,
+        "x": 148,
+        "y": 144.9375
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 175.4375,
+        "left": 171,
+        "right": 257,
+        "top": 159.4375
+      },
+      "id": "tab-details",
+      "inner": {
+        "bottom": 188.9375,
+        "left": 150,
+        "right": 279,
+        "top": 146.9375
+      },
+      "margins": {
+        "bottom": 13.5,
+        "left": 21,
+        "right": 22,
+        "top": 12.5
+      },
+      "text": "检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 190.9375,
+        "height": 46,
+        "left": 289,
+        "right": 405,
+        "top": 144.9375,
+        "width": 116,
+        "x": 289,
+        "y": 144.9375
+      },
+      "centerError": {
+        "x": 0,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 175.4375,
+        "left": 313,
+        "right": 381,
+        "top": 159.4375
+      },
+      "id": "tab-history",
+      "inner": {
+        "bottom": 188.9375,
+        "left": 291,
+        "right": 403,
+        "top": 146.9375
+      },
+      "margins": {
+        "bottom": 13.5,
+        "left": 22,
+        "right": 22,
+        "top": 12.5
+      },
+      "text": "发布历史"
+    },
+    {
+      "background": {
+        "bottom": 491.0625,
+        "height": 46,
+        "left": 1199,
+        "right": 1286,
+        "top": 445.0625,
+        "width": 87,
+        "x": 1199,
+        "y": 445.0625
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 475.5625,
+        "left": 1216,
+        "right": 1268,
+        "top": 459.5625
+      },
+      "id": "step-prev",
+      "inner": {
+        "bottom": 489.0625,
+        "left": 1201,
+        "right": 1284,
+        "top": 447.0625
+      },
+      "margins": {
+        "bottom": 13.5,
+        "left": 15,
+        "right": 16,
+        "top": 12.5
+      },
+      "text": "上一步"
+    },
+    {
+      "background": {
+        "bottom": 491.0625,
+        "height": 46,
+        "left": 1294,
+        "right": 1381,
+        "top": 445.0625,
+        "width": 87,
+        "x": 1294,
+        "y": 445.0625
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 475.5625,
+        "left": 1311,
+        "right": 1363,
+        "top": 459.5625
+      },
+      "id": "step-next",
+      "inner": {
+        "bottom": 489.0625,
+        "left": 1296,
+        "right": 1379,
+        "top": 447.0625
+      },
+      "margins": {
+        "bottom": 13.5,
+        "left": 15,
+        "right": 16,
+        "top": 12.5
+      },
+      "text": "下一步"
+    }
+  ],
+  "mobileDetails": [
+    {
+      "background": {
+        "bottom": 280.171875,
+        "height": 46,
+        "left": 16,
+        "right": 126.328125,
+        "top": 234.171875,
+        "width": 110.328125,
+        "x": 16,
+        "y": 234.171875
+      },
+      "centerError": {
+        "x": -0.5078125,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 262.671875,
+        "left": 41.15625,
+        "right": 100.15625,
+        "top": 250.671875
+      },
+      "id": "tab-overview",
+      "inner": {
+        "bottom": 278.171875,
+        "left": 18,
+        "right": 124.328125,
+        "top": 236.171875
+      },
+      "margins": {
+        "bottom": 15.5,
+        "left": 23.15625,
+        "right": 24.171875,
+        "top": 14.5
+      },
+      "text": "发布概览"
+    },
+    {
+      "background": {
+        "bottom": 280.171875,
+        "height": 46,
+        "left": 132.328125,
+        "right": 242.671875,
+        "top": 234.171875,
+        "width": 110.34375,
+        "x": 132.328125,
+        "y": 234.171875
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 262.671875,
+        "left": 150,
+        "right": 224,
+        "top": 250.671875
+      },
+      "id": "tab-details",
+      "inner": {
+        "bottom": 278.171875,
+        "left": 134.328125,
+        "right": 240.671875,
+        "top": 236.171875
+      },
+      "margins": {
+        "bottom": 15.5,
+        "left": 15.671875,
+        "right": 16.671875,
+        "top": 14.5
+      },
+      "text": "检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 280.171875,
+        "height": 46,
+        "left": 248.671875,
+        "right": 359,
+        "top": 234.171875,
+        "width": 110.328125,
+        "x": 248.671875,
+        "y": 234.171875
+      },
+      "centerError": {
+        "x": -0.5078125,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 262.671875,
+        "left": 273.828125,
+        "right": 332.828125,
+        "top": 250.671875
+      },
+      "id": "tab-history",
+      "inner": {
+        "bottom": 278.171875,
+        "left": 250.671875,
+        "right": 357,
+        "top": 236.171875
+      },
+      "margins": {
+        "bottom": 15.5,
+        "left": 23.15625,
+        "right": 24.171875,
+        "top": 14.5
+      },
+      "text": "发布历史"
+    },
+    {
+      "background": {
+        "bottom": 687.234375,
+        "height": 46,
+        "left": 34,
+        "right": 183.5,
+        "top": 641.234375,
+        "width": 149.5,
+        "x": 34,
+        "y": 641.234375
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 671.734375,
+        "left": 82.25,
+        "right": 134.25,
+        "top": 655.734375
+      },
+      "id": "step-prev",
+      "inner": {
+        "bottom": 685.234375,
+        "left": 36,
+        "right": 181.5,
+        "top": 643.234375
+      },
+      "margins": {
+        "bottom": 13.5,
+        "left": 46.25,
+        "right": 47.25,
+        "top": 12.5
+      },
+      "text": "上一步"
+    },
+    {
+      "background": {
+        "bottom": 687.234375,
+        "height": 46,
+        "left": 191.5,
+        "right": 341,
+        "top": 641.234375,
+        "width": 149.5,
+        "x": 191.5,
+        "y": 641.234375
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 671.734375,
+        "left": 239.75,
+        "right": 291.75,
+        "top": 655.734375
+      },
+      "id": "step-next",
+      "inner": {
+        "bottom": 685.234375,
+        "left": 193.5,
+        "right": 339,
+        "top": 643.234375
+      },
+      "margins": {
+        "bottom": 13.5,
+        "left": 46.25,
+        "right": 47.25,
+        "top": 12.5
+      },
+      "text": "下一步"
+    }
+  ],
+  "mobileHistory": [
+    {
+      "background": {
+        "bottom": 280.171875,
+        "height": 46,
+        "left": 16,
+        "right": 126.328125,
+        "top": 234.171875,
+        "width": 110.328125,
+        "x": 16,
+        "y": 234.171875
+      },
+      "centerError": {
+        "x": -0.5078125,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 262.671875,
+        "left": 41.15625,
+        "right": 100.15625,
+        "top": 250.671875
+      },
+      "id": "tab-overview",
+      "inner": {
+        "bottom": 278.171875,
+        "left": 18,
+        "right": 124.328125,
+        "top": 236.171875
+      },
+      "margins": {
+        "bottom": 15.5,
+        "left": 23.15625,
+        "right": 24.171875,
+        "top": 14.5
+      },
+      "text": "发布概览"
+    },
+    {
+      "background": {
+        "bottom": 280.171875,
+        "height": 46,
+        "left": 132.328125,
+        "right": 242.671875,
+        "top": 234.171875,
+        "width": 110.34375,
+        "x": 132.328125,
+        "y": 234.171875
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 262.671875,
+        "left": 150,
+        "right": 224,
+        "top": 250.671875
+      },
+      "id": "tab-details",
+      "inner": {
+        "bottom": 278.171875,
+        "left": 134.328125,
+        "right": 240.671875,
+        "top": 236.171875
+      },
+      "margins": {
+        "bottom": 15.5,
+        "left": 15.671875,
+        "right": 16.671875,
+        "top": 14.5
+      },
+      "text": "检查与日志"
+    },
+    {
+      "background": {
+        "bottom": 280.171875,
+        "height": 46,
+        "left": 248.671875,
+        "right": 359,
+        "top": 234.171875,
+        "width": 110.328125,
+        "x": 248.671875,
+        "y": 234.171875
+      },
+      "centerError": {
+        "x": -0.5078125,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 262.671875,
+        "left": 273.828125,
+        "right": 332.828125,
+        "top": 250.671875
+      },
+      "id": "tab-history",
+      "inner": {
+        "bottom": 278.171875,
+        "left": 250.671875,
+        "right": 357,
+        "top": 236.171875
+      },
+      "margins": {
+        "bottom": 15.5,
+        "left": 23.15625,
+        "right": 24.171875,
+        "top": 14.5
+      },
+      "text": "发布历史"
+    },
+    {
+      "background": {
+        "bottom": 474.359375,
+        "height": 44,
+        "left": 36,
+        "right": 183.5,
+        "top": 430.359375,
+        "width": 147.5,
+        "x": 36,
+        "y": 430.359375
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 458.359375,
+        "left": 82.75,
+        "right": 135.75,
+        "top": 446.359375
+      },
+      "id": "history-refresh",
+      "inner": {
+        "bottom": 472.359375,
+        "left": 38,
+        "right": 181.5,
+        "top": 432.359375
+      },
+      "margins": {
+        "bottom": 14,
+        "left": 44.75,
+        "right": 45.75,
+        "top": 14
+      },
+      "text": "刷新记录"
+    },
+    {
+      "background": {
+        "bottom": 530.359375,
+        "height": 44,
+        "left": 36,
+        "right": 103,
+        "top": 486.359375,
+        "width": 67,
+        "x": 36,
+        "y": 486.359375
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 514.359375,
+        "left": 49,
+        "right": 89,
+        "top": 502.359375
+      },
+      "id": "history-prev",
+      "inner": {
+        "bottom": 528.359375,
+        "left": 38,
+        "right": 101,
+        "top": 488.359375
+      },
+      "margins": {
+        "bottom": 14,
+        "left": 11,
+        "right": 12,
+        "top": 14
+      },
+      "text": "上一页"
+    },
+    {
+      "background": {
+        "bottom": 517.859375,
+        "height": 19,
+        "left": 141.5,
+        "right": 233.5,
+        "top": 498.859375,
+        "width": 92,
+        "x": 141.5,
+        "y": 498.859375
+      },
+      "centerError": {
+        "x": -0.1875,
+        "y": -0.5
+      },
+      "glyph": {
+        "bottom": 515.859375,
+        "left": 141.5,
+        "right": 233.125,
+        "top": 499.859375
+      },
+      "id": "history-count",
+      "inner": {
+        "bottom": 517.859375,
+        "left": 141.5,
+        "right": 233.5,
+        "top": 498.859375
+      },
+      "margins": {
+        "bottom": 2,
+        "left": 0,
+        "right": 0.375,
+        "top": 1
+      },
+      "text": "0 条 · 1/1"
+    },
+    {
+      "background": {
+        "bottom": 530.359375,
+        "height": 44,
+        "left": 272,
+        "right": 339,
+        "top": 486.359375,
+        "width": 67,
+        "x": 272,
+        "y": 486.359375
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 514.359375,
+        "left": 285,
+        "right": 325,
+        "top": 502.359375
+      },
+      "id": "history-next",
+      "inner": {
+        "bottom": 528.359375,
+        "left": 274,
+        "right": 337,
+        "top": 488.359375
+      },
+      "margins": {
+        "bottom": 14,
+        "left": 11,
+        "right": 12,
+        "top": 14
+      },
+      "text": "下一页"
+    },
+    {
+      "background": {
+        "bottom": 474.359375,
+        "height": 44,
+        "left": 191.5,
+        "right": 339,
+        "top": 430.359375,
+        "width": 147.5,
+        "x": 191.5,
+        "y": 430.359375
+      },
+      "centerError": {
+        "x": -0.5,
+        "y": 0
+      },
+      "glyph": {
+        "bottom": 458.359375,
+        "left": 251.25,
+        "right": 278.25,
+        "top": 446.359375
+      },
+      "id": "history-clear",
+      "inner": {
+        "bottom": 472.359375,
+        "left": 193.5,
+        "right": 337,
+        "top": 432.359375
+      },
+      "margins": {
+        "bottom": 14,
+        "left": 57.75,
+        "right": 58.75,
+        "top": 14
+      },
+      "text": "清空"
+    }
+  ],
+  "fieldGeometry": [
+    {
+      "id": "release-target",
+      "rect": {
+        "bottom": 452.359375,
+        "height": 47,
+        "left": 34,
+        "right": 341,
+        "top": 405.359375,
+        "width": 307,
+        "x": 34,
+        "y": 405.359375
+      },
+      "role": "SELECT",
+      "type": "select-one"
+    },
+    {
+      "id": "app-tag",
+      "rect": {
+        "bottom": 530.359375,
+        "height": 45,
+        "left": 34,
+        "right": 341,
+        "top": 485.359375,
+        "width": 307,
+        "x": 34,
+        "y": 485.359375
+      },
+      "role": "INPUT",
+      "type": "text"
+    },
+    {
+      "id": "git-branch",
+      "rect": {
+        "bottom": 610.359375,
+        "height": 47,
+        "left": 34,
+        "right": 341,
+        "top": 563.359375,
+        "width": 307,
+        "x": 34,
+        "y": 563.359375
+      },
+      "role": "SELECT",
+      "type": "select-one"
+    },
+    {
+      "id": "git-commit",
+      "rect": {
+        "bottom": 690.359375,
+        "height": 47,
+        "left": 34,
+        "right": 289,
+        "top": 643.359375,
+        "width": 255,
+        "x": 34,
+        "y": 643.359375
+      },
+      "role": "SELECT",
+      "type": "select-one"
+    },
+    {
+      "id": "check-row",
+      "rect": {
+        "bottom": 752.359375,
+        "height": 50,
+        "left": 34,
+        "right": 341,
+        "top": 702.359375,
+        "width": 307,
+        "x": 34,
+        "y": 702.359375
+      },
+      "role": "LABEL",
+      "type": ""
+    },
+    {
+      "id": "dry-run",
+      "rect": {
+        "bottom": 749.359375,
+        "height": 44,
+        "left": 38,
+        "right": 56,
+        "top": 705.359375,
+        "width": 18,
+        "x": 38,
+        "y": 705.359375
+      },
+      "role": "INPUT",
+      "type": "checkbox"
+    },
+    {
+      "id": "remote-rehearsal-row",
+      "rect": {
+        "bottom": 802.359375,
+        "height": 50,
+        "left": 34,
+        "right": 341,
+        "top": 752.359375,
+        "width": 307,
+        "x": 34,
+        "y": 752.359375
+      },
+      "role": "LABEL",
+      "type": ""
+    },
+    {
+      "id": "remote-rehearsal",
+      "rect": {
+        "bottom": 799.359375,
+        "height": 44,
+        "left": 38,
+        "right": 56,
+        "top": 755.359375,
+        "width": 18,
+        "x": 38,
+        "y": 755.359375
+      },
+      "role": "INPUT",
+      "type": "checkbox"
+    },
+    {
+      "id": "check-row",
+      "rect": {
+        "bottom": 875.15625,
+        "height": 50,
+        "left": 34,
+        "right": 341,
+        "top": 825.15625,
+        "width": 307,
+        "x": 34,
+        "y": 825.15625
+      },
+      "role": "LABEL",
+      "type": ""
+    },
+    {
+      "id": "include-stack",
+      "rect": {
+        "bottom": 872.15625,
+        "height": 44,
+        "left": 38,
+        "right": 56,
+        "top": 828.15625,
+        "width": 18,
+        "x": 38,
+        "y": 828.15625
+      },
+      "role": "INPUT",
+      "type": "checkbox"
+    }
+  ]
+}

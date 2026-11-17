@@ -1,0 +1,326 @@
+{
+  "schema": 1,
+  "scope": "publisher-only",
+  "codeCandidate": "33f81a9d55b2734afd5a336726ec5c1699277825",
+  "baseline": "e194b3c1fb1ce47709cfc078b0f08fe99e28acef",
+  "fixtureCommit": "e72a2a47a6504bab09896fcc384c4e4e41a934c3",
+  "productionActions": 0,
+  "states": {
+    "functional": "PASS",
+    "geometry": "PASS",
+    "visual": "PASS",
+    "nativeOwnedInputs": "PASS",
+    "publisherServiceActivation": "PENDING_DELIVERY",
+    "applicationRelease": "NOT_EXECUTED"
+  },
+  "performance": {
+    "environment": "isolated Windows localhost; same fixture HEAD, request, empty history; three serial samples per view; cold and warm effects not generalized to production",
+    "beforeCandidate": "b2c3a6c51f2b72fe92a3b007c351d0be9a986894",
+    "afterCandidate": "eeb33d4a16ce4c7342865d9302cba39bd5998f1c",
+    "clientBefore": [
+      {
+        "view": "full",
+        "ms": 2694,
+        "status": 200,
+        "bytes": 858737,
+        "steps": 36
+      },
+      {
+        "view": "full",
+        "ms": 2600,
+        "status": 200,
+        "bytes": 858737,
+        "steps": 36
+      },
+      {
+        "view": "full",
+        "ms": 3002,
+        "status": 200,
+        "bytes": 858737,
+        "steps": 36
+      },
+      {
+        "view": "summary",
+        "ms": 2234,
+        "status": 200,
+        "bytes": 19235,
+        "steps": 36
+      },
+      {
+        "view": "summary",
+        "ms": 2470,
+        "status": 200,
+        "bytes": 19235,
+        "steps": 36
+      },
+      {
+        "view": "summary",
+        "ms": 2369,
+        "status": 200,
+        "bytes": 19235,
+        "steps": 36
+      }
+    ],
+    "clientAfter": [
+      {
+        "view": "full",
+        "ms": 1311,
+        "status": 200,
+        "bytes": 858737,
+        "steps": 36
+      },
+      {
+        "view": "full",
+        "ms": 1486,
+        "status": 200,
+        "bytes": 858737,
+        "steps": 36
+      },
+      {
+        "view": "full",
+        "ms": 1402,
+        "status": 200,
+        "bytes": 858737,
+        "steps": 36
+      },
+      {
+        "view": "summary",
+        "ms": 1376,
+        "status": 200,
+        "bytes": 19235,
+        "steps": 36
+      },
+      {
+        "view": "summary",
+        "ms": 1800,
+        "status": 200,
+        "bytes": 19235,
+        "steps": 36
+      },
+      {
+        "view": "summary",
+        "ms": 1610,
+        "status": 200,
+        "bytes": 19235,
+        "steps": 36
+      }
+    ],
+    "serverBefore": [
+      {
+        "url": "/api/plan",
+        "ms": 2682.9066999999923,
+        "bytes": 858737
+      },
+      {
+        "url": "/api/plan",
+        "ms": 2591.348100000003,
+        "bytes": 858737
+      },
+      {
+        "url": "/api/plan",
+        "ms": 2451.856299999985,
+        "bytes": 858737
+      },
+      {
+        "url": "/api/plan?view=summary",
+        "ms": 2231.083099999989,
+        "bytes": 19235
+      },
+      {
+        "url": "/api/plan?view=summary",
+        "ms": 2468.141100000008,
+        "bytes": 19235
+      },
+      {
+        "url": "/api/plan?view=summary",
+        "ms": 2366.8194000000076,
+        "bytes": 19235
+      }
+    ],
+    "serverAfter": [
+      {
+        "url": "/api/plan",
+        "gitCalls": 5,
+        "gitMs": 1199.1832999999997,
+        "ms": 1300.8304999999991,
+        "bytes": 858737
+      },
+      {
+        "url": "/api/plan",
+        "gitCalls": 5,
+        "gitMs": 1374.3324999999986,
+        "ms": 1474.9539000000004,
+        "bytes": 858737
+      },
+      {
+        "url": "/api/plan",
+        "gitCalls": 5,
+        "gitMs": 1316.1761000000024,
+        "ms": 1395.3559999999998,
+        "bytes": 858737
+      },
+      {
+        "url": "/api/plan?view=summary",
+        "gitCalls": 5,
+        "gitMs": 1287.292800000001,
+        "ms": 1372.2960000000003,
+        "bytes": 19235
+      },
+      {
+        "url": "/api/plan?view=summary",
+        "gitCalls": 5,
+        "gitMs": 1186.386199999999,
+        "ms": 1280.4573,
+        "bytes": 19235
+      },
+      {
+        "url": "/api/plan?view=summary",
+        "gitCalls": 5,
+        "gitMs": 1531.1608000000015,
+        "ms": 1606.7165000000005,
+        "bytes": 19235
+      }
+    ],
+    "gitProcessCalls": {
+      "before": 11,
+      "after": 5,
+      "beforeSource": "original profile.jsonl; demo preload profiler's incomplete Git subtotal excluded"
+    },
+    "summaryBytes": 19235,
+    "fullBytes": 858737,
+    "summaryReductionPercent": 97.76008253982302,
+    "medianClientMs": {
+      "fullBefore": 2694,
+      "fullAfter": 1402,
+      "summaryBefore": 2369,
+      "summaryAfter": 1610
+    }
+  },
+  "geometry": {
+    "maxX": 0.5078125,
+    "maxY": 0.5,
+    "minMargin": 10.375,
+    "minHeight": 44,
+    "budgetFailures": []
+  },
+  "nativeReceipts": [
+    {
+      "key": "publisher-policy",
+      "completedAt": "2026-11-17T05:06:16.852Z",
+      "passCounts": [
+        9
+      ],
+      "executor": "2449b2ef202cfbc15f8fbac7393f3f39c13f40c4ba3a54d521b2f86b954a74d4",
+      "identityHash": "4017cdaa9c9eaf9da4842f9f903b515fba5b04be9df3cd7f2c80c77cdb99c692",
+      "inputs": 7
+    },
+    {
+      "key": "publisher-runner",
+      "completedAt": "2026-11-17T05:06:41.854Z",
+      "passCounts": [
+        10
+      ],
+      "executor": "2449b2ef202cfbc15f8fbac7393f3f39c13f40c4ba3a54d521b2f86b954a74d4",
+      "identityHash": "5c04b0eb38c848ed1e8be0eabbf2032249da32c014d6d01607b0b639d75d77de",
+      "inputs": 16
+    },
+    {
+      "key": "publisher-console",
+      "completedAt": "2026-11-17T05:20:40.802Z",
+      "passCounts": [
+        15
+      ],
+      "executor": "2449b2ef202cfbc15f8fbac7393f3f39c13f40c4ba3a54d521b2f86b954a74d4",
+      "identityHash": "4cfc7cf09a48af31a18b9bce53cfb9e576b34fc57a25372ec64f9f2d02e8bc8e",
+      "inputs": 46
+    },
+    {
+      "key": "publisher-recovery",
+      "completedAt": "2026-11-17T05:06:46.166Z",
+      "passCounts": [
+        3
+      ],
+      "executor": "2449b2ef202cfbc15f8fbac7393f3f39c13f40c4ba3a54d521b2f86b954a74d4",
+      "identityHash": "7c248e62f290a910d5411f77d0784d0927002874e723f3645f070241f90d7008",
+      "inputs": 36
+    },
+    {
+      "key": "publisher-version",
+      "completedAt": "2026-11-17T04:43:36.552Z",
+      "passCounts": [
+        8
+      ],
+      "executor": "2449b2ef202cfbc15f8fbac7393f3f39c13f40c4ba3a54d521b2f86b954a74d4",
+      "identityHash": "884fb95ce2e9cd202b5499290ff04abbea31df43da1c1734910de3e15c80d189",
+      "inputs": 3
+    },
+    {
+      "key": "publisher-plugin",
+      "completedAt": "2026-11-17T04:45:07.056Z",
+      "passCounts": [
+        12
+      ],
+      "executor": "2449b2ef202cfbc15f8fbac7393f3f39c13f40c4ba3a54d521b2f86b954a74d4",
+      "identityHash": "eae5dabc1813516629c5bd18736f17ce968b6640af55de790ae630877fad56cd",
+      "inputs": 10
+    },
+    {
+      "key": "publisher-plan",
+      "completedAt": "2026-11-17T05:12:17.830Z",
+      "passCounts": [
+        131
+      ],
+      "executor": "2449b2ef202cfbc15f8fbac7393f3f39c13f40c4ba3a54d521b2f86b954a74d4",
+      "identityHash": "df1ba900a733757761eec8d841d702c2f13221b4927c04a9981110f177b14ba1",
+      "inputs": 52
+    },
+    {
+      "key": "publisher-source",
+      "completedAt": "2026-11-17T05:13:37.092Z",
+      "passCounts": [
+        8
+      ],
+      "executor": "2449b2ef202cfbc15f8fbac7393f3f39c13f40c4ba3a54d521b2f86b954a74d4",
+      "identityHash": "01465aed978056c687044d6c2cf06f5adda1e4e2c8bec5c688b35feda544ff7c",
+      "inputs": 35
+    }
+  ],
+  "nativeAssertions": 196,
+  "receiptReview": "Authentic signed receipt read plus exact committed Git-blob owned input and registered check comparison. Working-tree CRLF bytes are not substituted for staged Git blob identity. Push native gate separately checks executor/environment and candidate/remote identity.",
+  "visualReview": {
+    "model": "gemini-3.8-flash-high",
+    "firstReview": "Found token splitting and select/status visibility risk. Main agent added explicit step state and word-boundary wrapping. Disabled history is confirmed in AX/DOM; phase counts and navigation remain.",
+    "finalReview": "No definite clipping or collision in revised desktop/mobile; full title, independent state and intact token wrapping confirmed. Main agent reviewed all final screenshots and separate populated700-line fixture.",
+    "primaryDecision": "PASS",
+    "limitations": "Synthetic logs and empty history; production runtime acceptance is separate."
+  },
+  "evidence": [
+    "browser.json",
+    "geometry.json",
+    "desktop-overview.jpg",
+    "desktop-details.jpg",
+    "desktop-details-expanded.jpg",
+    "mobile-details.jpg",
+    "mobile-history.jpg",
+    "desktop-long-logs.jpg",
+    "mobile-long-logs.jpg"
+  ],
+  "retainedSafety": [
+    "fresh version and branch admission",
+    "exact source assessment and immutable commit",
+    "migration compatibility and ownership",
+    "image identity",
+    "pre-deploy checks",
+    "final runtime and rollback",
+    "execution re-prepares request, preview cannot authorize execution"
+  ],
+  "risks": [
+    "Measured latency is local fixture evidence, production repository cost may differ.",
+    "Full logs remain server-side for a live job; persistence retains existing bounded log policy.",
+    "Native select truncates narrow captions; full title and explicit state remain directly below."
+  ],
+  "remaining": [
+    "Native document commit, master fast-forward, native push and remote verification",
+    "Publisher-only guarded service activation, state preservation check and task cleanup"
+  ]
+}
