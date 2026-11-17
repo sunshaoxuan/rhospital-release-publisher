@@ -1,0 +1,51 @@
+{
+  "observedAt": "2026-11-17T16:17:33.523Z",
+  "sourceCommit": "441b4b3a3ef6b776d5be3c8e0b15ca5a37487fc0",
+  "result": "PASS",
+  "scope": "publisher-only",
+  "receipt": {
+    "runtimeVersion": "0.2.0+441b4b3a",
+    "historyPreserved": true,
+    "commit": "441b4b3a3ef6b776d5be3c8e0b15ca5a37487fc0",
+    "result": "PASS",
+    "scope": "publisher-only",
+    "updateProtocol": 1
+  },
+  "guardSequence": [
+    "ACQUIRE",
+    "BARRIER",
+    "UNBARRIER",
+    "RELEASE"
+  ],
+  "runtime": {
+    "commit": "441b4b3a3ef6b776d5be3c8e0b15ca5a37487fc0",
+    "status": "UP_TO_DATE",
+    "updateProtocol": 1
+  },
+  "activity": {
+    "busy": false,
+    "jobId": null
+  },
+  "game": {
+    "image": "hospital-backend:2026111701",
+    "imageId": "sha256:746ff0e25a33be656f633db6f9185fb6a7b7ef3472b871dff605e4315f228ab1",
+    "healthy": true,
+    "updateState": "completed",
+    "sampledAt": "2026-11-17T16:16:59.802267+00:00"
+  },
+  "originalHistory": {
+    "id": "2026-11-17T14:08:46.113Z-2026111701",
+    "status": "RECOVERY_REQUIRED"
+  },
+  "productTestsRerun": 0,
+  "gameDeployments": 0,
+  "gameRollbacks": 0,
+  "launcher": "PowerShell 7.6.9 via Windows RunAs",
+  "firstAttempt": {
+    "engine": "Windows PowerShell 5.1",
+    "failure": "Native Git stderr progress treated as terminating error by redirected pipeline",
+    "serviceStopped": false,
+    "guardsReleased": true,
+    "unusedCleanWorktreeRemoved": true
+  }
+}

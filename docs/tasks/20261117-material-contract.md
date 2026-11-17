@@ -25,3 +25,11 @@ Node语法前检通过。原生门禁选中documents、policy、runner、console
 最终源码441b4b3原生7组PASS，plan132/132，source87.744秒；master/origin精确相同，push全部REUSED。应用材料70b93feac已交付；独立原四项现场收尾全部PASS，生产仍2026111701健康，原job历史不改写。环境本地master a849c77保存现场与精确清理，原仓库无origin；其他根工作区修改精确保留。详见docs/evidence/20261117-material-contract/FINAL_ACCEPTANCE.md。
 
 现有scripts/update-publisher.ps1的候选已具备完整可审查结果且服务空闲；通过Windows Start-Process -Verb RunAs请求系统管理员权限，系统返回用户取消，脚本未启动，服务仍47c7673。未使用其他权限通道，未绕过UAC或重试。已请用户决定重新发起系统确认或先保留源码。当前服务启用必需项保持待完成；文档、回执与临时清理仅相关静态检查，不重复产品门禁。
+
+2026-11-18用户明确授权重新发起管理员确认。沿用已通过七组门禁的精确候选441b4b3a3ef6b776d5be3c8e0b15ca5a37487fc0和原更新脚本，不重跑测试。实时服务47c7673、UP_TO_DATE、busy=false。仅执行本机发布器受控更新，保护历史与锁，核对新运行版本、空闲和更新回执；保持游戏版本，不执行游戏发布或回滚。预计2分钟，等待原管理员进程，不启动副本。系统拒绝或取消时停止并保留真实状态。
+
+管理员进程97820实际已启动；Windows PowerShell5.1在合并原生stderr的日志管道中将git的Preparing worktree进度作为异常，脚本在停止服务前退出。ACQUIRE/BARRIER/UNBARRIER/RELEASE完整，服务仍47c且健康。唯一新目录441b4b3a3ef6为本次未启用、干净、提交匹配的候选；核对服务PathName不引用它后用git worktree remove清理。失效输入仅管理员启动引擎，改用本机已验证PowerShell7.6运行相同原脚本和同一候选；不修改产品、权限策略或有效测试，不并发启动。
+
+管理员进程36656完成PASS，服务441b4b3、UP_TO_DATE、updateProtocol1、busy=false，guard四阶段及historyPreserved=true完整。真实只读状态仍为游戏2026111701、原镜像746ff0e25a33、healthy、Swarm completed，原历史2026-11-17T14:08:46.113Z-2026111701保持RECOVERY_REQUIRED。ACTIVATION_20261118.json保存独立现场回执。所有必需项完成，本次没有重跑产品测试或重发游戏。
+
+临时清理的新证据：先前两个脚本因服务启用待办保留，现在受控启用PASS且正式回执已归档，三个已知自有脚本与日志已无运行引用。仅尝试精确LiteralPath普通文件清理，不递归删除、不触及已启用工作树或旧运行时；若策略再次拒绝，保留并报告，不改工具规避。
