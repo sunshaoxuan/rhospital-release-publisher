@@ -49,6 +49,7 @@ const CONSOLE_INPUTS=[
   "src/releasePluginDocuments.js",
   "src/releasePluginRunner.js",
   "src/releasePublisherCore.js",
+  "src/releasePlanSources.js",
   "src/releaseWorktree.js",
   "src/tomcatSecurityCheck.js",
   "test/helpers/ownedFixtures.js",
@@ -88,6 +89,7 @@ const SOURCE_INPUTS=[
   "src/releasePluginDocuments.js",
   "src/releasePluginRunner.js",
   "src/releasePublisherCore.js",
+  "src/releasePlanSources.js",
   "src/tomcatSecurityCheck.js",
   "test/fullGateScope.test.js"
 ,
@@ -102,7 +104,7 @@ const groups=[
  {key:'publisher-recovery',tests:['test/gameRecoverySafety.test.js'],inputs:RECOVERY_INPUTS},
  {key:'publisher-version',tests:['test/publisherVersionScope.test.js'],inputs:['src/publisherVersion.js','src/publisherLegacyBarrier.js','test/publisherVersionScope.test.js']},
  {key:'publisher-plugin',tests:['test/releaseWorktree.test.js'],inputs:pluginInputs},
- {key:'publisher-plan',tests:['test/releasePublisherCore.test.js'],inputs:PUBLISHER_GATE_INPUTS.filter(file=>file!=='test/fullGateScope.test.js')},
+ {key:'publisher-plan',tests:['test/releasePublisherCore.test.js','test/releasePlanSources.test.js'],inputs:[...PUBLISHER_GATE_INPUTS.filter(file=>file!=='test/fullGateScope.test.js'),'test/releasePlanSources.test.js']},
  {key:'publisher-source',tests:['test/fullGateScope.test.js'],inputs:SOURCE_INPUTS}
 ];
 function safePath(file){
@@ -129,7 +131,8 @@ function planChanges(repository,changedPaths){
   else if(pluginInputs.includes(file))keys=['publisher-plugin','publisher-source'];
   else if(['test/gameRecoverySafety.test.js','scripts/game-service-recovery.mjs','scripts/game-service-recovery.py'].includes(file))keys=['publisher-recovery'];
   else if(['src/publisherVersion.js','src/publisherLegacyBarrier.js','test/publisherVersionScope.test.js'].includes(file))keys=['publisher-version'];
-  else if(file==='src/releasePublisherCore.js')keys=['publisher-plan','publisher-source','publisher-console'];
+  else if(['src/releasePublisherCore.js','src/releasePlanSources.js'].includes(file))keys=['publisher-plan','publisher-source','publisher-console','publisher-recovery'];
+  else if(file==='test/releasePlanSources.test.js')keys=['publisher-plan'];
   else if(file==='server.js')keys=['publisher-plan','publisher-console'];
   else if(file==='test/fullGateScope.test.js')keys=['publisher-source'];
   else if(['public/app.js','public/index.html','public/styles.css','public/release-status.js','src/releaseConsoleView.js','test/releaseConsole.test.js'].includes(file))keys=['publisher-console'];

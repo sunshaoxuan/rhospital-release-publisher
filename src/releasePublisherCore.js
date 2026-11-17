@@ -1,5 +1,6 @@
 const {validatePlugin} = require('./releasePlugin');
 const {resolvePluginContextFile} = require('./releasePluginCandidate');
+const {createPlanSourceReader} = require('./releasePlanSources');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -250,16 +251,20 @@ function createPlan(projectRoot, request, env = process.env) {
   }
   const gitBranch = validateGitBranch(request.gitBranch || env.RELEASE_PUBLISHER_GIT_BRANCH || 'origin/master');
   const gitCommit = validateGitCommit(request.gitCommit || 'latest');
-  const catalogSchemaVersion = resolveCatalogSchemaVersion(projectRoot, gitCommit);
-  const startupSource = file => gitCommit === 'latest'
-    ? (fs.existsSync(resolveInside(projectRoot, file)) ? fs.readFileSync(resolveInside(projectRoot, file), 'utf8') : '')
-    : gitFileOrEmpty(projectRoot, gitCommit, file);
+  const startupSource = createPlanSourceReader(projectRoot, gitCommit, [
+    CATALOG_UPGRADE_SOURCE_PATH, DEFAULT_COMPOSE_FILE, RELEASE_IMPACT_ASSESSMENT_PATH,
+    'release/publisher/game.json', 'src/main/resources/application.properties',
+    'src/main/resources/application-prod.properties', 'src/main/java/com/zly/hospital/service/TokenService.java',
+    'src/main/java/com/zly/hospital/HospitalBackendApplication.java',
+    ...(request.changeAnalysis?.targets?.game?.changedPaths || []).filter(file => RELEASE_MIGRATION_PATTERN.test(file))
+  ]);
+  const catalogSchemaVersion = catalogSchemaVersionFromSource(startupSource(CATALOG_UPGRADE_SOURCE_PATH, true));
   const pluginMetadata=pluginMetadataForPlan(startupSource('release/publisher/game.json'),'game',!dryRun);
   const startupContract = resolveGameStartupContract(
     startupSource('src/main/resources/application.properties') + '\n' + startupSource('src/main/resources/application-prod.properties'),
     startupSource('src/main/java/com/zly/hospital/service/TokenService.java'),
     startupSource('src/main/java/com/zly/hospital/HospitalBackendApplication.java'));
-  const releaseMigrations = resolveReleaseMigrations(projectRoot, gitCommit, request.changeAnalysis);
+  const releaseMigrations = resolveReleaseMigrations(startupSource, request.changeAnalysis);
   const technologyCutover = requiresTechnologyCutover(releaseMigrations);
   const codegraph = codegraphCutover.requiresCodegraphCutover(releaseMigrations);
   const offlineCutover = technologyCutover || codegraph;
@@ -272,7 +277,8 @@ function createPlan(projectRoot, request, env = process.env) {
     request.changeAnalysis,
     'game',
     releaseMigrations,
-    pluginMetadata?.units.map(unit=>unit.id)||[]
+    pluginMetadata?.units.map(unit=>unit.id)||[],
+    startupSource
   );
   if (codegraph && (!releaseImpactAssessment || ['verify-codegraph-prerequisites', 'codegraph-offline-cutover'].some(
     key => !releaseImpactAssessment.requiredChecks.some(item => item.stepKey === key)))) {
@@ -289,7 +295,7 @@ function createPlan(projectRoot, request, env = process.env) {
   const requiresSmtpSenderCheck = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-smtp-sender'));
   const productionMailIdentity = requiresSmtpSenderCheck
-    ? resolveProductionMailIdentity(projectRoot, gitCommit)
+    ? resolveProductionMailIdentity(startupSource('src/main/resources/application.properties', true))
     : null;
   const requiresSteamRuntime = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-steam-runtime'));
@@ -303,9 +309,7 @@ function createPlan(projectRoot, request, env = process.env) {
   if (requiresTomcatImage !== requiresTomcatRuntime) {
     throw new Error('Tomcat安全升级必须同时选择镜像和生产版本检查');
   }
-  const tomcatVersion = requiresTomcatImage ? expectedTomcatVersion(gitCommit === 'latest'
-    ? fs.readFileSync(resolveInside(projectRoot, 'pom.xml'), 'utf8')
-    : runGit(projectRoot, ['show', `${gitCommit}:pom.xml`])) : null;
+  const tomcatVersion = requiresTomcatImage ? expectedTomcatVersion(startupSource('pom.xml', true)) : null;
   const tomcatProbe = tomcatVersion
     ? `printf %s '${Buffer.from(tomcatJarCheckScript(tomcatVersion)).toString('base64')}' | base64 -d | sh`
     : null;
@@ -537,11 +541,7 @@ function createPlan(projectRoot, request, env = process.env) {
     executable: true
   });
 
-  const formalComposeSource = includeStackDeploy
-    ? (gitCommit === 'latest'
-      ? fs.readFileSync(resolveInside(projectRoot, DEFAULT_COMPOSE_FILE), 'utf8')
-      : runGit(projectRoot, ['show', `${gitCommit}:${DEFAULT_COMPOSE_FILE}`]))
-    : '';
+  const formalComposeSource = includeStackDeploy ? startupSource(DEFAULT_COMPOSE_FILE, true) : '';
   if (requireStandbyCandidate) {
     if (offlineCutover) throw new Error('Technology format cutover requires the single active writer release path; standby cutover is unavailable');
     standbyCandidate = {
@@ -1325,11 +1325,11 @@ function createForumPlan(projectRoot, request, env = process.env) {
   const gitCommit = forumImageMode === 'build'
     ? validateGitCommit(request.gitCommit || 'latest')
     : 'not-used';
-  const pluginMetadata=forumImageMode==='build'?pluginMetadataForPlan(gitCommit==='latest'
-    ? (fs.existsSync(path.join(projectRoot,'release/publisher/forum.json'))?fs.readFileSync(path.join(projectRoot,'release/publisher/forum.json'),'utf8'):'')
-    :gitFileOrEmpty(projectRoot,gitCommit,'release/publisher/forum.json'),'forum',request.dryRun===false):null;
+  const forumSource=forumImageMode==='build'?createPlanSourceReader(projectRoot,gitCommit,
+    ['release/publisher/forum.json',RELEASE_IMPACT_ASSESSMENT_PATH]):null;
+  const pluginMetadata=forumSource?pluginMetadataForPlan(forumSource('release/publisher/forum.json'),'forum',request.dryRun===false):null;
   const releaseImpactAssessment = forumImageMode === 'build'
-    ? resolveReleaseImpactAssessment(projectRoot, gitCommit, request.changeAnalysis, 'forum', [],pluginMetadata?.units.map(unit=>unit.id)||[])
+    ? resolveReleaseImpactAssessment(projectRoot, gitCommit, request.changeAnalysis, 'forum', [],pluginMetadata?.units.map(unit=>unit.id)||[],forumSource)
     : null;
   const steps = [];
 
@@ -2560,6 +2560,10 @@ function resolveCatalogSchemaVersion(projectRoot, gitCommit = 'latest', gitRunne
   const source = commit === 'latest'
     ? fs.readFileSync(resolveInside(projectRoot, CATALOG_UPGRADE_SOURCE_PATH), 'utf8')
     : runGit(projectRoot, ['show', `${commit}:${CATALOG_UPGRADE_SOURCE_PATH}`], gitRunner);
+  return catalogSchemaVersionFromSource(source);
+}
+
+function catalogSchemaVersionFromSource(source) {
   const matches = [...source.matchAll(/\bMARKER_VERSION\s*=\s*(\d+)\s*;/g)];
   if (matches.length !== 1) {
     throw new Error(`目标提交的 ${CATALOG_UPGRADE_SOURCE_PATH} 必须且只能声明一个 MARKER_VERSION`);
@@ -2673,7 +2677,7 @@ function clearReleaseChangeAnalysisCache() {
   releaseChangeAnalysisCache.clear();
 }
 
-function resolveReleaseMigrations(projectRoot, gitCommit, changeAnalysis) {
+function resolveReleaseMigrations(source, changeAnalysis) {
   const changedPaths = changeAnalysis
     && changeAnalysis.targets
     && changeAnalysis.targets.game
@@ -2689,9 +2693,7 @@ function resolveReleaseMigrations(projectRoot, gitCommit, changeAnalysis) {
     if (filePath.split('/').includes('..')) {
       throw new Error(`数据库迁移路径越界: ${filePath}`);
     }
-    const sql = gitCommit === 'latest'
-      ? fs.readFileSync(resolveInside(projectRoot, filePath), 'utf8')
-      : runGit(projectRoot, ['show', `${gitCommit}:${filePath}`]);
+    const sql = source(filePath, true);
     validateReleaseMigration(filePath, sql);
     const canonicalSql = normalizeReleaseMigrationSql(sql);
     return {
@@ -2703,9 +2705,7 @@ function resolveReleaseMigrations(projectRoot, gitCommit, changeAnalysis) {
     };
   });
   const ordered = sortReleaseMigrationsByDependencies(migrations);
-  validateReleaseMigrationOwnership(ordered, migration => gitCommit === 'latest'
-    ? fs.readFileSync(resolveInside(projectRoot, migration.filePath), 'utf8')
-    : runGit(projectRoot, ['show', `${gitCommit}:${migration.filePath}`]));
+  validateReleaseMigrationOwnership(ordered, migration => source(migration.filePath, true));
   return ordered
     .map(({filePath, sha256, targetReleaseHash, expectedReleaseHash, residentPreflight}) => ({
       filePath,
@@ -2909,7 +2909,7 @@ function assertJpaSchemaMigrationCoverage(projectRoot, targetCommit, changeAnaly
   }
 }
 
-function resolveReleaseImpactAssessment(projectRoot, targetCommit, changeAnalysis, releaseTarget, releaseMigrations = [], pluginUnitIds=[]) {
+function resolveReleaseImpactAssessment(projectRoot, targetCommit, changeAnalysis, releaseTarget, releaseMigrations = [], pluginUnitIds=[], source) {
   const target = validateReleaseTarget(releaseTarget);
   const targetChanges = changeAnalysis && changeAnalysis.targets && changeAnalysis.targets[target];
   if (!targetChanges || targetChanges.changed !== true) {
@@ -2927,7 +2927,7 @@ function resolveReleaseImpactAssessment(projectRoot, targetCommit, changeAnalysi
     throw new Error(`检测到 ${target} 运行代码或数据库变更，但本次提交范围没有更新 ${RELEASE_IMPACT_ASSESSMENT_PATH}`);
   }
 
-  const document = readReleaseImpactDocument(projectRoot, targetCommit, true);
+  const document = readReleaseImpactDocument(projectRoot, targetCommit, true, source);
   validateReleaseImpactDocument(document);
   const assessment = document.targets && document.targets[target];
   if (!assessment || typeof assessment !== 'object' || Array.isArray(assessment)) {
@@ -2957,9 +2957,9 @@ function resolveReleaseImpactAssessment(projectRoot, targetCommit, changeAnalysi
   return normalized;
 }
 
-function readReleaseImpactDocument(projectRoot, commit, required) {
+function readReleaseImpactDocument(projectRoot, commit, required, candidateSource) {
   try {
-    const source = commit === 'latest'
+    const source = candidateSource ? candidateSource(RELEASE_IMPACT_ASSESSMENT_PATH, true) : commit === 'latest'
       ? fs.readFileSync(resolveInside(projectRoot, RELEASE_IMPACT_ASSESSMENT_PATH), 'utf8')
       : runGit(projectRoot, ['show', `${commit}:${RELEASE_IMPACT_ASSESSMENT_PATH}`]);
     return JSON.parse(source);
@@ -4089,11 +4089,7 @@ function gamePreDeployChecklistCommand(remoteComposeDir, stackName, containerNam
   ];
 }
 
-function resolveProductionMailIdentity(projectRoot, commit) {
-  const relativePath = 'src/main/resources/application.properties';
-  const source = commit === 'latest'
-    ? fs.readFileSync(resolveInside(projectRoot, relativePath), 'utf8')
-    : runGit(projectRoot, ['show', `${commit}:${relativePath}`]);
+function resolveProductionMailIdentity(source) {
   const properties = new Map();
   for (const rawLine of source.split(/\r?\n/)) {
     const line = rawLine.trim();

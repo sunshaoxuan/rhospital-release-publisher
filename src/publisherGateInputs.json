@@ -26,6 +26,7 @@
     "src/meelokRecoverySupervisor.js",
     "src/releaseDiagnostics.js",
     "src/releasePublisherCore.js",
+    "src/releasePlanSources.js",
     "src/tomcatSecurityCheck.js"
   ]
 }

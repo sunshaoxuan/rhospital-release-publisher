@@ -12,7 +12,7 @@ test('plugin modules select their isolated consumer once without application reg
 test('publisher controller owns its public contract and production safety consumers',()=>{
  const check=planChanges('publisher',['src/releasePublisherCore.js','server.js','public/app.js']).checks.find(check=>check.key==='publisher-plan');
  assert.equal(check.key,'publisher-plan');
- assert.deepEqual(check.tests,['test/releasePublisherCore.test.js']);
+ assert.deepEqual(check.tests,['test/releasePublisherCore.test.js','test/releasePlanSources.test.js']);
  for(const file of ['src/releasePluginCandidate.js','src/releasePlugin.js','src/gameProductionDatabase.js','test/helpers/ownedFixtures.js'])assert(check.inputs.includes(file),file);
  assert(!check.inputs.some(file=>/localCheckPolicy|currentBehavior|CheckInputs/.test(file)));
 });
@@ -69,6 +69,9 @@ test('formal Source integration has its own unchanged consumer scope',()=>{
  assert.deepEqual(keys(['test/releasePublisherCore.test.js']),['publisher-plan']);
  assert.deepEqual(keys(['server.js']),['publisher-console','publisher-plan']);
  const checks=planChanges('publisher',['src/releasePublisherCore.js']).checks;
- assert.deepEqual(checks.map(check=>check.key),['publisher-console','publisher-plan','publisher-source']);
+ assert.deepEqual(checks.map(check=>check.key),['publisher-console','publisher-recovery','publisher-plan','publisher-source']);
  assert(checks.find(check=>check.key==='publisher-source').tests.includes('test/fullGateScope.test.js'));
+ assert.deepEqual(keys(['src/releasePlanSources.js']),checks.map(check=>check.key));
+ assert.deepEqual(keys(['test/releasePlanSources.test.js']),['publisher-plan']);
+ for(const check of checks)assert(check.inputs.includes('src/releasePlanSources.js'));
 });
