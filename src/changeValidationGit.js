@@ -17,7 +17,7 @@ function snapshot(root,ref,files) {
   const entries=manifest(root,ref),directory=fs.mkdtempSync(path.join(os.tmpdir(),'hospital-impact-'));
   try {
     const selected=[...new Set(files)].filter(f=>entries.has(f)).map(file=>{
-      require('./changeValidationPolicy').safePath(file);
+      require('./releasePlugin').pluginPath(file);
       const e=entries.get(file);if(!['100644','100755'].includes(e.mode)||e.kind!=='blob')throw new Error('Unsafe candidate mode: '+file);
       return {file,...e};
     });
@@ -36,36 +36,16 @@ function snapshot(root,ref,files) {
 }
 function loadPolicy(repository,ref='HEAD') {
   const names=['src/changeValidationPolicy.js','src/changeValidationRunner.js','src/changeValidationReceipts.js',
-    'src/residentMigrationCheck.js','src/changeValidationGit.js','src/currentBehaviorInputs.json','src/publisherGateInputs.json',
-    'src/skinAdminCheck.js','src/skinAdminCheckInputs.json','src/bacteriaOperatorCheck.js','src/bacteriaOperatorCheckInputs.json',
-    'src/giftPackCheck.js','src/giftPackCheckInputs.json','src/catalogIconCheckInputs.json','src/skinAssetInputs.json','src/currentBehaviorChecks.json',
-    'src/preflightCoverage.js','src/localCheckLeaves.js','src/currentBehaviorGuard.cjs','src/releasePlugin.js','src/releasePluginRunner.js','src/releasePluginContext.js','src/releasePluginCandidate.js','src/releasePluginDocuments.js'];
+    'src/changeValidationGit.js','src/publisherGateInputs.json','docs/design/release-plugin-publisher-retirement.json',
+    'src/releasePlugin.js','src/releasePluginRunner.js','src/releasePluginContext.js','src/releasePluginCandidate.js','src/releasePluginDocuments.js'];
   const copy=snapshot(repository,ref,names);
   const req=createRequire(path.join(copy.root,'package.json'));
   return {...copy,plan:req('./src/changeValidationPolicy').planChanges,validate:req('./src/changeValidationRunner').validateChange};
 }
-function copyDependencies(source,target,checks) {
-  for(const name of new Set(checks.flatMap(c=>c.dependencies||[]))) {
-    if(name!=='pngjs')throw new Error('Unregistered validation dependency: '+name);
-    const lock=JSON.parse(fs.readFileSync(path.join(target,'package-lock.json'),'utf8'));
-    const base=path.join(source,'node_modules',name),destination=path.join(target,'node_modules',name);
-    if(fs.lstatSync(base).isSymbolicLink()||fs.realpathSync(base)!==base)throw new Error('Unsafe dependency root');
-    const version=JSON.parse(fs.readFileSync(path.join(base,'package.json'),'utf8')).version;
-    if(version!==lock.packages?.['node_modules/'+name]?.version)throw new Error('Installed validation dependency does not match candidate lock: '+name);
-    const copy=(from,to)=>{
-      if(fs.lstatSync(from).isSymbolicLink())throw new Error('Linked validation dependency rejected');
-      if(fs.lstatSync(from).isDirectory()){
-        fs.mkdirSync(to,{recursive:true});for(const file of fs.readdirSync(from))copy(path.join(from,file),path.join(to,file));
-      } else if(fs.lstatSync(from).isFile())fs.copyFileSync(from,to);
-      else throw new Error('Nonregular validation dependency');
-    };
-    copy(base,destination);
-  }
-}
 function assertTaskBranch(branch) {
   if(branch!=='master'&&!/^codex\/[a-z0-9][a-z0-9/-]*$/.test(branch))throw new Error('Validation requires master or a dedicated codex task branch');
 }
-async function gate(root,{repository,policyRoot=root,phase='commit',commit,remote,validate=false,write,baseline,coveredKeys=[]}={}) {
+async function gate(root,{repository,policyRoot=root,phase='commit',commit,remote,validate=false,write,baseline}={}) {
   const releaseSource=phase==='release-source';
   const branch=text(root,'branch','--show-current');
   if(!releaseSource||branch)assertTaskBranch(branch);
@@ -82,13 +62,6 @@ async function gate(root,{repository,policyRoot=root,phase='commit',commit,remot
   const policy=loadPolicy(policyRoot,policyRef);
   try {
     const plan=policy.plan(repository,files);
-    if(coveredKeys.length) {
-      if(!releaseSource||new Set(coveredKeys).size!==coveredKeys.length)throw new Error('Covered checks require the formal preflight phase');
-      const catalog=JSON.parse(fs.readFileSync(path.join(policy.root,'src/currentBehaviorChecks.json'),'utf8'));
-      createRequire(path.join(policy.root,'package.json'))('./src/preflightCoverage').requireCoverage(root,coveredKeys);
-      const covered=new Set(coveredKeys.flatMap(key=>{if(!catalog[key])throw new Error('Unknown covered preflight check');return catalog[key].tests;}));
-      plan.checks=plan.checks.flatMap(check=>check.kind==='node-tests'?((tests)=>tests.length?[{...check,tests}]:[])(check.tests.filter(test=>!covered.has(test))):[check]);
-    }
     if(!committing&&remote){
       const actual=text(root,'ls-remote','origin','refs/heads/master').split(/\s+/)[0]||'0'.repeat(40);
       if(actual!==remote)throw new Error('Remote master changed; refresh the integration base');
@@ -96,7 +69,6 @@ async function gate(root,{repository,policyRoot=root,phase='commit',commit,remot
     const owned=[...new Set(plan.checks.flatMap(c=>c.inputs).concat(['package.json','package-lock.json']))];
     const copy=snapshot(root,target,owned);
     try {
-      copyDependencies(root,copy.root,plan.checks);
       const result=await policy.validate(copy.root,plan,{
         cacheDirectory:path.join(text(root,'rev-parse','--path-format=absolute','--git-common-dir'),'change-validation'),
         requireReceipts:!committing&&!validate,write,
@@ -109,4 +81,4 @@ async function gate(root,{repository,policyRoot=root,phase='commit',commit,remot
     } finally {copy.close();}
   } finally {policy.close();}
 }
-module.exports={git,text,manifest,snapshot,loadPolicy,copyDependencies,gate,assertTaskBranch};
+module.exports={git,text,manifest,snapshot,loadPolicy,gate,assertTaskBranch};

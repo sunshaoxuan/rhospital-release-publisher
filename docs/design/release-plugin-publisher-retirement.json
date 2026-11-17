@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "scope": "Publisher development deletion audit only; never application check routing or execution",
+  "baseline": "db6d2a9d0ca2d50a88effa3185acc34b0f2f68f9",
+  "files": [
+    "src/currentBehaviorInputs.json",
+    "src/currentBehaviorChecks.json",
+    "src/currentBehaviorGuard.cjs",
+    "src/catalogIconCheckInputs.json",
+    "src/skinAdminCheck.js",
+    "src/skinAdminCheckInputs.json",
+    "src/giftPackCheck.js",
+    "src/giftPackCheckInputs.json",
+    "src/bacteriaOperatorCheck.js",
+    "src/bacteriaOperatorCheckInputs.json",
+    "src/residentMigrationCheck.js",
+    "src/skinAssetInputs.json",
+    "src/localCheckPolicy.js",
+    "src/localCheckLeaves.js",
+    "src/preflightCoverage.js",
+    "scripts/run-game-release-preflight.mjs",
+    "test/catalogIconGate.test.js",
+    "test/skinAdminCheck.test.js",
+    "test/giftPackCheck.test.js",
+    "test/bacteriaOperatorCheck.test.js",
+    "test/localCheckPolicy.test.js",
+    "test/localCheckLeaves.test.js",
+    "test/bacteriaAuthoritativeBudget.test.js",
+    "test/gameReleasePreflight.test.js"
+  ],
+  "checks": [
+    "publisher-plugin",
+    "publisher-policy",
+    "publisher-runner",
+    "publisher-plan"
+  ]
+}

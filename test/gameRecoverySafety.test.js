@@ -64,24 +64,6 @@ print('recovery_fixture=PASS')
   assert.doesNotMatch(result.stdout+result.stderr,/DO_NOT_PRINT|credential-not-for-output/);
 });
 
-test('streaming preflight exposes progress before completion and retains exact protocols',async()=>{
-  const {runChecksStreaming}=await import('../scripts/run-game-release-preflight.mjs');
-  const check=require('../src/localCheckPolicy').currentLocalCheck('verify-game-medical-contest-entry');
-  let text='',during=false;
-  const result=await runChecksStreaming([check],{write:chunk=>text+=chunk,run:async(_check,write)=>{
-    write('feature_stage=testing\n');
-    during=text.includes('feature_stage=testing')&&!text.includes('preflight_check=PASS');
-    const output='# tests 1\n# pass 1\n# fail 0\n# skipped 0\n# cancelled 0\n# todo 0\n';
-    write(output);return {status:0,signal:null,error:'',output};
-  }});
-  assert.equal(during,true);assert.equal(result.passed,true);
-  assert.match(text,/game_release_preflight=PASS checks=1/);
-  const failed=await runChecksStreaming([check],{write:()=>{},run:async()=>({status:0,output:'partial'})});
-  assert.equal(failed.passed,false);
-  for(const checks of [[check,check],[{...check,key:'unknown'}],[{...check,command:check.command+' src/test/js/steamLogin.test.cjs'}]]) {
-    await assert.rejects(()=>runChecksStreaming(checks,{write:()=>{},run:async()=>{throw new Error('must not execute')}}));
-  }
-});
 
 test('failure diagnostics provide safe causes and a separate service recovery action',()=>{
   const {buildReleaseDiagnostics}=require('../src/releaseDiagnostics');

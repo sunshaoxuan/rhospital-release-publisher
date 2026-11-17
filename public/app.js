@@ -415,7 +415,7 @@
         'git-status-before-update', 'validate-release-input', 'validate-game-static-delivery-prerequisites',
         'game-meelok-readiness', 'validate-game-release-resources',
         'git-fetch', 'git-update', 'capture-release-commit', 'validate-release-impact-checklist',
-        'validate-game-sso-source', 'validate-forum-source'
+        'validate-game-sso-source', 'validate-game-source-impact', 'validate-forum-source'
       ] },
       { key: 'build', title: '批量测试与构建', members: [
         'test-game-backend', 'build-image', 'build-game-static-assets', 'validate-game-image',

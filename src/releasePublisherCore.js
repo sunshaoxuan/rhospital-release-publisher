@@ -1,4 +1,5 @@
-const {currentLocalCheck, doubleCheckLocalChecks} = require('./localCheckPolicy');
+const {validatePlugin} = require('./releasePlugin');
+const {resolvePluginContextFile} = require('./releasePluginCandidate');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -71,31 +72,8 @@ const KNOWN_RELEASE_CHECKS = {
     'final-runtime-check',
     'verify-game-static-delivery',
     'verify-game-smtp-sender',
-    'verify-game-emergency-guard',
-    'verify-resident-exchange-presentation',
     'verify-game-emergency-guard-runtime',
-    'verify-game-potion-lab',
-    'verify-game-medical-contest-entry',
-    'verify-game-client-fingerprint',
-    'verify-game-hospital-skin-fallback',
-    'verify-game-void-rewards',
-    'verify-game-epidemic-flow',
-    'verify-game-doorplate-ui',
-    'verify-design-level-packages',
-    'verify-game-steam-auth',
     'verify-game-steam-runtime',
-    'verify-game-special-clinic-atlas',
-    'verify-game-loading',
-    'verify-hospital-hud',
-    'verify-game-fault-reports',
-    'verify-bacteria-ranking',
-    'verify-bacteria-gates',
-    'verify-bacteria-authoritative-challenges',
-    'verify-toilet-market',
-    'verify-bacteria-normal-startup',
-    'verify-bacteria-region-covers',
-    'verify-bacteria-result-ui',
-    'verify-bacteria-entry-style',
     'verify-game-tomcat-image',
     'verify-game-tomcat-runtime',
     'verify-tradepool-release',
@@ -195,7 +173,45 @@ function readReleaseConfig(projectRoot, releaseTarget = 'game') {
   };
 }
 
+function pluginMetadataForPlan(source,target,required) {
+  if(!source) {if(required)throw new Error('Committed release plugin manifest required: '+target);return null;}
+  if(Buffer.byteLength(source)>1024*1024)throw new Error('Release plugin manifest exceeds resource budget');
+  const plugin=validatePlugin(JSON.parse(source));
+  if(plugin.target!==target)throw new Error('Release plugin target mismatch');
+  return plugin;
+}
+function pluginCandidateCommand(projectRoot,target,baseline,env) {
+  const contextFile=resolvePluginContextFile(projectRoot,'',env);
+  let node=process.execPath;
+  if(contextFile){
+    if(!path.isAbsolute(contextFile))throw new Error('Absolute plugin context configuration required');
+    const config=JSON.parse(fs.readFileSync(contextFile,'utf8'));
+    if(config.tools?.node)node=config.tools.node;
+  }
+  if(!path.isAbsolute(node)||!fs.statSync(node).isFile())throw new Error('Explicit plugin Node tool is unavailable');
+  return ['&',shellToken(node),shellToken(path.resolve(__dirname,'../scripts/validate-plugin-candidate.mjs')),
+    '--repository-root',shellToken(path.resolve(projectRoot)),'--phase','release-source','--baseline',shellToken(baseline),
+    '--target',target,'--manifest',shellToken('release/publisher/'+target+'.json'),
+    ...(contextFile?['--context-file',shellToken(contextFile)]:[])].join(' ');
+}
+function pluginPrefixReport(output,target,plan) {
+  const reports=String(output).split(/\r?\n/).flatMap(line=>{try{return [JSON.parse(line)];}catch{return [];}});
+  const report=reports.findLast(value=>value?.protocol==='release-candidate-validation/v1');
+  if(!report||report.state!=='PASS'||report.scope!=='before-production'||report.prefixState!=='PREFIX_PASS'||report.target!==target
+    ||report.productionActions!==0||!Array.isArray(report.selectedKeys)||!report.counts
+    ||Object.keys(report.counts).length!==4||!Object.values(report.counts).every(value=>Number.isSafeInteger(value)&&value>=0)
+    ||report.counts.executed+report.counts.reused+report.counts.pending!==report.counts.selected)throw new Error('Incomplete generic plugin prefix result');
+  const expected=(plan.config.databaseMigrations||[]).map(migration=>migration.filePath).sort();
+  if(JSON.stringify((report.migrationDeclarations||[]).slice().sort())!==JSON.stringify(expected))throw new Error('Plugin migration declarations differ from actual release diff');
+  const pluginIds=new Set(plan.config.pluginProtocol?.unitIds||[]);
+  if(report.pluginId!==plan.config.pluginProtocol?.pluginId||new Set(report.selectedKeys).size!==report.selectedKeys.length
+    ||report.selectedKeys.some(key=>key!=='core.documents'&&!pluginIds.has(key))
+    ||report.counts.selected!==report.selectedKeys.filter(key=>key!=='core.documents').length)throw new Error('Plugin prefix identity or selection mismatch');
+  for(const item of plan.config.releaseImpactAssessment?.requiredChecks||[])if(pluginIds.has(item.stepKey)&&!report.selectedKeys.includes(item.stepKey))throw new Error('Required plugin unit was not selected: '+item.stepKey);
+  return report;
+}
 function createPlan(projectRoot, request, env = process.env) {
+  if(request.boundary!==undefined&&request.boundary!=='before-production')throw new Error('Unsupported execution boundary');
   assertNoReleaseTargetOverrides(request);
   if (validateReleaseTarget(request.releaseTarget || 'game') === 'forum') {
     return createForumPlan(projectRoot, request, env);
@@ -238,6 +254,7 @@ function createPlan(projectRoot, request, env = process.env) {
   const startupSource = file => gitCommit === 'latest'
     ? (fs.existsSync(resolveInside(projectRoot, file)) ? fs.readFileSync(resolveInside(projectRoot, file), 'utf8') : '')
     : gitFileOrEmpty(projectRoot, gitCommit, file);
+  const pluginMetadata=pluginMetadataForPlan(startupSource('release/publisher/game.json'),'game',!dryRun);
   const startupContract = resolveGameStartupContract(
     startupSource('src/main/resources/application.properties') + '\n' + startupSource('src/main/resources/application-prod.properties'),
     startupSource('src/main/java/com/zly/hospital/service/TokenService.java'),
@@ -254,7 +271,8 @@ function createPlan(projectRoot, request, env = process.env) {
     gitCommit,
     request.changeAnalysis,
     'game',
-    releaseMigrations
+    releaseMigrations,
+    pluginMetadata?.units.map(unit=>unit.id)||[]
   );
   if (codegraph && (!releaseImpactAssessment || ['verify-codegraph-prerequisites', 'codegraph-offline-cutover'].some(
     key => !releaseImpactAssessment.requiredChecks.some(item => item.stepKey === key)))) {
@@ -273,20 +291,10 @@ function createPlan(projectRoot, request, env = process.env) {
   const productionMailIdentity = requiresSmtpSenderCheck
     ? resolveProductionMailIdentity(projectRoot, gitCommit)
     : null;
-  const requiresEmergencyGuard = Boolean(releaseImpactAssessment
-    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-emergency-guard'));
-  const requiresSteamAuth = Boolean(releaseImpactAssessment
-    && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-steam-auth'));
   const requiresSteamRuntime = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-steam-runtime'));
-  if (requiresSteamAuth !== requiresSteamRuntime) {
-    throw new Error('Steam 修复必须同时选择客户端行为和生产验票/DNS验收');
-  }
   const requiresEmergencyRuntime = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-emergency-guard-runtime'));
-  if (requiresEmergencyGuard !== requiresEmergencyRuntime) {
-    throw new Error('急救防刷必须同时选择本地证据和生产协议验收');
-  }
   const gitUpdate = gitUpdateStep(gitBranch, gitCommit);
   const requiresTomcatImage = Boolean(releaseImpactAssessment
     && releaseImpactAssessment.requiredChecks.some(item => item.stepKey === 'verify-game-tomcat-image'));
@@ -301,15 +309,7 @@ function createPlan(projectRoot, request, env = process.env) {
   const tomcatProbe = tomcatVersion
     ? `printf %s '${Buffer.from(tomcatJarCheckScript(tomcatVersion)).toString('base64')}' | base64 -d | sh`
     : null;
-  const localEvidenceChecks = ["verify-resident-exchange-presentation", "verify-toilet-market", "verify-bacteria-authoritative-challenges", "verify-bacteria-gates", "verify-game-loading", "verify-hospital-hud", "verify-bacteria-ranking", "verify-game-fault-reports", "verify-game-epidemic-flow", "verify-game-medical-contest-entry", "verify-game-client-fingerprint", "verify-game-hospital-skin-fallback", "verify-game-steam-auth", "verify-game-void-rewards", "verify-bacteria-normal-startup", "verify-bacteria-region-covers", "verify-game-doorplate-ui", "verify-bacteria-result-ui", "verify-bacteria-entry-style", "verify-game-special-clinic-atlas", "verify-design-level-packages", "verify-game-potion-lab", "verify-game-emergency-guard"]
-    .filter(key=>releaseImpactAssessment?.requiredChecks.some(item=>item.stepKey===key))
-    .map(currentLocalCheck);
-  doubleCheckLocalChecks(localEvidenceChecks);
-
-  // Cheap current-artifact admission in dry run only, scoped to selected design
-  // behavior. No behavior test, build, historical receipt or target script runs.
-  const dryRunChecks = dryRun && localEvidenceChecks.some(c=>c.key==='verify-design-level-packages')
-    ? [require('./localCheckLeaves').verifyServerArtifact(startupSource)] : [];
+  const dryRunChecks=[];
 
   const steps = [
     releaseStep({
@@ -411,28 +411,11 @@ function createPlan(projectRoot, request, env = process.env) {
       executable: true
     }),
     releaseStep({
-      key: 'install-game-release-node-dependencies',
-      title: '安装发布证据依赖',
-      summary: '依据目标提交的锁文件在隔离工作树安装本地证据检查所需 Node.js 依赖',
-      command: 'npm ci --no-audit --no-fund',
-      validation: 'package-lock.json 必须可复现安装全部证据检查依赖',
-      actionType: 'build', executable: true, timeoutSeconds: 900
-    }),
-    ...(localEvidenceChecks.length ? [releaseStep({
-      key: 'validate-game-release-preflight',
-      title: '验证候选相关行为',
-      summary: '在生产动作前执行选中功能的当前行为叶子，共用测试只执行一次；历史审计单独手动运行',
-      command: gameReleasePreflightCommand(localEvidenceChecks),
-      validation: '当前行为测试必须真实完整通过；历史材料不参与日常发布前置条件',
-      actionType: 'local-check', executable: true,
-      timeoutSeconds: Math.max(3600, localEvidenceChecks.reduce((total, check) => total + check.timeoutSeconds, 60))
-    })] : []),
-    releaseStep({
       key: 'validate-game-source-impact',
       title: '验证本次源码影响范围',
-      summary: '按生产基线差异验证相关后端与剩余检查，已由前置检查覆盖的Node测试不重复执行；未知影响阻断',
-      command: `node scripts/localSourceBuild.mjs --release . '${request.changeAnalysis?.targets?.game?.baselineCommit || ''}' '${Buffer.from(JSON.stringify(localEvidenceChecks.map(c=>c.key))).toString('base64')}'`,
-      validation: '必须输出FORMAL_SOURCE_IMPACT_PASS；编译镜像仅打包，迁移及生产现场检查仍独立执行',
+      summary: '使用应用提交中的插件清单、显式上下文与原生候选门禁同一执行器；按拥有输入复用真实证据',
+      command: pluginCandidateCommand(projectRoot,'game',request.changeAnalysis?.targets?.game?.baselineCommit||'',env),
+      validation: '必须返回 release-candidate-validation/v1 的生产操作前范围 PASS、真实检查计数和迁移声明；不接受独立旧预检标记',
       actionType: 'local-check', executable: true, timeoutSeconds: 1800
     }),
     releaseStep({
@@ -458,13 +441,6 @@ function createPlan(projectRoot, request, env = process.env) {
       actionType: 'build',
       executable: true
     }),
-    ...localEvidenceChecks.map(check=>releaseStep({
-      key:check.key,title:'验证'+({"verify-resident-exchange-presentation":"生化交换动效", "verify-toilet-market": "洗手间交易", "verify-bacteria-authoritative-challenges": "菌落权威挑战", "verify-bacteria-gates": "菌落逻辑门", "verify-game-loading": "游戏加载", "verify-hospital-hud": "医院HUD", "verify-bacteria-ranking": "菌落排行榜", "verify-game-fault-reports": "故障报告", "verify-game-epidemic-flow": "疫区流程", "verify-game-medical-contest-entry": "医道会入口", "verify-game-client-fingerprint": "客户端指纹", "verify-game-hospital-skin-fallback": "医院皮肤", "verify-game-steam-auth": "Steam登录", "verify-game-void-rewards": "虚空馈赠", "verify-bacteria-normal-startup":"菌落正常启动", "verify-bacteria-region-covers": "菌落盖板", "verify-game-doorplate-ui": "医院门牌", "verify-bacteria-result-ui": "菌落结算", "verify-bacteria-entry-style": "菌落入口", "verify-game-special-clinic-atlas": "特需病例图谱", "verify-design-level-packages": "色块工坊与关卡包", "verify-game-potion-lab": "药剂实验室", "verify-game-emergency-guard": "急救防刷"})[check.key]+'当前行为',
-      command:check.command,timeoutSeconds:check.timeoutSeconds,
-      summary:'执行选中功能的当前行为测试；共用叶子仅运行一次',
-      validation:'当前测试真实完整通过；历史截图与历史验收审计另行手动执行，现场安全检查继续保留',
-      actionType:'local-check',executable:true
-    })),
     releaseStep({
       key: 'build-image',
       title: '制作 Docker 镜像',
@@ -621,7 +597,7 @@ function createPlan(projectRoot, request, env = process.env) {
         executable: true
       }));
     }
-    if (requiresSteamAuth) {
+    if (requiresSteamRuntime) {
       steps.push(releaseStep({
         key: 'game-steam-preflight', title: '核验现有 Steam Publisher Key 与编排依赖',
         summary: '镜像上传前只读验证现有验票 Key 及服务 DNS 更新工具',
@@ -954,7 +930,7 @@ function createPlan(projectRoot, request, env = process.env) {
         actionType: 'remote-check', executable: true, finalCheck: true, timeoutSeconds: 90
       }));
     }
-    if (requiresEmergencyGuard) {
+    if (requiresEmergencyRuntime) {
       steps.push(releaseStep({
         key: 'verify-game-emergency-guard-runtime',
         title: '核验生产急救防刷预检协议',
@@ -1132,16 +1108,8 @@ function createPlan(projectRoot, request, env = process.env) {
     });
     steps.splice(steps.findIndex(step => step.recoveryOnly), 0, acceptanceStep);
   }
-  for (const check of localEvidenceChecks) {
-    const selectedStep = steps.find(step => step.key === check.key);
-    if (selectedStep) {
-      selectedStep.command = check.command;
-      selectedStep.timeoutSeconds = check.timeoutSeconds;
-      selectedStep.coveredByPreflight = 'validate-game-release-preflight';
-    }
-  }
-  doubleCheckLocalChecks(localEvidenceChecks, steps.filter(step => localEvidenceChecks.some(check => check.key === step.key)));
-  assertReleaseImpactPlanCoverage(releaseImpactAssessment, steps, includeStackDeploy);
+  for(const unit of pluginMetadata?.units||[])if(steps.some(step=>step.key===unit.id))throw new Error('Plugin cannot replace a core step: '+unit.id);
+  assertReleaseImpactPlanCoverage(releaseImpactAssessment, steps, includeStackDeploy,pluginMetadata?.units.map(unit=>unit.id)||[]);
 
   return {
     config: {
@@ -1163,6 +1131,7 @@ function createPlan(projectRoot, request, env = process.env) {
       remoteImageTarget,
       catalogSchemaVersion,
       releaseImpactAssessment,
+      pluginProtocol:pluginMetadata?{apiVersion:pluginMetadata.apiVersion,pluginId:pluginMetadata.pluginId,target:'game',unitIds:pluginMetadata.units.map(unit=>unit.id)}:null,
       databaseMigrations: releaseMigrations.map(item => ({
         filePath: item.filePath,
         sha256: item.sha256
@@ -1334,11 +1303,6 @@ function gameStaticAssetRoutePreflightCommand(configPath) {
   return `node ${shellToken(scriptPath)} --mode route-check --config ${shellToken(configPath)}`;
 }
 
-function gameReleasePreflightCommand(checks) {
-  const payload = Buffer.from(JSON.stringify({version: 1, checks}), 'utf8').toString('base64');
-  return `node ${shellToken(path.resolve(__dirname, '../scripts/run-game-release-preflight.mjs'))} --checks-base64 ${shellToken(payload)}`;
-}
-
 function createForumPlan(projectRoot, request, env = process.env) {
   const config = readReleaseConfig(projectRoot, 'forum');
   const forumImageMode = validateForumImageMode(request.forumImageMode || config.forumImageMode);
@@ -1361,8 +1325,11 @@ function createForumPlan(projectRoot, request, env = process.env) {
   const gitCommit = forumImageMode === 'build'
     ? validateGitCommit(request.gitCommit || 'latest')
     : 'not-used';
+  const pluginMetadata=forumImageMode==='build'?pluginMetadataForPlan(gitCommit==='latest'
+    ? (fs.existsSync(path.join(projectRoot,'release/publisher/forum.json'))?fs.readFileSync(path.join(projectRoot,'release/publisher/forum.json'),'utf8'):'')
+    :gitFileOrEmpty(projectRoot,gitCommit,'release/publisher/forum.json'),'forum',request.dryRun===false):null;
   const releaseImpactAssessment = forumImageMode === 'build'
-    ? resolveReleaseImpactAssessment(projectRoot, gitCommit, request.changeAnalysis, 'forum', [])
+    ? resolveReleaseImpactAssessment(projectRoot, gitCommit, request.changeAnalysis, 'forum', [],pluginMetadata?.units.map(unit=>unit.id)||[])
     : null;
   const steps = [];
 
@@ -1428,6 +1395,7 @@ function createForumPlan(projectRoot, request, env = process.env) {
       title: '校验论坛发布源码',
       summary: '执行论坛镜像契约测试和初始化脚本语法检查',
       command: chainPowerShellCommands([
+        pluginCandidateCommand(projectRoot,'forum',request.changeAnalysis?.targets?.forum?.baselineCommit||'',env),
         '.\\mvnw.cmd -q "-Dtest=ForumFlarumImageAssetTest,ForumSearchMigrationContractTest,ForumDeploymentConfigTest" test',
         ...forumSourceScriptValidationCommands()
       ]),
@@ -1600,7 +1568,8 @@ function createForumPlan(projectRoot, request, env = process.env) {
     }));
   }
 
-  assertReleaseImpactPlanCoverage(releaseImpactAssessment, steps, includeStackDeploy);
+  for(const unit of pluginMetadata?.units||[])if(steps.some(step=>step.key===unit.id))throw new Error('Plugin cannot replace a core step: '+unit.id);
+  assertReleaseImpactPlanCoverage(releaseImpactAssessment, steps, includeStackDeploy,pluginMetadata?.units.map(unit=>unit.id)||[]);
 
   return {
     config: {
@@ -1616,6 +1585,7 @@ function createForumPlan(projectRoot, request, env = process.env) {
       dockerCommandTarget: dockerTarget,
       remoteImageTarget,
       releaseImpactAssessment,
+      pluginProtocol:pluginMetadata?{apiVersion:pluginMetadata.apiVersion,pluginId:pluginMetadata.pluginId,target:'forum',unitIds:pluginMetadata.units.map(unit=>unit.id)}:null,
       executionEnabled: true
     },
     releaseTarget: 'forum',
@@ -1685,6 +1655,7 @@ function isMeelokNotificationStep(key) {
 
 async function executePlan(projectRoot, request, env = process.env, options = {}) {
   const result = await executePlanSteps(projectRoot, request, env, options);
+  if(result.status==='BEFORE_PRODUCTION_PASS')return result;
   const unknownRestore=result.plan?.steps.find(step=>step.key==='restore-meelok-services' && step.logs?.some(line=>String(line).includes('meelok_recovery_outcome=UNKNOWN')));
   if(unknownRestore) markMeelokRecoveryUnknown(result);
   await restoreMeelokAfterControlledExit(projectRoot, result, env, options);
@@ -1896,23 +1867,15 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
         continue;
       }
       assertNotCancelled();
+      if(request.boundary==='before-production'&&step.productionAction){
+        logs.push('[BEFORE_PRODUCTION] stopped before '+step.key);
+        return {status:'BEFORE_PRODUCTION_PASS',plan:markStepStatus(runtimePlan,completedStepKeys,'','done',stepLogs,stepTiming),
+          logs,completedStepKeys,productionActions:0,stoppedBefore:step.key,pluginValidation:runtimePlan.config.pluginValidation||null};
+      }
       currentStepKey = step.key;
       startStepTimer(step.key, stepTiming);
       pushStepLog(step.key, `[START] ${step.title}`);
       updateStep(step.key, 'running');
-      if (step.coveredByPreflight) {
-        const preflight = plan.steps.find(item => item.key === step.coveredByPreflight);
-        const encoded = preflight?.command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/)?.[1];
-        if (!completedStepKeys.includes(step.coveredByPreflight) || !encoded)
-          throw new Error('Missing completed preflight coverage: '+step.key);
-        const checks = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')).checks;
-        doubleCheckLocalChecks(checks, plan.steps.filter(item => item.coveredByPreflight).map(item => ({key:item.key,command:item.command,timeoutSeconds:item.timeoutSeconds})));
-        pushStepLog(step.key, '[PREFLIGHT_COVERED] '+step.coveredByPreflight);
-        completedStepKeys.push(step.key);
-        finishStepTimer(step.key, stepTiming);
-        updateStep(step.key, 'done');
-        continue;
-      }
       if (step.executable) {
         if (step.recoveryBoundary) {
           recoveryBoundaryEntered = true;
@@ -1925,9 +1888,11 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
         pushStepLog(step.key, `[RUN] ${step.command}`);
         updateStep(step.key, 'running');
         let capturedCommitOutput = '';
+        let pluginOutput='';
         let maintenanceUnresolved = false;
         try {
-          await runCommand(projectRoot, step.command, env, chunk => {
+          const returnedOutput=await runCommand(projectRoot, step.command, env, chunk => {
+            if(['validate-game-source-impact','validate-forum-source'].includes(step.key))pluginOutput+=chunk;
             if (step.key === 'capture-release-commit') {
               capturedCommitOutput += chunk;
               return;
@@ -1944,6 +1909,7 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
             }
             updateStep(step.key, 'running');
           }, signal, step.timeoutSeconds);
+          if(['validate-game-source-impact','validate-forum-source'].includes(step.key))runtimePlan.config.pluginValidation=pluginPrefixReport(pluginOutput+'\n'+(returnedOutput||''),plan.releaseTarget,plan);
         } catch (error) {
           assertNotCancelled();
           if (!isMeelokNotificationStep(step.key) || error.name === 'CancellationError') throw error;
@@ -2943,7 +2909,7 @@ function assertJpaSchemaMigrationCoverage(projectRoot, targetCommit, changeAnaly
   }
 }
 
-function resolveReleaseImpactAssessment(projectRoot, targetCommit, changeAnalysis, releaseTarget, releaseMigrations = []) {
+function resolveReleaseImpactAssessment(projectRoot, targetCommit, changeAnalysis, releaseTarget, releaseMigrations = [], pluginUnitIds=[]) {
   const target = validateReleaseTarget(releaseTarget);
   const targetChanges = changeAnalysis && changeAnalysis.targets && changeAnalysis.targets[target];
   if (!targetChanges || targetChanges.changed !== true) {
@@ -2968,7 +2934,7 @@ function resolveReleaseImpactAssessment(projectRoot, targetCommit, changeAnalysi
     throw new Error(`${RELEASE_IMPACT_ASSESSMENT_PATH} 缺少 targets.${target} 发版影响评估`);
   }
 
-  const normalized = normalizeReleaseImpactTarget(document.assessmentId, target, assessment);
+  const normalized = normalizeReleaseImpactTarget(document.assessmentId, target, assessment,pluginUnitIds);
   assertExactRuntimePathCoverage(target, changedPaths, normalized.coveredRuntimePaths);
   assertReleaseImpactRequiredChecks(normalized, target, releaseMigrations);
 
@@ -3020,7 +2986,7 @@ function validateReleaseImpactDocument(document) {
   }
 }
 
-function normalizeReleaseImpactTarget(assessmentId, target, assessment) {
+function normalizeReleaseImpactTarget(assessmentId, target, assessment,pluginUnitIds=[]) {
   const checklistDecision = String(assessment.checklistDecision || '').trim();
   if (!RELEASE_CHECKLIST_DECISIONS.has(checklistDecision)) {
     throw new Error(`targets.${target}.checklistDecision 必须为 existing-checks-sufficient 或 checklist-updated`);
@@ -3043,7 +3009,7 @@ function normalizeReleaseImpactTarget(assessmentId, target, assessment) {
     throw new Error(`targets.${target}.databaseImpact 必须为 ${[...RELEASE_DATABASE_IMPACTS].join('、')}`);
   }
   const coveredRuntimePaths = uniqueSortedReleasePaths(assessment.coveredRuntimePaths || []);
-  const requiredChecks = normalizeRequiredChecks(target, assessment.requiredChecks);
+  const requiredChecks = normalizeRequiredChecks(target, assessment.requiredChecks,pluginUnitIds);
   return {
     assessmentId: String(assessmentId),
     target,
@@ -3057,7 +3023,7 @@ function normalizeReleaseImpactTarget(assessmentId, target, assessment) {
   };
 }
 
-function normalizeRequiredChecks(target, requiredChecks) {
+function normalizeRequiredChecks(target, requiredChecks,pluginUnitIds=[]) {
   if (!Array.isArray(requiredChecks) || requiredChecks.length === 0) {
     throw new Error(`targets.${target}.requiredChecks 必须至少声明一项自动检查`);
   }
@@ -3067,7 +3033,7 @@ function normalizeRequiredChecks(target, requiredChecks) {
     }
     const stepKey = String(item.stepKey || '').trim();
     const reason = String(item.reason || '').trim();
-    if (!KNOWN_RELEASE_CHECKS[target].has(stepKey)) {
+    if (!KNOWN_RELEASE_CHECKS[target].has(stepKey)&&!pluginUnitIds.includes(stepKey)) {
       throw new Error(`targets.${target}.requiredChecks 引用了发布器未注册的检查步骤: ${stepKey || '(empty)'}`);
     }
     if (reason.length < 10) {
@@ -3159,12 +3125,13 @@ function releaseImpactValidationStep(assessment) {
   });
 }
 
-function assertReleaseImpactPlanCoverage(assessment, steps, includeStackDeploy) {
+function assertReleaseImpactPlanCoverage(assessment, steps, includeStackDeploy,pluginUnitIds=[]) {
   if (!assessment) {
     return;
   }
   const stepMap = new Map(steps.map(step => [step.key, step]));
   for (const check of assessment.requiredChecks) {
+    if(pluginUnitIds.includes(check.stepKey))continue;
     const step = stepMap.get(check.stepKey);
     if (!step) {
       if (!includeStackDeploy) {

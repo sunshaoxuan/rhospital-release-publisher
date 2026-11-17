@@ -1,161 +1,54 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {planChanges}=require('../src/changeValidationPolicy');
-
-test('generic plugin contract selects the existing isolated worktree fixture only',()=>{
- const inputs=['src/releasePlugin.js','src/releasePluginRunner.js','test/releaseWorktree.test.js'];
- const selected=planChanges('publisher',[...inputs,...inputs]);
- assert.deepEqual(selected.checks.map(c=>c.key),['publisher-plugin']);
- assert.deepEqual(selected.checks[0].tests,['test/releaseWorktree.test.js']);
- for(const input of inputs)assert(selected.checks[0].inputs.includes(input));
- for(const repository of ['game','forum'])assert.throws(()=>planChanges(repository,inputs));
- assert.throws(()=>planChanges('publisher',['src/unregisteredPlugin.js']),/UNMAPPED_CHANGE/);
- assert.deepEqual(planChanges('publisher',['docs/design/release-plugin-producer-v1.md']).checks.map(c=>c.key),['documents']);
+const {planChanges,safePath}=require('../src/changeValidationPolicy');
+const keys=paths=>planChanges('publisher',paths).checks.map(c=>c.key);
+test('plugin modules select their isolated consumer once without application registries',()=>{
+ const paths=['src/releasePlugin.js','src/releasePluginRunner.js','test/releaseWorktree.test.js'];
+ const plan=planChanges('publisher',[...paths,...paths]);
+ assert.deepEqual(plan.checks.map(c=>c.key),['publisher-plugin']);
+ assert.deepEqual(plan.checks[0].tests,['test/releaseWorktree.test.js']);
+ for(const file of paths)assert(plan.checks[0].inputs.includes(file));
+ for(const repository of ['game','forum'])assert.throws(()=>planChanges(repository,paths),/committed release plugin/);
 });
-
-test('Resident source art and standalone artifact code have exact bounded owners',()=>{
- const art='docs/artwork/resident-backlight-20261113/sources/leon-generated.png';
- assert.deepEqual(planChanges('game',[art,art]).checks.map(c=>c.key),['current-resident-exchange-presentation']);
- const code='docs/evidence/resident-exchange-motion-20261113/mobile-menu/measure-menu-pixels.cjs';
- const plan=planChanges('game',[code,code]);
- assert.deepEqual(plan.checks.map(c=>c.key),['current-resident-artifact-syntax']);
- assert.equal(plan.checks[0].kind,'syntax');assert.equal(plan.checks[0].timeoutSeconds,30);
- assert(plan.checks[0].inputs.every(p=>/\.(cjs|js)$/.test(p)));
- assert.throws(()=>planChanges('game',[code.replace('measure-menu-pixels','unknown-tool')]));
- assert.throws(()=>planChanges('game',['docs/evidence/resident-exchange-motion-20261113/backlight-revision/old.webp']));
+test('publisher controller owns its public contract and production safety consumers',()=>{
+ const check=planChanges('publisher',['src/releasePublisherCore.js','server.js','public/app.js']).checks[0];
+ assert.equal(check.key,'publisher-plan');
+ assert.deepEqual(check.tests,['test/fullGateScope.test.js','test/releasePublisherCore.test.js']);
+ for(const file of ['src/releasePluginCandidate.js','src/releasePlugin.js','src/gameProductionDatabase.js','test/helpers/ownedFixtures.js'])assert(check.inputs.includes(file),file);
+ assert(!check.inputs.some(file=>/localCheckPolicy|currentBehavior|CheckInputs/.test(file)));
 });
-
-test('mobile hospital entrances select their bounded HUD leaf with state and access checks',()=>{
- const path='src/main/resources/static/js/scenes/components/MobileHospitalEntryMenu.mjs';
- const plan=planChanges('game',[path,path]);
- assert.deepEqual(plan.checks.map(c=>c.key),['current-hospital-hud-current']);
- const check=plan.checks[0];
- assert(check.tests.includes('src/test/js/mobileHospitalEntryMenu.test.mjs'));
- assert(check.tests.includes('src/test/js/bacteriaLabEntry.test.mjs'));
- assert(!check.tests.some(p=>/Evidence\.test/.test(p)));
- assert.deepEqual(check.dependencies,['pngjs']);
- assert(!check.tests.some(p=>/resident|Freeze|steam/i.test(p)));
- assert.throws(()=>planChanges('game',[path.replace('Menu.mjs','Unknown.mjs')]));
- assert.deepEqual(planChanges('game',['docs/tasks/mobile-menu.md']).checks.map(c=>c.key),['documents']);
+test('changed shared gate infrastructure selects only explicit direct consumers',()=>{
+ assert.deepEqual(keys(['src/changeValidationGit.js']),['publisher-plugin','publisher-policy','publisher-runner']);
+ assert.deepEqual(keys(['src/changeValidationPolicy.js']),['publisher-policy','publisher-runner']);
+ assert.deepEqual(keys(['src/changeValidationRunner.js']),['publisher-runner']);
+ assert.deepEqual(keys(['scripts/game-service-recovery.py']),['publisher-recovery']);
 });
-
-test('Resident foreground assets select the presentation leaf once, including artwork negatives',()=>{
- const file='src/main/resources/static/img/game/themes/resident-evil/leon-foreground.png';
- const plan=planChanges('game',[file,file]);
- assert.deepEqual(plan.checks.map(c=>c.key),['current-resident-exchange-presentation']);
- assert(plan.checks[0].tests.includes('src/test/js/residentForegroundArt.test.mjs'));
- assert(plan.checks[0].tests.includes('src/test/js/residentNormalIntegration.test.mjs'));
- assert.deepEqual(plan.checks[0].dependencies,['pngjs']);
- for(const name of ['first-floor','second-floor','basement','basement-wall'])assert(plan.checks[0].inputs.includes('src/main/resources/static/img/game/themes/resident-evil/'+name+'.png'));
- assert(!plan.checks[0].tests.some(f=>/bacteria|steam/i.test(f)));
- assert.throws(()=>planChanges('game',['src/main/resources/static/img/game/themes/resident-evil/unknown-character.png']));
-});
-
-test('freeze dialog inputs select one isolated leaf, duplicates deduplicate, unknown input rejects',()=>{
- const files=['src/main/resources/static/js/design/FreezeEditor.mjs','src/main/resources/static/js/design/QueueMechanicDialogs.css','src/test/js/bacteriaFreezeEditor.test.mjs'];
- const plan=planChanges('game',[...files,...files]);
- assert.deepEqual(plan.checks.map(c=>c.key),['current-bacteria-freeze-editor']);
- const check=plan.checks[0];assert.equal(new Set(check.inputs).size,check.inputs.length);
- assert.deepEqual(check.tests,['src/test/js/bacteriaFreezeEditor.test.mjs','src/test/js/bacteriaQueueMechanisms.test.mjs','src/test/js/bacteriaGateLabels.test.mjs']);
- assert.deepEqual(planChanges('game',['src/main/resources/static/js/design/Editor.mjs']).checks.map(c=>c.key),['current-bacteria-freeze-editor']);
- assert(planChanges('game',['src/test/js/bacteriaGateLabels.test.mjs']).checks[0].inputs.includes('src/main/resources/static/js/design/Editor.mjs'));
- assert(!check.tests.some(f=>/resident|steam|skin/i.test(f)));
- assert(!check.inputs.some(f=>/docs\/evidence|resident|steam/i.test(f)));
- assert.deepEqual(planChanges('game',['docs/tasks/freeze-editor.md']).checks.map(c=>c.key),['documents']);
- assert.throws(()=>planChanges('game',['src/main/resources/static/js/design/UnknownFreeze.mjs']));
-});
-
-test('Resident presentation changes select one bounded leaf without backend or unrelated suites',()=>{
- const files=['src/main/resources/static/js/scenes/utils/ResidentRewardDialog.mjs','src/main/resources/static/js/scenes/utils/ResidentExchangeMotion.mjs','src/main/resources/static/js/scenes/utils/residentSoftGlow.mjs','src/test/js/residentDrawPresentation.test.mjs'];
- const plan=planChanges('game',[...files,...files]);
- assert.deepEqual(plan.checks.map(c=>c.key),['current-resident-exchange-presentation']);
- const check=plan.checks[0];assert.equal(check.kind,'node-tests');assert(check.tests.includes(files[3]));
- assert.equal(new Set(check.inputs).size,check.inputs.length);assert.equal(new Set(check.tests).size,check.tests.length);
- assert(check.inputs.every(p=>!p.startsWith('docs/evidence/')));assert(!check.tests.some(p=>/bacteria|steam|design/i.test(p)));
- for(const f of files)assert.throws(()=>planChanges('forum',[f]));
- assert.deepEqual(planChanges('game',['docs/tasks/resident-fix.md']).checks.map(c=>c.key),['documents']);
-});
-test('a registered floor asset selects only its own asset checks; unknown art remains closed',()=>{
- const a='src/main/resources/static/img/game/hospital/hospital-sec-halloween.png';
- const b='src/main/resources/static/img/game/hospital/dixiashi-midautumn.png';
- const plan=planChanges('game',[a,b,a]);assert.deepEqual(plan.checks.map(c=>c.key),['skin-assets']);
- assert.deepEqual(plan.checks[0].inputs,[b,a]);assert.equal(plan.checks[0].assets.length,2);
- assert(!plan.checks.some(c=>c.kind==='skin-admin'||c.tests?.some(t=>/bacteria|resident|steam/i.test(t))));
- assert.throws(()=>planChanges('game',[a.replace('halloween','unregistered-theme')]),/UNMAPPED_CHANGE/);
-});
-test('documents select static validation only; duplicate paths select once',()=>{
-  const p=planChanges('game',['CHANGELOG.md','docs/release.md','CHANGELOG.md']);
-  assert.deepEqual(p.checks.map(c=>c.key),['documents']);assert.equal(p.changedPaths.length,2);
-});
-test('Source and branch gate changes select policy and Git runner, never unrelated feature groups',()=>{
- for(const file of ['src/changeValidationGit.js','src/changeValidationPolicy.js'])assert.deepEqual(
-   planChanges('publisher',[file]).checks.map(c=>c.key),['publisher-policy','publisher-runner']);
- const app=planChanges('game',['scripts/localSourceBuild.mjs']);
- assert.deepEqual(app.checks.map(c=>c.key),['game-gate']);
- assert(app.checks[0].tests.includes('src/test/js/localSourceBuild.test.mjs'));
- assert(!app.checks[0].tests.some(f=>/skin|resident|steam/i.test(f)));
-});
-
-test('JPEG evidence selects only documents and keeps unknown formats and runtime artwork closed',()=>{
- const files=['docs/evidence/runtime/scene.jpg','docs/evidence/runtime/crop.jpeg'];
- for(const repository of ['game','publisher']){
-  const plan=planChanges(repository,[...files,...files]);
-  assert.deepEqual(plan.checks.map(c=>c.key),['documents']);
-  assert.deepEqual(plan.checks[0].inputs,files.slice().sort());
+test('documents and image evidence remain static while archive metadata is excluded from runtime checks',()=>{
+ const files=['CHANGELOG.md','docs/tasks/change.md','docs/evidence/run/scene.jpg','docs/evidence/run/crop.jpeg'];
+ const plan=planChanges('publisher',[...files,...files]);
+ assert.deepEqual(plan.checks.map(c=>c.key),['documents']);assert.deepEqual(plan.checks[0].inputs,files.sort());
+ for(const file of ['src/manualArchiveChecks.json','src/designValidationLeaves.json','src/designEvidenceInputs.json']){
+  assert.deepEqual(keys([file]),['documents']);
+  assert(!planChanges('publisher',['src/releasePublisherCore.js']).checks.some(c=>c.inputs.includes(file)));
  }
- for(const file of ['docs/evidence/runtime/scene.webp','docs/artwork/scene.jpg','src/main/resources/static/img/scene.jpg'])assert.throws(()=>planChanges('game',[file]),/UNMAPPED_CHANGE/);
 });
-test('Resident SQL owns schema and direct entity inputs without editor or Steam',()=>{
-  const p=planChanges('game',['scripts/migration/20261108_add_resident_reward_ledger.sql','scripts/validation/resident-reward/schema-readonly.sql']);
-  assert.deepEqual(p.checks.map(c=>c.key),['resident-schema']);assert.equal(p.productionActions,false);
-  assert(p.checks[0].inputs.some(f=>f.endsWith('ResidentRewardReceipt.java')));
+test('migration retirement is audit-only and preserves exact publisher consumer checks',()=>{
+ const retired=require('../docs/design/release-plugin-publisher-retirement.json');
+ const selected=planChanges('publisher',retired.files);
+ assert.deepEqual(new Set(selected.checks.map(c=>c.key)),new Set(retired.checks));
+ assert(selected.checks.every(check=>check.kind==='node-tests'&&!check.inputs.some(file=>retired.files.includes(file))));
 });
-test('unknown runtime, entity behavioral edits and unsafe paths fail closed without full fallback',()=>{
-  for(const f of ['src/main/java/New.java','src/main/java/com/zly/hospital/model/resident/ResidentRewardAccount.java','../outside','C:/outside'])assert.throws(()=>planChanges('game',[f]));
-  assert.throws(()=>planChanges('other',[]));
+test('empty selection is valid, all unknown or unsafe scope fails closed with no full fallback',()=>{
+ assert.deepEqual(keys([]),[]);
+ for(const file of ['src/unmapped.js','docs/evidence/scene.webp','../outside','C:/outside','src\\other.js'])assert.throws(()=>planChanges('publisher',[file]));
+ for(const file of ['','/root','a/../b','a//b'])assert.throws(()=>safePath(file));
+ assert.throws(()=>planChanges('other',[]));
 });
-test('archived validator edits get syntax checks; unrelated historical JSON is static documentation',()=>{
- const plan=planChanges('game',['scripts/bacteria-lab/validate-design-evidence.mjs']);
- assert.deepEqual(plan.checks.map(c=>c.key),['archive-syntax']);
- assert.deepEqual(planChanges('game',['docs/evidence/old/ACCEPTANCE.json']).checks.map(c=>c.key),['documents']);
-});
-test('attribute validation has no archived receipt or predecessor inputs',()=>{
- const plan=planChanges('game',['.gitattributes']);assert.deepEqual(plan.checks.map(c=>c.key),['evidence-attributes']);
- assert(plan.checks[0].inputs.every(p=>!p.endsWith('.json')));
-});
-test('current test split selects actual affected behavior without archives or global evidence closure',()=>{
- const plan=planChanges('game',['src/test/js/toiletMarket.test.mjs']);
- assert.deepEqual(plan.checks.map(c=>c.key),['current-toilet-market']);
- assert(plan.checks[0].inputs.every(p=>!p.startsWith('docs/evidence/')));
- assert(plan.checks[0].inputs.length<250);
-});
-test('optional CI identity configuration uses static checks without product suites',()=>{
- assert.deepEqual(planChanges('game',['.github/workflows/final-release-preflight.yml']).checks.map(c=>c.key),['documents']);
-});
-test('manual archive metadata is not required by normal publisher code checks',()=>{
- const archived=['src/manualArchiveChecks.json','src/designValidationLeaves.json','src/designEvidenceInputs.json'];
- const checks=planChanges('publisher',['src/releasePublisherCore.js']).checks;
- for(const check of checks)for(const file of archived)assert(!check.inputs.includes(file),file);
- for(const file of archived)assert.deepEqual(planChanges('publisher',[file]).checks.map(c=>c.key),['documents']);
-});
-
-test('each changed behavior selects its own consumers without unrelated game features',()=>{
- const one=planChanges('game',['src/test/js/toiletMarket.test.mjs']);assert.equal(one.checks.length,1);assert.deepEqual(one.checks[0].tests,['src/test/js/toiletMarket.test.mjs']);
- const design=planChanges('game',['src/test/resources/design/user-60x60-32color-request.json']);assert(design.checks.length>0);assert(design.checks.every(c=>c.key.startsWith('current-design-')));
-});
-
-test('reward tab inputs select a bounded current reward leaf',()=>{
-  for(const path of ['src/main/resources/templates/design.html','src/main/resources/static/css/design.css','src/main/resources/static/js/design/RewardSettings.mjs','scripts/bacteria-lab/reward-settings.test.mjs']) {
-    const plan=require('../src/changeValidationPolicy').planChanges('game',[path]);
-    assert(plan.checks.some(c=>c.key==='current-editor-rewards'));
-    const reward=plan.checks.find(c=>c.key==='current-editor-rewards');
-    assert.deepEqual(reward.tests,['scripts/bacteria-lab/reward-settings.test.mjs','src/test/js/bacteriaWorkbench.test.mjs']);
-    assert(!reward.inputs.some(p=>p.startsWith('docs/evidence/')));
-  }
-});
-test('shared tabs retain freeze consumers and unknown changes stay closed',()=>{
-  const checks=require('../src/changeValidationPolicy').planChanges('game',['src/main/resources/static/js/design/Workbench.mjs']).checks;
-  assert(checks.some(c=>c.key==='current-editor-rewards'));
-  assert(checks.some(c=>c.key==='current-bacteria-freeze-editor'));
-  assert.throws(()=>require('../src/changeValidationPolicy').planChanges('game',['src/main/resources/static/js/unknown-reward.mjs']),/UNMAPPED_CHANGE/);
-  assert(!require('../src/changeValidationPolicy').planChanges('game',['CHANGELOG.md']).checks.some(c=>c.key==='current-editor-rewards'));
+test('selection unions are deduplicated and every executable test is owned',()=>{
+ const plan=planChanges('publisher',['src/changeValidationGit.js','src/changeValidationPolicy.js','src/releasePublisherCore.js','src/releasePlugin.js']);
+ assert.equal(new Set(plan.checks.map(c=>c.key)).size,plan.checks.length);
+ for(const check of plan.checks){
+  assert.equal(new Set(check.inputs).size,check.inputs.length);
+  for(const file of check.tests)assert(check.inputs.includes(file),file);
+  assert(!check.tests.some(file=>/npm|mvn|gameReleasePreflight/.test(file)));
+ }
 });

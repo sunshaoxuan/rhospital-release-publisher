@@ -1,10 +1,25 @@
 const fs=require('node:fs'),path=require('node:path');
 const {git,text}=require('./changeValidationGit');
 const {loadReleasePlugin,createReleaseContext,fail}=require('./releasePlugin');
-const {hostContextOptions}=require('./releasePluginContext');
+const {hostContextOptions,selectedTools,localEnvironment}=require('./releasePluginContext');
+const {execFile}=require('node:child_process');
 const {executeReleasePlugin}=require('./releasePluginRunner');
 const {validateDocuments}=require('./releasePluginDocuments');
 const {receiptStore,hash}=require('./changeValidationReceipts');
+
+function resolvePluginContextFile(repositoryRoot,explicit='',environment={}) {
+  let configured='';
+  try {
+    const values=text(repositoryRoot,'config','--local','--get-all','release.pluginContextFile').split(/\r?\n/).filter(Boolean);
+    if(values.length>1)fail('AMBIGUOUS_PLUGIN_CONTEXT_CONFIGURATION');configured=values[0]||'';
+  } catch(error) {if(error.message?.startsWith('AMBIGUOUS_'))throw error;}
+  const supplied=[explicit,environment.RHOSPITAL_RELEASE_PLUGIN_CONTEXT_FILE].filter(Boolean);
+  const files=[configured,...supplied].filter(Boolean);
+  for(const file of files)if(typeof file!=='string'||!path.isAbsolute(file)||!fs.existsSync(file)||!fs.lstatSync(file).isFile()||fs.lstatSync(file).isSymbolicLink())fail('INVALID_PLUGIN_CONTEXT_CONFIGURATION');
+  const resolved=files.map(file=>fs.realpathSync(file));
+  if(new Set(resolved).size>1)fail('PLUGIN_CONTEXT_SOURCE_MISMATCH');
+  return resolved[0]||'';
+}
 
 function candidateIdentity(repositoryRoot,{phase,baseline,commit,remote}={}) {
   if(!['commit','source','push','remote','release-source'].includes(phase))fail('UNKNOWN_CANDIDATE_PHASE');
@@ -25,6 +40,47 @@ function candidateIdentity(repositoryRoot,{phase,baseline,commit,remote}={}) {
   const changedPaths=git(repositoryRoot,['diff','--name-only','-z',baseline,commit]).toString('utf8').split('\0').filter(Boolean);
   return {head,tree,commit,baseline,changedPaths,staged};
 }
+
+// Live capability admission is cheap and independent of signed business receipts.
+async function admitPluginTools(plan,context,{signal}={}) {
+  const contracts={
+    node:{args:['--version'],pattern:/^v[0-9]+\.[0-9]+\./m},
+    git:{args:['--version'],pattern:/^git version [0-9]+\./m},
+    python:{args:['--version'],pattern:/^Python [0-9]+\.[0-9]+\./m},
+    java:{args:['-version'],pattern:/(?:openjdk|java) version "?[0-9]+\./m},
+    docker:{args:['--version'],pattern:/Docker version [0-9]+\./m},
+    cmd:{args:['/d','/c','ver'],pattern:/[0-9]+\.[0-9]+\.[0-9]+/},
+    powershell:{args:['-NoLogo','-NoProfile','-NonInteractive','-Command','$PSVersionTable.PSVersion.ToString()'],pattern:/^[0-9]+\.[0-9]+\./m}
+  };
+  const seen=new Set();
+  // Clear Windows ambient defaults before launching tools, as the worker does.
+  const probe=String.raw`const fs=require('node:fs'),{spawnSync}=require('node:child_process');
+const request=JSON.parse(fs.readFileSync(0,'utf8'));
+for(const key of Object.keys(process.env))delete process.env[key];
+Object.assign(process.env,request.environment);
+const result=spawnSync(request.executable,request.args,{env:{...process.env},encoding:'utf8',shell:false,windowsHide:true,timeout:5000,maxBuffer:32768});
+process.stdout.write(JSON.stringify({status:result.status,signal:result.signal,error:result.error?.code||'',output:(result.stdout||'')+(result.stderr||'')}));
+`;
+  for(const unit of plan.units.filter(unit=>['source','artifact'].includes(unit.phase)&&unit.requires.includes('local-tools@1'))) {
+    const environment=localEnvironment(unit,context),tools=selectedTools(unit,context);
+    for(const [key,executable] of Object.entries(tools)) {
+      const contract=contracts[key];if(!contract)fail('UNKNOWN_TOOL_ADMISSION',key);
+      const identity=hash({key,executable,args:contract.args,environment});if(seen.has(identity))continue;seen.add(identity);
+      if(signal?.aborted)fail('PLUGIN_CANCELLED');
+      const result=await new Promise(resolve=>{
+        const child=execFile(context.nodeExecutable,['-e',probe],{cwd:context.checkRoot,env:{...context.environment},signal,
+          windowsHide:true,shell:false,timeout:7000,maxBuffer:65536},(error,stdout)=>{
+          if(error)return resolve({status:null,error:error.code||'PROBE_FAILED'});
+          try{resolve(JSON.parse(stdout));}catch{resolve({status:null,error:'INVALID_PROBE_RESULT'});}
+        });
+        child.stdin.on('error',()=>{});child.stdin.end(JSON.stringify({executable,args:contract.args,environment}));
+      });
+      if(signal?.aborted)fail('PLUGIN_CANCELLED');
+      if(result.status!==0||result.signal||result.error||!contract.pattern.test(result.output||''))fail('PLUGIN_TOOL_NOT_CALLABLE',key);
+    }
+  }
+}
+
 async function executePluginCandidate(repositoryRoot,options={}) {
   const {target,manifestPath,phase='source',signal,write=()=>{},environment,contextOptions={},requireReceipts=['push','remote'].includes(phase)}=options;
   const identity=candidateIdentity(repositoryRoot,{...options,phase});
@@ -40,6 +96,7 @@ async function executePluginCandidate(repositoryRoot,options={}) {
     const context=createReleaseContext(hostContextOptions(plan,{...contextOptions,artifactRoot:artifacts,
       dependencyRoot:options.dependencyRoot||contextOptions.dependencyRoot||path.join(repositoryRoot,'node_modules'),
       environment:{...environment,...contextOptions.environment},dockerConfigRoot:dockerConfig}));
+    await admitPluginTools(plan,context,{signal});
     // All selected-unit admission, including tools, precedes any document or business receipt read.
     let documents={files:0,executed:0,reused:0};
     const beforeExecute=()=>{if(plan.documents.length) {
@@ -60,8 +117,9 @@ async function executePluginCandidate(repositoryRoot,options={}) {
       receiptsDirectory,requireReceipts,signal,write,beforeExecute});
     if(identity.staged&&(text(repositoryRoot,'rev-parse','HEAD')!==identity.head||text(repositoryRoot,'write-tree')!==identity.tree))fail('STAGED_CANDIDATE_CHANGED');
     return {...result,state:'PASS',protocol:'release-candidate-validation/v1',scope:'before-production',prefixState:result.state,
+      pluginId:plan.pluginId,target:plan.target,migrationDeclarations:plan.migrations,
       selectedKeys:[...plan.units.map(unit=>unit.id),...(plan.documents.length?['core.documents']:[])],
       documents,changedPaths:identity.changedPaths,baseline:identity.baseline,candidateTree:text(repositoryRoot,'rev-parse',identity.commit+'^{tree}')};
   } finally {plan?.close();fs.rmSync(workspace,{recursive:true,force:true});}
 }
-module.exports={candidateIdentity,executePluginCandidate,validatePluginCandidate:executePluginCandidate};
+module.exports={candidateIdentity,executePluginCandidate,validatePluginCandidate:executePluginCandidate,resolvePluginContextFile,admitPluginTools};

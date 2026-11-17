@@ -1,7 +1,7 @@
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const {registeredLocalCheckContracts} = require('./src/localCheckPolicy');
+const {VERSION:pluginApiVersion,CONTEXT_VERSION:pluginContextVersion,CAPABILITIES:pluginCapabilities} = require('./src/releasePlugin');
 const {createOutcomeReader}=require('./src/releaseOutcomeStatus');
 const {
   DEFAULT_REMOTE_COMPOSE_DIR,
@@ -102,7 +102,7 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, {...getPublisherVersionStatus(
         publisherRepositoryRoot,
         publisherRuntimeVersion
-      ), localCheckContracts: registeredLocalCheckContracts(), publisherUpdateProtocol: 1});
+      ), releasePlugin:{apiVersion:pluginApiVersion,contextVersion:pluginContextVersion,capabilities:pluginCapabilities},publisherUpdateProtocol: 1});
     }
     if (pathname === '/api/config' && req.method === 'GET') {
       const releaseTarget = validateReleaseTarget(requestUrl.searchParams.get('releaseTarget') || 'game');

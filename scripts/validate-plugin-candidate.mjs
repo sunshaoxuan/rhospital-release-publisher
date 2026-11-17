@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
-const {validatePluginCandidate}=require('../src/releasePluginCandidate');
+const {validatePluginCandidate,resolvePluginContextFile}=require('../src/releasePluginCandidate');
 const fields=new Map([['repository-root','repositoryRoot'],['phase','phase'],['baseline','baseline'],['commit','commit'],['remote','remote'],
   ['target','target'],['manifest','manifestPath'],['workspace','workspaceRoot'],['receipts','receiptsDirectory'],
   ['dependencies-root','dependencyRoot'],['artifact-root','artifactRoot'],['context-file','contextFile']]);
@@ -15,7 +15,7 @@ try {
   }
   if(!options.repositoryRoot||!path.isAbsolute(options.repositoryRoot)||!options.target)throw new Error('Explicit repository root and target required');
   const root=options.repositoryRoot;delete options.repositoryRoot;
-  options.contextFile=options.contextFile||process.env.RHOSPITAL_RELEASE_PLUGIN_CONTEXT_FILE;
+  options.contextFile=resolvePluginContextFile(root,options.contextFile||'',process.env);
   if(options.contextFile) {
     if(!path.isAbsolute(options.contextFile))throw new Error('Absolute trusted host context file required');
     options.contextOptions=JSON.parse(fs.readFileSync(options.contextFile,'utf8'));delete options.contextFile;

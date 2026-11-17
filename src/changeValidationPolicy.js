@@ -1,130 +1,50 @@
-const path = require('node:path');
-
-const APP_GATE_INPUTS = [
-  "Dockerfile",
-  "scripts/changeValidationGate.mjs",
-  "scripts/releasePublisherPolicy.mjs",
-  "scripts/validate-release-candidate-commit.mjs",
-  "scripts/Validate-ReleasePlanPrePush.ps1",
-  "scripts/Push-VerifiedMaster.ps1",
-  ".githooks/pre-commit",
-  ".githooks/pre-push",
-  "src/test/js/changeValidationGate.test.mjs",
-  "src/test/js/releaseCandidateCommitGate.test.mjs",
-  "scripts/releaseFinalPreflight.mjs",
-  "scripts/releasePreflightCache.mjs",
-  "scripts/validation/source-bindings.mjs",
-  "scripts/localSourceBuild.mjs",
-  "src/test/js/localSourceBuild.test.mjs",
-  "src/test/js/releaseCurrentBehavior.test.mjs"
-];
-const RESIDENT_INPUTS = [
-  'scripts/migration/20261108_add_resident_reward_ledger.sql',
-  'scripts/validation/resident-reward/schema-preflight-readonly.sql',
-  'scripts/validation/resident-reward/schema-readonly.sql',
-  'src/test/js/residentSchemaOracle.test.cjs',
-  ...['ResidentRewardAccount','ResidentRewardDay','ResidentRewardReceipt']
-    .map(n=>'src/main/java/com/zly/hospital/model/resident/'+n+'.java')
-];
-const POLICY_FILES = ["src/changeValidationPolicy.js", "src/changeValidationRunner.js", "src/changeValidationReceipts.js", "src/residentMigrationCheck.js", "src/changeValidationGit.js", "src/currentBehaviorInputs.json", "src/publisherGateInputs.json"];
-const PUBLISHER_GATE_INPUTS = [...["src/changeValidationPolicy.js", "src/changeValidationRunner.js", "src/changeValidationReceipts.js", "src/residentMigrationCheck.js", "src/changeValidationGit.js", "src/currentBehaviorInputs.json", "src/publisherGateInputs.json", ".gitattributes", "src/localCheckPolicy.js", "src/localCheckLeaves.js", "src/currentBehaviorChecks.json", "src/currentBehaviorGuard.cjs", "scripts/run-game-release-preflight.mjs", "scripts/audit-historical-evidence.mjs", "scripts/validate-local-change.mjs", ".githooks/pre-commit", ".githooks/pre-push", "test/changeValidationPolicy.test.js", "test/changeValidationRunner.test.js", "test/localCheckLeaves.test.js", "test/localCheckPolicy.test.js", "test/fullGateScope.test.js", "test/releasePublisherCore.test.js"],...require('./publisherGateInputs.json').files];
-
-POLICY_FILES.push('src/skinAdminCheck.js','src/skinAdminCheckInputs.json','src/catalogIconCheckInputs.json');
-POLICY_FILES.push('src/bacteriaOperatorCheck.js','src/bacteriaOperatorCheckInputs.json');
-POLICY_FILES.push('src/giftPackCheck.js','src/giftPackCheckInputs.json');
-POLICY_FILES.push('src/skinAssetInputs.json');
-POLICY_FILES.push('src/preflightCoverage.js','src/localCheckLeaves.js','src/currentBehaviorGuard.cjs');
-PUBLISHER_GATE_INPUTS.push('src/giftPackCheck.js','src/giftPackCheckInputs.json','test/giftPackCheck.test.js');
-PUBLISHER_GATE_INPUTS.push('src/catalogIconCheckInputs.json','test/catalogIconGate.test.js');
-PUBLISHER_GATE_INPUTS.push('src/bacteriaOperatorCheck.js','src/bacteriaOperatorCheckInputs.json','test/bacteriaOperatorCheck.test.js');
-PUBLISHER_GATE_INPUTS.push('src/skinAdminCheck.js','src/skinAdminCheckInputs.json','test/skinAdminCheck.test.js');
-const gateBase=[...POLICY_FILES,'src/localCheckPolicy.js','src/currentBehaviorChecks.json'];
-const pluginInputs=['src/releasePlugin.js','src/releasePluginRunner.js','src/releasePluginContext.js','src/releasePluginCandidate.js',
-  'scripts/validate-plugin-candidate.mjs','src/releasePluginDocuments.js','src/changeValidationReceipts.js',
-  'src/changeValidationGit.js','src/changeValidationPolicy.js','src/releaseWorktree.js','test/releaseWorktree.test.js'];
-const publisherGroups=[
+const path=require('node:path');
+const retirement=require('../docs/design/release-plugin-publisher-retirement.json');
+const POLICY_FILES=['src/changeValidationPolicy.js','src/changeValidationRunner.js','src/changeValidationReceipts.js','src/changeValidationGit.js','src/publisherGateInputs.json','docs/design/release-plugin-publisher-retirement.json'];
+const pluginInputs=['src/releasePlugin.js','src/releasePluginRunner.js','src/releasePluginContext.js','src/releasePluginCandidate.js','src/releasePluginDocuments.js',
+  'scripts/validate-plugin-candidate.mjs','src/changeValidationReceipts.js','src/changeValidationGit.js','src/changeValidationPolicy.js','src/releaseWorktree.js','test/releaseWorktree.test.js'];
+const PUBLISHER_GATE_INPUTS=[...new Set([...POLICY_FILES,...pluginInputs,...require('./publisherGateInputs.json').files,
+  'src/releaseFlowAcceptance.js','test/fullGateScope.test.js','test/releasePublisherCore.test.js','test/helpers/ownedFixtures.js',
+  'release-publisher.config.json','public/app.js','public/index.html','public/styles.css','public/release-status.js','server.js',
+  'scripts/run-release-console.ps1','scripts/build-windows-service.ps1','scripts/install-windows-service.ps1','scripts/uninstall-windows-service.ps1','service/RHospitalReleaseConsoleService.cs',
+  'src/publisherVersion.js','src/publisherOperationLock.js','src/releaseWorktree.js','src/gameStandbyCandidate.js'])];
+const groups=[
  {key:'publisher-plugin',tests:['test/releaseWorktree.test.js'],inputs:pluginInputs},
- {key:'publisher-catalog-icon',tests:['test/catalogIconGate.test.js'],inputs:[...POLICY_FILES,'test/catalogIconGate.test.js']},
- {key:'publisher-gift-pack',tests:['test/giftPackCheck.test.js'],inputs:[...POLICY_FILES,'test/giftPackCheck.test.js']},
- {key:'publisher-bacteria-operator',tests:['test/bacteriaOperatorCheck.test.js','test/changeValidationPolicy.test.js','test/changeValidationRunner.test.js'],inputs:[...POLICY_FILES,'test/bacteriaOperatorCheck.test.js','test/changeValidationPolicy.test.js','test/changeValidationRunner.test.js']},
- {key:'publisher-skin',tests:['test/skinAdminCheck.test.js'],inputs:[...POLICY_FILES,'test/skinAdminCheck.test.js']},
- {key:'publisher-preflight',tests:['test/gameReleasePreflight.test.js','test/bacteriaAuthoritativeBudget.test.js','test/gameRecoverySafety.test.js'],inputs:[...gateBase,'src/localCheckLeaves.js','src/currentBehaviorGuard.cjs','scripts/run-game-release-preflight.mjs',...require('./publisherGateInputs.json').files,'test/gameReleasePreflight.test.js','test/bacteriaAuthoritativeBudget.test.js','test/gameRecoverySafety.test.js','test/helpers/ownedFixtures.js','scripts/game-service-recovery.mjs','scripts/game-service-recovery.py']},
- {key:'publisher-version',tests:['test/publisherVersionScope.test.js'],inputs:['src/publisherVersion.js','src/publisherLegacyBarrier.js','test/publisherVersionScope.test.js']},
  {key:'publisher-policy',tests:['test/changeValidationPolicy.test.js'],inputs:[...POLICY_FILES,'test/changeValidationPolicy.test.js']},
- {key:'publisher-runner',tests:['test/changeValidationRunner.test.js'],inputs:[...POLICY_FILES,'src/currentBehaviorChecks.json','.gitattributes','test/changeValidationRunner.test.js']},
- {key:'publisher-contract',tests:['test/localCheckPolicy.test.js'],inputs:[...gateBase,'test/localCheckPolicy.test.js']},
- {key:'publisher-leaves',tests:['test/localCheckLeaves.test.js'],inputs:[...gateBase,'src/localCheckLeaves.js','src/currentBehaviorGuard.cjs','test/localCheckLeaves.test.js']},
- {key:'publisher-plan',tests:['test/fullGateScope.test.js'],inputs:PUBLISHER_GATE_INPUTS.filter(file=>!['test/changeValidationPolicy.test.js','test/changeValidationRunner.test.js','test/localCheckPolicy.test.js','test/localCheckLeaves.test.js'].includes(file))}
+ {key:'publisher-runner',tests:['test/changeValidationRunner.test.js'],inputs:[...POLICY_FILES,...pluginInputs,'src/releasePluginDocuments.js','.gitattributes','test/changeValidationRunner.test.js']},
+ {key:'publisher-version',tests:['test/publisherVersionScope.test.js'],inputs:['src/publisherVersion.js','src/publisherLegacyBarrier.js','test/publisherVersionScope.test.js']},
+ {key:'publisher-recovery',tests:['test/gameRecoverySafety.test.js'],inputs:[...require('./publisherGateInputs.json').files,'scripts/game-service-recovery.mjs','scripts/game-service-recovery.py','test/gameRecoverySafety.test.js']},
+ {key:'publisher-plan',tests:['test/fullGateScope.test.js','test/releasePublisherCore.test.js'],inputs:PUBLISHER_GATE_INPUTS}
 ];
-
-function safePath(file) {
-  if (typeof file!=='string' || !file || path.posix.isAbsolute(file) || /[\\:\x00-\x1f]/.test(file)
-      || file.split('/').some(p=>!p||p==='.'||p==='..')) throw new Error('Invalid change path: '+file);
-  return file;
+function safePath(file){
+ if(typeof file!=='string'||!file||path.posix.isAbsolute(file)||/[\\:\x00-\x1f]/.test(file)||file.split('/').some(p=>!p||p==='.'||p==='..'))throw new Error('Invalid change path: '+file);
+ return file;
 }
-function document(file) {
-  return /^(?:AGENTS|CHANGELOG|README)\.md$/.test(file)
-    || /^(?:docs|release\/evidence)\/.+\.(?:md|json)$/.test(file)
-    || /^docs\/evidence\/.+\.(?:png|jpg|jpeg)$/.test(file)
-    || file==='release/release-impact.json'
-    || file==='.github/workflows/final-release-preflight.yml'
-    || ['src/manualArchiveChecks.json','src/designValidationLeaves.json','src/designEvidenceInputs.json','test/fixtures/toilet-market-node-spec.json'].includes(file);
+function document(file){
+ return /^(?:AGENTS|CHANGELOG|README)\.md$/.test(file)||/^(?:docs|release\/evidence)\/.+\.(?:md|json)$/.test(file)
+   ||/^docs\/evidence\/.+\.(?:png|jpg|jpeg)$/.test(file)||['src/manualArchiveChecks.json','src/designValidationLeaves.json','src/designEvidenceInputs.json'].includes(file);
 }
-function planChanges(repository, changedPaths) {
-  if (!['game','publisher'].includes(repository) || !Array.isArray(changedPaths)) throw new Error('Invalid change scope');
-  const paths=[...new Set(changedPaths.map(safePath))].sort(), selected=new Set(), unmapped=[];
-  const docs=[];
-  for(const file of paths) {
-    if(repository==='game'&&['.gitattributes','docs/evidence/bacteria-question-center-20261020/.gitattributes','src/test/js/evidenceAttributes.test.mjs'].includes(file)) {selected.add('evidence-attributes');continue;}
-
-    if(document(file)) {docs.push(file);continue;}
-    if(repository==='game'&&require('./skinAssetInputs.json').assets.some(a=>a.path===file)) {selected.add('skin-assets');continue;}
-    if(repository==='game' && require('./catalogIconCheckInputs.json').triggers.includes(file)) selected.add('catalog-icon');
-    else if(repository==='game' && APP_GATE_INPUTS.includes(file)) selected.add('game-gate');
-    else if(repository==='game' && require('./giftPackCheckInputs.json').triggers.includes(file)) selected.add('gift-pack');
-    else if(repository==='game' && require('./bacteriaOperatorCheckInputs.json').triggers.includes(file)) selected.add('bacteria-operator');
-    else if(repository==='game' && require('./skinAdminCheckInputs.json').triggers.includes(file)) selected.add('skin-admin');
-    else if(repository==='game' && RESIDENT_INPUTS.slice(0,4).includes(file)) selected.add('resident-schema');
-    else if(repository==='game' && require('./currentBehaviorInputs.json').checks.some(c=>c.inputs.includes(file))) {for(const c of require('./currentBehaviorInputs.json').checks)if(c.inputs.includes(file))selected.add(c.key);}
-    else if(repository==='game' && (/Archive\.test\.mjs$/.test(file)||/Evidence\.test\.mjs$/.test(file)
-      || /^scripts\/bacteria-lab\/(?:validate-.+-evidence|r34-source-successor)\.mjs$/.test(file)
-      || file==='scripts/bacteria-lab/design-validation-leaves.json')) selected.add('archive-syntax');
-    else if(repository==='publisher' && ['src/releasePlugin.js','src/releasePluginRunner.js','src/releasePluginContext.js','src/releasePluginCandidate.js','src/releasePluginDocuments.js','scripts/validate-plugin-candidate.mjs','test/releaseWorktree.test.js'].includes(file)) selected.add('publisher-plugin');
-    else if(repository==='publisher' && ['test/gameReleasePreflight.test.js', 'test/bacteriaAuthoritativeBudget.test.js', 'test/gameRecoverySafety.test.js', 'test/helpers/ownedFixtures.js', 'scripts/game-service-recovery.mjs', 'scripts/game-service-recovery.py'].includes(file)) selected.add('publisher-preflight');
-    else if(repository==='publisher' && ['src/publisherVersion.js','src/publisherLegacyBarrier.js','test/publisherVersionScope.test.js'].includes(file)) selected.add('publisher-version');
-    else if(repository==='publisher' && ['src/changeValidationGit.js','src/changeValidationPolicy.js','src/changeValidationRunner.js','src/preflightCoverage.js','src/skinAssetInputs.json','test/changeValidationPolicy.test.js','test/changeValidationRunner.test.js'].includes(file)) {selected.add('publisher-policy');selected.add('publisher-runner');}
-    else if(repository==='publisher' && PUBLISHER_GATE_INPUTS.includes(file)) {for(const group of publisherGroups)if(group.inputs.includes(file))selected.add(group.key);}
-    else unmapped.push(file);
-  }
-  if(unmapped.length) throw new Error('UNMAPPED_CHANGE: register owned checks before validation: '+unmapped.join(', '));
-  const checks=[];
-  if(selected.has('skin-assets')) {
-    const assets=require('./skinAssetInputs.json').assets.filter(a=>paths.includes(a.path));
-    checks.push({key:'skin-assets',kind:'skin-assets',inputs:assets.map(a=>a.path),assets,dependencies:['pngjs'],timeoutSeconds:60});
-  }
-  if(selected.has('catalog-icon')) {
-    const owned=require('./catalogIconCheckInputs.json');
-    // Compile closure is shared data only; no skin feature validator is invoked.
-    const compile=require('./skinAdminCheckInputs.json').inputs.filter(p=>p.endsWith('.java')
-      || /^src\/main\/resources\/[^/]+$/.test(p)||['pom.xml','mvnw','mvnw.cmd','.mvn/wrapper/maven-wrapper.properties'].includes(p));
-    checks.push({key:'catalog-icon',kind:'catalog-icon',inputs:[...new Set([...compile,...owned.triggers,...owned.tests,...owned.frontendInputs])].sort(),
-      tests:owned.tests,timeoutSeconds:300,images:['postgres:18.6-alpine']});
-  }
-  if(selected.has('gift-pack')) checks.push({...require('./giftPackCheckInputs.json'),key:'gift-pack',kind:'gift-pack',timeoutSeconds:900});
-  if(docs.length) checks.push({key:'documents',kind:'documents',inputs:docs,timeoutSeconds:30});
-  if(selected.has('bacteria-operator')) checks.push({...require('./bacteriaOperatorCheckInputs.json'),key:'bacteria-operator',kind:'bacteria-operator',timeoutSeconds:900});
-  if(selected.has('skin-admin')) checks.push({...require('./skinAdminCheckInputs.json'),key:'skin-admin',kind:'skin-admin',timeoutSeconds:1200,images:['postgres:18.6-alpine']});
-  if(selected.has('resident-schema')) checks.push({key:'resident-schema',kind:'resident',inputs:RESIDENT_INPUTS,
-    timeoutSeconds:240,images:['postgres:18.6-alpine','postgres:16-alpine']});
-  if(selected.has('evidence-attributes')) checks.push({key:'evidence-attributes',kind:'node-tests',inputs:[
-    '.gitattributes','docs/evidence/bacteria-question-center-20261020/.gitattributes','src/test/js/evidenceAttributes.test.mjs'],tests:['src/test/js/evidenceAttributes.test.mjs'],timeoutSeconds:30});
-  if(selected.has('game-gate')) checks.push({key:'game-gate',kind:'node-tests',inputs:[...APP_GATE_INPUTS,
-    'scripts/migration/20260926_databaseize_design_image_settings.sql','scripts/migration/20260928_align_design_image_settings_owner.sql'],
-    tests:['src/test/js/changeValidationGate.test.mjs','src/test/js/releaseCurrentBehavior.test.mjs','src/test/js/localSourceBuild.test.mjs','src/test/js/releaseCandidateCommitGate.test.mjs'],timeoutSeconds:300});
-  for(const check of require('./currentBehaviorInputs.json').checks)if(selected.has(check.key))checks.push(check);
-  if(selected.has('archive-syntax')) checks.push({key:'archive-syntax',kind:'syntax',inputs:paths.filter(file=>/\.(?:mjs|cjs|js)$/.test(file)&&!APP_GATE_INPUTS.includes(file)),timeoutSeconds:30});
-  for(const group of publisherGroups)if(selected.has(group.key))checks.push({...group,kind:'node-tests',inputs:[...new Set(group.inputs)],timeoutSeconds:180});
-  return {schema:1,repository,changedPaths:paths,checks,scope:'local-change',productionActions:false};
+function planChanges(repository,changedPaths){
+ if(repository!=='publisher'||!Array.isArray(changedPaths))throw new Error('Application checks require their committed release plugin');
+ const paths=[...new Set(changedPaths.map(safePath))].sort(),selected=new Set(),docs=[],unmapped=[];
+ for(const file of paths){
+  if(file==='docs/design/release-plugin-publisher-retirement.json'){selected.add('publisher-policy');continue;}
+  if(document(file)){docs.push(file);continue;}
+  if(retirement.files.includes(file)){for(const key of retirement.checks)selected.add(key);continue;}
+  let keys=[];
+  if(['src/changeValidationGit.js','src/changeValidationReceipts.js'].includes(file))keys=['publisher-policy','publisher-runner','publisher-plugin'];
+  else if(['src/changeValidationPolicy.js','src/publisherGateInputs.json','test/changeValidationPolicy.test.js'].includes(file))keys=['publisher-policy','publisher-runner'];
+  else if(['src/changeValidationRunner.js','test/changeValidationRunner.test.js','.gitattributes','.githooks/pre-commit','.githooks/pre-push','scripts/validate-local-change.mjs'].includes(file))keys=['publisher-runner'];
+  else if(pluginInputs.includes(file))keys=['publisher-plugin'];
+  else if(['test/gameRecoverySafety.test.js','scripts/game-service-recovery.mjs','scripts/game-service-recovery.py'].includes(file))keys=['publisher-recovery'];
+  else if(['src/publisherVersion.js','src/publisherLegacyBarrier.js','test/publisherVersionScope.test.js'].includes(file))keys=['publisher-version'];
+  else if(PUBLISHER_GATE_INPUTS.includes(file))keys=['publisher-plan'];
+  else unmapped.push(file);
+  for(const key of keys)selected.add(key);
+ }
+ if(unmapped.length)throw new Error('UNMAPPED_CHANGE: '+unmapped.join(', '));
+ const checks=groups.filter(g=>selected.has(g.key)).map(g=>({...g,kind:'node-tests',inputs:[...new Set(g.inputs)],timeoutSeconds:g.key==='publisher-plan'?420:180}));
+ if(docs.length)checks.unshift({key:'documents',kind:'documents',inputs:docs,timeoutSeconds:30});
+ return {schema:1,repository,changedPaths:paths,checks,scope:'local-change',productionActions:false};
 }
-
-module.exports={planChanges,safePath,document,APP_GATE_INPUTS,RESIDENT_INPUTS,POLICY_FILES,PUBLISHER_GATE_INPUTS};
+module.exports={planChanges,safePath,document,POLICY_FILES,PUBLISHER_GATE_INPUTS};

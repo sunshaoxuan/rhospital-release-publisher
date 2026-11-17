@@ -240,3 +240,51 @@ test('native Node worker context retains inner TAP totals and rejects real skip 
     assert.equal(fs.readdirSync(f.options.receiptsDirectory).filter(name=>name.endsWith('.json')).length,1);
   } finally {plan?.close();f.close();}
 });
+
+test('manifest delta selects declared metadata consumers plus changed units and excludes unrelated units',()=>{
+ const f=pluginFixture();let plan;
+ try {
+  const manifestPath='release/publisher/fixture.json';
+  f.plugin.units.push({...structuredClone(f.unit),id:'metadata.owner',inputs:[...f.unit.inputs,manifestPath]});
+  f.plugin.units.push({...structuredClone(f.unit),id:'unrelated.unit'});
+  f.commit();const baseline=f.candidate();
+  f.unit.run.timeoutSeconds=14;f.commit();
+  plan=loadReleasePlugin({repositoryRoot:f.repo,candidateCommit:f.candidate(),baselineCommit:baseline,manifestPath,target:'fixture',
+   changedPaths:[manifestPath],workspaceRoot:f.root});
+  assert.deepEqual(plan.units.map(unit=>unit.id),['metadata.owner','opaque.check']);
+ }finally{plan?.close();f.close();}
+});
+
+test('candidate admits genuine evidence images as static documents and rejects corrupt or runtime images',async()=>{
+ const f=pluginFixture();
+ try {
+  const baseline=f.candidate(),folder=path.join(f.repo,'docs/evidence/fixture');fs.mkdirSync(folder,{recursive:true});
+  const png=Buffer.alloc(45);Buffer.from('89504e470d0a1a0a','hex').copy(png);png.write('IHDR',12);png.writeUInt32BE(1,16);png.writeUInt32BE(1,20);png.write('IEND',37);
+  fs.writeFileSync(path.join(folder,'scene.png'),png);fs.writeFileSync(path.join(folder,'scene.jpg'),Buffer.from('ffd8ffe000044a46ffd9','hex'));f.commit();
+  const {validatePluginCandidate}=require('../src/releasePluginCandidate');
+  const options={phase:'source',baseline,target:'fixture',manifestPath:'release/publisher/fixture.json',workspaceRoot:f.root,
+   environment:{},receiptsDirectory:f.options.receiptsDirectory};
+  const result=await validatePluginCandidate(f.repo,options);
+  assert.deepEqual(result.counts,{selected:0,executed:0,reused:0,pending:0});assert.equal(result.documents.files,2);
+  fs.writeFileSync(path.join(folder,'scene.jpg'),'corrupt');f.commit();
+  await assert.rejects(validatePluginCandidate(f.repo,options),/Invalid evidence JPEG/);
+  fs.mkdirSync(path.join(f.repo,'src/runtime'),{recursive:true});fs.writeFileSync(path.join(f.repo,'src/runtime/scene.png'),png);f.commit();
+  await assert.rejects(validatePluginCandidate(f.repo,options),/UNMAPPED_PLUGIN_CHANGE/);
+ }finally{f.close();}
+});
+test('tool callability admits Node and rejects an invalid Python tool before business execution or cache lookup',async()=>{
+ const f=pluginFixture();
+ try {
+  const baseline=f.candidate();f.unit.requires.push('local-tools@1');f.unit.tools=['node'];f.unit.images=[];f.commit();
+  const {validatePluginCandidate}=require('../src/releasePluginCandidate');
+  const environment=Object.fromEntries(['SystemRoot','TEMP','TMP'].filter(key=>typeof process.env[key]==='string').map(key=>[key,process.env[key]]));
+  const options={phase:'source',baseline,target:'fixture',manifestPath:'release/publisher/fixture.json',workspaceRoot:f.root,
+   environment,receiptsDirectory:f.options.receiptsDirectory};
+  assert.equal((await validatePluginCandidate(f.repo,options)).counts.executed,1);
+  const records=fs.readdirSync(f.options.receiptsDirectory).filter(file=>file.endsWith('.json')).length;
+  f.unit.tools.push('python');f.commit();const events=[];
+  await assert.rejects(validatePluginCandidate(f.repo,{...options,contextOptions:{tools:{python:process.execPath}},write:event=>events.push(event)}),/PLUGIN_TOOL_NOT_CALLABLE: python/);
+  assert.equal(events.length,0);
+  assert.equal(fs.readdirSync(f.options.receiptsDirectory).filter(file=>file.endsWith('.json')).length,records);
+ }finally{f.close();}
+});

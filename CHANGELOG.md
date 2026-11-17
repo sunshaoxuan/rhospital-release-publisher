@@ -1,5 +1,12 @@
 # 变更记录
 
+## 2026-11-17 Formal Plugin Consumer C2
+
+- 正式游戏及论坛Source使用应用清单和统一候选CLI，支持生产操作前停止、精确计数、必需单元与迁移声明核对。可信上下文可由仓库本地Git配置持久提供，显式来源冲突拒绝。清单修改包含显式拥有清单的消费者。
+- 移除迁入应用的业务登记、专用验收模块和旧预检聚合，发布器原生门禁保持本仓库按影响选择。保留生产后端、数据库、镜像、备份、现场运行与回滚安全。源码交付与服务启用分别记录。
+- 通用准入在业务执行与缓存读取前验证所选工具在受控环境中的可调用性，提前暴露解释器错误；文档识别包含证据PNG/JPG/JPEG，运行图片仍须声明覆盖。迁移声明与计划实际databaseMigrations逐项核对。
+
+
 ## 2026-11-17 Plugin Native Contract C1
 
 - Add the committed generic candidate CLI, real staged-tree identity, dynamic document admission, explicitly granted local tools/images and locked dependency exports. Keep precheck/formal worker execution shared, strip ambient environment in nested Node children, and report scoped candidate PASS with exact counts. C1 is the producer handoff checkpoint; real server atomic switching and replaced legacy registry removal remain C2. No service activation, application check or production operation is included.

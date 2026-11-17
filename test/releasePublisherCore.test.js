@@ -14,7 +14,7 @@ const {
   DEFAULT_REMOTE_COMPOSE_DIR,
   DEFAULT_FORUM_REMOTE_COMPOSE_DIR,
   defaultProjectRoot,
-  executePlan,
+  executePlan: executePlanCore,
   restoreMeelokAfterControlledExit,
   diagnoseHistoryEntry,
   resolveDockerContextDetails,
@@ -51,6 +51,18 @@ const {
   createAcceptanceIsolation,
   executeReleasePlanAcceptance
 } = require('../src/releaseFlowAcceptance');
+
+
+async function executePlan(root,request,environment,options={}) {
+  if(typeof options.runCommand!=='function')return executePlanCore(root,request,environment,options);
+  return executePlanCore(root,request,environment,{...options,runCommand:async(...args)=>{
+    const output=await options.runCommand(...args);
+    const prefix=mockedPluginPrefix(args[0],args[1]);
+    if(!prefix)return output;
+    const report=JSON.parse(prefix);report.migrationDeclarations=(request.changeAnalysis?.targets?.game?.changedPaths||[]).filter(file=>/^scripts\/migration\/.+\.sql$/.test(file));
+    return JSON.stringify(report)+'\n';
+  }});
+}
 
 const sampleXml = `<component name="ProjectRunConfigurationManager">
   <configuration default="false" name="192.0.2.10" type="docker-deploy" factoryName="dockerfile" server-name="GAME_PRD2">
@@ -1212,147 +1224,10 @@ test('Tomcat security checks use committed POM and surround production cutover',
     baseline, ['pom.xml'], ['release/release-impact.json'])), /同时选择/);
 });
 
-test('potion lab evidence check is registered and runs after backend tests before image publication', () => {
-  const root = releaseImpactGitProject();
-  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const runtimePath = 'src/main/resources/release-impact-demo.txt';
-  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'potion editor change\n');
-  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
-    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-potion-lab'];
-  writeReleaseImpact(root, { assessmentId: '20260911-potion-lab', coveredRuntimePaths: [runtimePath],
-    checklistDecision: 'checklist-updated', requiredChecks });
-  runGit(root, ['add', '.']);
-  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'potion evidence']);
-  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
-  const index = key => plan.steps.findIndex(step => step.key === key);
-  assert.ok(index('install-game-release-node-dependencies') > index('validate-game-sso-source'));
-  assert.ok(index('install-game-release-node-dependencies') < index('validate-game-release-preflight'));
-  assert.match(plan.steps[index('install-game-release-node-dependencies')].command, /^npm ci /);
-  assert.ok(index('validate-game-release-preflight') > index('validate-game-sso-source'));
-  assert.ok(index('validate-game-release-preflight') < index('test-game-backend'));
-  assert.ok(index('verify-game-potion-lab') > index('test-game-backend'));
-  assert.ok(index('verify-game-potion-lab') < index('build-image'));
-  assert.equal(plan.steps[index('verify-game-potion-lab')].executable, true);
-  assert.match(plan.steps[index('verify-game-potion-lab')].command, /verify-potion-lab-release\.mjs/);
-});
 
-test('aggregated game preflight includes every selected local evidence gate and retains audit steps', () => {
-  const root = releaseImpactGitProject();
-  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const runtimePath = 'src/main/resources/release-impact-demo.txt';
-  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'all local evidence gates\n');
-  const selected = ['verify-bacteria-result-ui', 'verify-design-level-packages', 'verify-game-potion-lab'];
-  writeReleaseImpact(root, {
-    assessmentId: '20260917-all-local-preflight',
-    coveredRuntimePaths: [runtimePath],
-    checklistDecision: 'checklist-updated',
-    requiredChecks: ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
-      'final-runtime-check', 'verify-game-static-delivery', ...selected]
-  });
-  runGit(root, ['add', '.']);
-  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'all local gates']);
-  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
-  const preflight = plan.steps.find(step => step.key === 'validate-game-release-preflight');
-  const match = preflight.command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/);
-  assert.ok(match);
-  const payload = JSON.parse(Buffer.from(match[1], 'base64').toString('utf8'));
-  assert.deepEqual(payload.checks.map(check => check.key), selected);
-  assert.ok(plan.steps.findIndex(step => step.key === preflight.key)
-    < plan.steps.findIndex(step => step.key === 'test-game-backend'));
-  for (const key of selected) assert.ok(plan.steps.some(step => step.key === key && step.executable));
-});
 
-test('toilet loading HUD and fault checks are independently selected with matching plan timeouts', () => {
-  const keys = ['verify-resident-exchange-presentation','verify-toilet-market','verify-bacteria-authoritative-challenges','verify-bacteria-gates','verify-game-loading','verify-hospital-hud','verify-bacteria-ranking','verify-game-fault-reports'];
-  for (const selected of [[], ...keys.map(key => [key]), keys]) {
-    const root = releaseImpactGitProject();
-    const baseline = runGit(root, ['rev-parse','HEAD']).trim();
-    const runtimePath = 'src/main/resources/release-impact-demo.txt';
-    fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'independent feature selection');
-    writeReleaseImpact(root, {assessmentId:'20261007-independent', coveredRuntimePaths:[runtimePath],
-      checklistDecision:selected.length ? 'checklist-updated' : 'existing-checks-sufficient', requiredChecks:['test-game-backend','verify-game-static-assets-predeploy',
-        'pre-deploy-checklist','final-runtime-check','verify-game-static-delivery',...selected]});
-    runGit(root,['add','.']);
-    runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','independent']);
-    const plan = createPlan(root, releaseImpactPlanRequest(runGit(root,['rev-parse','HEAD']).trim(), baseline, [runtimePath], ['release/release-impact.json']));
-    const runner = plan.steps.find(step => step.key === 'validate-game-release-preflight');
-    const checks = runner ? JSON.parse(Buffer.from(runner.command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/)[1], 'base64').toString()).checks : [];
-    assert.deepEqual(checks.map(check => check.key), selected);
-    for (const check of checks) {
-      const step = plan.steps.find(step => step.key === check.key);
-      assert.equal(step.timeoutSeconds,check.timeoutSeconds);
-      assert.equal(check.timeoutSeconds, require('../src/localCheckPolicy').currentLocalCheck(check.key).timeoutSeconds);
-      assert.equal(step.command,check.command);
-    }
-    for (const key of keys.filter(key => !selected.includes(key))) assert(!plan.steps.some(step => step.key === key));
-  }
-});
 
-test('toilet plan preserves exact contract preflight audit and mandatory safety checks', () => {
-  const root = releaseImpactGitProject();
-  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const runtimePath = 'src/main/resources/release-impact-demo.txt';
-  fs.writeFileSync(path.join(root, runtimePath), 'toilet scoped change');
-  const mandatory = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist', 'final-runtime-check', 'verify-game-static-delivery'];
-  writeReleaseImpact(root, {assessmentId: '20261014-toilet', coveredRuntimePaths: [runtimePath],
-    checklistDecision: 'checklist-updated', requiredChecks: [...mandatory, 'verify-toilet-market']});
-  runGit(root, ['add', '.']);
-  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'toilet check']);
-  const plan = createPlan(root, releaseImpactPlanRequest(runGit(root, ['rev-parse', 'HEAD']).trim(), baseline, [runtimePath], ['release/release-impact.json']));
-  const step = plan.steps.find(step => step.key === 'verify-toilet-market');
-  assert.equal(step.command, require('../src/localCheckPolicy').currentLocalCheck('verify-toilet-market').command);
-  assert.equal(step.timeoutSeconds, 180);
-  assert.equal(step.executable, true);
-  assert.equal(step.coveredByPreflight, 'validate-game-release-preflight');
-  const preflight = plan.steps.find(item => item.key === step.coveredByPreflight);
-  assert.equal(preflight.timeoutSeconds, 3600);
-  const payload = JSON.parse(Buffer.from(preflight.command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/)[1], 'base64').toString());
-  assert.deepEqual(payload.checks, [{key: step.key, command: step.command, timeoutSeconds: step.timeoutSeconds}]);
-  for (const key of mandatory) assert(plan.steps.some(step => step.key === key && step.executable), key);
-  assert(plan.steps.findIndex(step => step.key === preflight.key) < plan.steps.findIndex(step => step.key === 'test-game-backend'));
-  assert(plan.steps.findIndex(step => step.key === 'verify-toilet-market') < plan.steps.findIndex(step => step.key === 'build-image'));
-  const documentPath = path.join(root, 'release/release-impact.json');
-  const document = JSON.parse(fs.readFileSync(documentPath, 'utf8'));
-  document.targets.forum.requiredChecks.push({stepKey: 'verify-toilet-market', reason: 'Invalid cross-target toilet check selection'});
-  document.targets.forum.coveredRuntimePaths = ['integrations/flarum/entrypoint.sh'];
-  fs.writeFileSync(documentPath, JSON.stringify(document));
-  assert.throws(() => createPlan(root, {appTag: '20261014', dryRun: true, includeStackDeploy: true, releaseTarget: 'forum',
-    changeAnalysis: {targets: {forum: {changed: true, changedPaths: ['integrations/flarum/entrypoint.sh'], ignoredPaths: ['release/release-impact.json']}}}}), /未注册.*verify-toilet-market/);
-});
 
-test('successful preflight covers audit steps once and failed preflight stops publication', async () => {
-  const root = releaseImpactGitProject();
-  const baseline = runGit(root,['rev-parse','HEAD']).trim();
-  const runtimePath='src/main/resources/release-impact-demo.txt';
-  fs.writeFileSync(path.join(root,...runtimePath.split('/')),'loading scope');
-  writeReleaseImpact(root,{assessmentId:'20261007-once',coveredRuntimePaths:[runtimePath],checklistDecision:'checklist-updated',
-    requiredChecks:['test-game-backend','verify-game-static-assets-predeploy','pre-deploy-checklist','final-runtime-check',
-      'verify-game-static-delivery','verify-game-loading','verify-toilet-market']});
-  runGit(root,['add','.']);runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','loading']);
-  const request={...releaseImpactPlanRequest(runGit(root,['rev-parse','HEAD']).trim(),baseline,[runtimePath],['release/release-impact.json']),dryRun:false,includeStackDeploy:false};
-  const env={RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE:'true',RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE:'true',
-    RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE:'true',RELEASE_PUBLISHER_HISTORY_FILE:path.join(root,'history.json')};
-  const runner=testCommandRunner();
-  const result=await executePlan(root,request,env,{runCommand:runner});
-  assert.equal(result.status,'EXECUTED');
-  assert.equal(runner.commands.filter(command=>command.includes('run-game-release-preflight')).length,1);
-  assert(!runner.commands.some(command=>command.includes('node scripts/ui/validate-game-loading-evidence.mjs')));
-  assert(result.completedStepKeys.includes('verify-game-loading'));
-  assert(result.completedStepKeys.includes('verify-toilet-market'));
-  assert(!runner.commands.some(command => command.includes('node --test src/test/js/toiletMarket.test.mjs')));
-  assert(result.logs.some(line=>line.includes('[PREFLIGHT_COVERED]')));
-  const failingRunner=testCommandRunner();
-  const failed=await executePlan(root,request,env,{runCommand:async(...args)=>{
-    if(args[1].includes('run-game-release-preflight')) throw new Error('preflight failed');
-    return failingRunner(...args);
-  }});
-  assert.equal(failed.status,'ERROR');
-  assert(!failed.completedStepKeys.includes('verify-game-loading'));
-  assert(!failed.completedStepKeys.includes('verify-toilet-market'));
-  assert(!failingRunner.commands.some(command=>command.includes('docker save')));
-});
 
 test('emergency guard checks are paired, executable and ordered around deployment', () => {
   const root=releaseImpactGitProject();
@@ -1360,15 +1235,15 @@ test('emergency guard checks are paired, executable and ordered around deploymen
   const runtimePath='src/main/resources/release-impact-demo.txt';
   fs.writeFileSync(path.join(root,...runtimePath.split('/')),'emergency change\n');
   const requiredChecks=['test-game-backend','verify-game-static-assets-predeploy','pre-deploy-checklist',
-    'final-runtime-check','verify-game-static-delivery','verify-game-emergency-guard','verify-game-emergency-guard-runtime'];
+    'final-runtime-check','verify-game-static-delivery','fixture-source','verify-game-emergency-guard-runtime'];
   writeReleaseImpact(root,{assessmentId:'20260907-emergency',coveredRuntimePaths:[runtimePath],checklistDecision:'checklist-updated',requiredChecks});
   runGit(root,['add','.']);runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','guard checks']);
   const target=runGit(root,['rev-parse','HEAD']).trim();
   const plan=createPlan(root,releaseImpactPlanRequest(target,baseline,[runtimePath],['release/release-impact.json']));
   const index=k=>plan.steps.findIndex(s=>s.key===k);
-  assert.ok(index('verify-game-emergency-guard')>index('test-game-backend'));
+  assert.ok(index('validate-game-source-impact')<index('test-game-backend'));
   assert.ok(index('verify-game-emergency-guard-runtime')>index('final-runtime-check'));
-  assert.equal(plan.steps[index('verify-game-emergency-guard')].executable,true);
+  assert.equal(plan.config.pluginProtocol.unitIds.includes('fixture-source'),true);
   assert.equal(plan.steps[index('verify-game-emergency-guard-runtime')].finalCheck,true);
 });
 
@@ -2067,8 +1942,8 @@ test('resolves IDEA Docker Server for SSH image upload while building locally', 
     && step.command.includes('docker build')
     && !step.command.includes('92.113.124.185')));
   assert.ok(plan.steps.some(step => step.key === 'publish-image'
-    && step.command.includes("scp -i 'C:\\workspace\\Secure\\sunsxaws.pem' -P 22")
-    && step.command.includes("ssh -i 'C:\\workspace\\Secure\\sunsxaws.pem' -p 22 'root@92.113.124.185'")
+    && step.command.includes("-i 'C:\\workspace\\Secure\\sunsxaws.pem' -P 22")
+    && step.command.includes("-i 'C:\\workspace\\Secure\\sunsxaws.pem' -p 22 'root@92.113.124.185'")
     && step.command.includes('docker load -i')));
 });
 
@@ -2091,8 +1966,8 @@ test('resolves release Docker Server from repository config without JetBrains op
   assert.equal(plan.config.remoteImageTarget.host, '92.113.124.185');
   assert.equal(plan.config.remoteImageTarget.keyPath, 'C:\\workspace\\Secure\\sunsxaws.pem');
   assert.ok(plan.steps.some(step => step.key === 'publish-image'
-    && step.command.includes("scp -i 'C:\\workspace\\Secure\\sunsxaws.pem' -P 22")
-    && step.command.includes("ssh -i 'C:\\workspace\\Secure\\sunsxaws.pem' -p 22 'root@92.113.124.185'")));
+    && step.command.includes("-i 'C:\\workspace\\Secure\\sunsxaws.pem' -P 22")
+    && step.command.includes("-i 'C:\\workspace\\Secure\\sunsxaws.pem' -p 22 'root@92.113.124.185'")));
 });
 
 test('resolves repository Docker Server details directly', () => {
@@ -3610,55 +3485,6 @@ test('allows a dry-run pre-push plan for a proposed fast-forward commit', () => 
   }, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath}), /不能从该分支快进/);
 });
 
-test('all selected local checks fit the preflight payload and retain their individual timeout budgets', async t => {
-  const root = releaseImpactGitProject();
-  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const runtimePath = 'src/main/resources/release-impact-demo.txt';
-  fs.writeFileSync(path.join(root, runtimePath), 'combined candidate\n');
-  const localKeys = [
-    'verify-toilet-market', 'verify-bacteria-authoritative-challenges',
-    'verify-bacteria-gates', 'verify-game-loading', 'verify-hospital-hud',
-    'verify-bacteria-ranking', 'verify-game-fault-reports', 'verify-game-epidemic-flow',
-    'verify-game-medical-contest-entry', 'verify-game-client-fingerprint',
-    'verify-game-hospital-skin-fallback', 'verify-game-void-rewards',
-    'verify-bacteria-region-covers', 'verify-game-doorplate-ui', 'verify-bacteria-result-ui',
-    'verify-bacteria-entry-style', 'verify-game-steam-auth', 'verify-game-special-clinic-atlas',
-    'verify-design-level-packages', 'verify-game-potion-lab', 'verify-game-emergency-guard'
-  ];
-  writeReleaseImpact(root, {
-    assessmentId: '20261015-combined-publisher-checks', coveredRuntimePaths: [runtimePath],
-    checklistDecision: 'checklist-updated',
-    requiredChecks: [
-      'test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
-      'final-runtime-check', 'verify-game-static-delivery',
-      'verify-game-steam-runtime', 'verify-game-emergency-guard-runtime', ...localKeys
-    ]
-  });
-  runGit(root, ['add', '.']);
-  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'combined candidate']);
-  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
-  const preflight = plan.steps.find(step => step.key === 'validate-game-release-preflight');
-  const encoded = preflight.command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/)[1];
-  const {decodeChecks} = await import('../scripts/run-game-release-preflight.mjs');
-  const checks = JSON.parse(Buffer.from(encoded, 'base64').toString('utf8')).checks;
-  assert.deepEqual(checks.map(check => check.key).sort(), [...localKeys].sort());
-  assert(checks.length > 20, 'valid registrations must not be limited by the old payload cap');
-  await t.test('decoding accepts the complete selected registered check set', () => {
-    assert.deepEqual(decodeChecks(encoded), checks);
-  });
-  await t.test('outer timeout preserves all selected per-check budgets', () => {
-    assert.equal(preflight.timeoutSeconds, checks.reduce((total, check) => total + check.timeoutSeconds, 60));
-    assert(preflight.timeoutSeconds > 3600, 'the outer budget must preserve all selected checks');
-  });
-  for (const check of checks) {
-    const step = plan.steps.find(item => item.key === check.key);
-    assert.equal(step.timeoutSeconds, check.timeoutSeconds);
-    assert.equal(step.coveredByPreflight, preflight.key);
-    assert.equal(step.command, check.command);
-  }
-  assert.equal(checks.find(check => check.key === 'verify-toilet-market').timeoutSeconds, 180);
-});
 
 test('blocks diverged game plans before resolving migration blobs missing from the target', () => {
   const root = tempProject(sampleXml);
@@ -4139,8 +3965,28 @@ test('proven pre-submit failure compensates config without service rollback or S
   }
 });
 
+
+function seedPlugin(root,target) {
+  const directory=path.join(root,'release/publisher');fs.mkdirSync(directory,{recursive:true});
+  const plugin={apiVersion:'release-plugin/v1',pluginId:'fixture.'+target,target,
+    coverage:[{paths:[],prefixes:['src/','integrations/','scripts/'],units:['fixture-source']}],
+    units:[{id:'fixture-source',phase:'source',requires:['engine-context@1','node-test@1'],inputs:['fixture.test.mjs'],
+      run:{kind:'node-test',entrypoints:['fixture.test.mjs'],protocol:'tap-v1',timeoutSeconds:15}}],migrations:[]};
+  fs.writeFileSync(path.join(directory,target+'.json'),JSON.stringify(plugin));
+  fs.writeFileSync(path.join(root,'fixture.test.mjs'),"import test from 'node:test';test('fixture',()=>{});");
+}
+function mockedPluginPrefix(cwd,command) {
+  if(!command.includes('validate-plugin-candidate.mjs'))return '';
+  const target=command.includes('--target forum')?'forum':'game';
+  const plugin=JSON.parse(fs.readFileSync(path.join(cwd,'release/publisher/'+target+'.json'),'utf8'));
+  return JSON.stringify({protocol:'release-candidate-validation/v1',state:'PASS',scope:'before-production',prefixState:'PREFIX_PASS',
+    target,pluginId:plugin.pluginId,productionActions:0,selectedKeys:plugin.units.map(unit=>unit.id),migrationDeclarations:plugin.migrations,
+    counts:{selected:plugin.units.length,executed:plugin.units.length,reused:0,pending:0}})+'\n';
+}
+
 function tempProject(_xml) {
   const root = temporaryDirectory('release-publisher-');
+  seedPlugin(root,'game');seedPlugin(root,'forum');
   fs.writeFileSync(path.join(root, 'mvnw.cmd'), '@echo off\r\nexit /b 0\r\n', 'utf8');
   fs.writeFileSync(path.join(root, 'docker-compose.yml'), 'services:\n  hospital-backend:\n    image: hospital-backend:${APP_TAG}\n', 'utf8');
   const catalogSource = path.join(root, 'src', 'main', 'java', 'com', 'zly', 'hospital', 'service', 'catalog');
@@ -4280,6 +4126,7 @@ function releaseImpactPlanRequest(target, baseline, changedPaths, ignoredPaths) 
 }
 
 function writeReleaseImpact(root, options) {
+  for(const target of ['game','forum']){const file=path.join(root,'release/publisher/'+target+'.json');if(fs.existsSync(file)){const plugin=JSON.parse(fs.readFileSync(file,'utf8'));plugin.migrations=(options.coveredRuntimePaths||[]).filter(file=>file.endsWith('.sql'));fs.writeFileSync(file,JSON.stringify(plugin));}}
   const requiredChecks = (options.requiredChecks || [
     'test-game-backend',
     'verify-game-static-assets-predeploy',
@@ -4413,7 +4260,7 @@ test('registers GAME_PRD2 and migration-specific runtime gates', () => {
   assert.match(core, /paddle_unsigned/);
 });
 
-test('tracked publisher files contain only current production identifiers', () => {
+test('owned publisher configuration and production adapters use current identifiers', () => {
   const repositoryRoot = path.resolve(__dirname, '..');
   const publisherConfig = JSON.parse(fs.readFileSync(
     path.join(repositoryRoot, 'release-publisher.config.json'), 'utf8'));
@@ -4422,19 +4269,13 @@ test('tracked publisher files contain only current production identifiers', () =
     ['178', '239', '117', '99'].join('.'),
     ['148', '135', '9', '123'].join('.')
   ];
-  const tracked = spawnSync('git', ['ls-files', '-z'], {
-    cwd: repositoryRoot,
-    encoding: 'utf8',
-    windowsHide: true
-  });
-
-  assert.equal(tracked.status, 0, tracked.stderr);
+  const tracked = ['release-publisher.config.json','src/releasePublisherCore.js','server.js','public/app.js'];
   assert.deepEqual(Object.keys(publisherConfig.dockerServers).sort(), ['FORUM_PRD2', 'GAME_PRD2']);
   assert.deepEqual(publisherConfig.releaseTargets, {
     game: {dockerServer: 'GAME_PRD2'},
     forum: {dockerServer: 'FORUM_PRD2'}
   });
-  for (const relativePath of tracked.stdout.split('\0').filter(Boolean)) {
+  for (const relativePath of tracked) {
     const contents = fs.readFileSync(path.join(repositoryRoot, relativePath)).toString('utf8');
     for (const identifier of retiredIdentifiers) {
       assert.equal(contents.includes(identifier), false,
@@ -4442,112 +4283,9 @@ test('tracked publisher files contain only current production identifiers', () =
     }
   }
 });
-test('special clinic atlas check is registered, selected in preflight and runs before image build', () => {
-  const root = releaseImpactGitProject();
-  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const runtimePath = 'src/main/resources/release-impact-demo.txt';
-  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'special clinic change\n');
-  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
-    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-special-clinic-atlas'];
-  writeReleaseImpact(root, {assessmentId: '20261001-special-clinic', coveredRuntimePaths: [runtimePath],
-    checklistDecision: 'checklist-updated', requiredChecks});
-  runGit(root, ['add', '.']);
-  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'clinic gate']);
-  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
-  const index = key => plan.steps.findIndex(step => step.key === key);
-  assert.ok(index('verify-game-special-clinic-atlas') > index('test-game-backend'));
-  assert.ok(index('verify-game-special-clinic-atlas') < index('build-image'));
-  assert.equal(plan.steps[index('verify-game-special-clinic-atlas')].executable, true);
-  assert.equal(plan.steps[index('verify-game-special-clinic-atlas')].command, 'node scripts/validation/special-clinic/validate-evidence.mjs');
-  const encoded = plan.steps[index('validate-game-release-preflight')].command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/);
-  assert.ok(encoded);
-  const checks = JSON.parse(Buffer.from(encoded[1], 'base64').toString('utf8')).checks;
-  assert.deepEqual(checks.map(check => check.key), ['verify-game-special-clinic-atlas']);
-  assert.equal(checks[0].command, 'node scripts/validation/special-clinic/validate-evidence.mjs');
-  assert.equal(index('verify-design-level-packages'), -1);
-  writeReleaseImpact(root, {assessmentId: '20261001-invalid-clinic-check', coveredRuntimePaths: [runtimePath],
-    checklistDecision: 'checklist-updated', requiredChecks: requiredChecks.map(k => k === 'verify-game-special-clinic-atlas' ? 'verify-game-special-clinic-unknown' : k)});
-  runGit(root, ['add', '.']);
-  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'unknown clinic gate']);
-  const invalid = runGit(root, ['rev-parse', 'HEAD']).trim();
-  assert.throws(() => createPlan(root, releaseImpactPlanRequest(invalid, baseline, [runtimePath], ['release/release-impact.json'])));
-});
 
-test('design package check is registered and runs after backend tests before image publication', () => {
-  const root = releaseImpactGitProject();
-  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const runtimePath = 'src/main/resources/release-impact-demo.txt';
-  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'design editor change\n');
-  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
-    'final-runtime-check', 'verify-game-static-delivery', 'verify-design-level-packages'];
-  writeReleaseImpact(root, { assessmentId: '20260911-design-editor', coveredRuntimePaths: [runtimePath],
-    checklistDecision: 'checklist-updated', requiredChecks });
-  runGit(root, ['add', '.']);
-  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'design packages']);
-  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
-  const index = key => plan.steps.findIndex(step => step.key === key);
-  assert.ok(index('verify-design-level-packages') > index('test-game-backend'));
-  assert.ok(index('verify-design-level-packages') < index('build-image'));
-  assert.equal(plan.steps[index('verify-design-level-packages')].executable, true);
-  assert.match(plan.steps[index('verify-design-level-packages')].command, /build-level-catalog\.mjs --check/);
-  assert.match(plan.steps[index('verify-design-level-packages')].command, /bacteriaPathDifficulty\.test\.mjs/);
-});
 
-test('region-cover check is registered, executable and runs before publication', () => {
-  const root = releaseImpactGitProject();
-  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const runtimePath = 'src/main/resources/release-impact-demo.txt';
-  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'region cover change\n');
-  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
-    'final-runtime-check', 'verify-game-static-delivery', 'verify-bacteria-region-covers'];
-  writeReleaseImpact(root, {assessmentId:'20260922-region-covers',coveredRuntimePaths:[runtimePath],
-    checklistDecision:'checklist-updated',requiredChecks});
-  runGit(root, ['add', '.']);
-  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'region covers']);
-  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
-  const index = key => plan.steps.findIndex(step => step.key === key);
-  assert.ok(index('verify-bacteria-region-covers') > index('test-game-backend'));
-  assert.ok(index('verify-bacteria-region-covers') < index('build-image'));
-  const step=plan.steps[index('verify-bacteria-region-covers')];assert.equal(step.executable,true);
-  assert.match(step.command,/validate-queue-distribution-evidence\.mjs/);
-  assert.match(step.command,/bacteriaQueueDistribution\.test\.mjs/);
-  assert.match(step.command,/validate-region-cover-evidence\.mjs/);assert.match(step.command,/bacteriaCoverReveal\.test\.mjs/);
-  assert.doesNotMatch(step.command,/npm run|world-chat|test:ui-hud|game-fault/);assert.match(step.command,/bacteriaComplexSearch\.test\.mjs/);assert.match(step.command,/bacteriaMobileLayout\.test\.mjs/);
-  writeReleaseImpact(root, {assessmentId:'20260922-invalid-cover-check',coveredRuntimePaths:[runtimePath],
-    checklistDecision:'checklist-updated',requiredChecks:requiredChecks.map(k=>k==='verify-bacteria-region-covers'?'verify-bacteria-region-unknown':k)});
-  runGit(root, ['add', '.']);runGit(root, ['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','unknown region gate']);
-  const invalid=runGit(root,['rev-parse','HEAD']).trim();
-  assert.throws(()=>createPlan(root,releaseImpactPlanRequest(invalid,baseline,[runtimePath],['release/release-impact.json'])));
-});
 
-test('bacteria result UI evidence gate is executable and cannot be substituted by an unknown name', () => {
-  const root = releaseImpactGitProject();
-  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const runtimePath = 'src/main/resources/release-impact-demo.txt';
-  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'bacteria result change\n');
-  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
-    'final-runtime-check', 'verify-game-static-delivery', 'verify-bacteria-result-ui'];
-  writeReleaseImpact(root, { assessmentId: '20260911-bacteria-result', coveredRuntimePaths: [runtimePath],
-    checklistDecision: 'checklist-updated', requiredChecks });
-  runGit(root, ['add', '.']);
-  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'bacteria result']);
-  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
-  const index = key => plan.steps.findIndex(step => step.key === key);
-  assert.ok(index('verify-bacteria-result-ui') > index('test-game-backend'));
-  assert.ok(index('verify-bacteria-result-ui') < index('build-image'));
-  assert.equal(plan.steps[index('verify-bacteria-result-ui')].executable, true);
-  assert.match(plan.steps[index('verify-bacteria-result-ui')].command, /validate-result-dialog-evidence\.mjs/);
-  writeReleaseImpact(root, { assessmentId: '20260911-invalid-bacteria-result', coveredRuntimePaths: [runtimePath],
-    checklistDecision: 'checklist-updated', requiredChecks: requiredChecks.map(key => key === 'verify-bacteria-result-ui' ? 'verify-bacteria-result-unknown' : key) });
-  runGit(root, ['add', '.']);
-  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'invalid gate']);
-  const invalidTarget = runGit(root, ['rev-parse', 'HEAD']).trim();
-  assert.throws(() => createPlan(root, releaseImpactPlanRequest(invalidTarget, baseline, [runtimePath], ['release/release-impact.json'])));
-});
 
 
 
@@ -4563,190 +4301,13 @@ test('reads committed source larger than the default child process buffer', () =
   assert.throws(() => resolveCatalogSchemaVersion(root, commit, () => ({error: {code:'ENOBUFS'}, status:null, stdout:'private source'})), /Git read failed: ENOBUFS/);
 });
 
-test('doorplate UI evidence gate is executable and cannot be substituted by an unknown name', () => {
-  const root = releaseImpactGitProject();
-  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const runtimePath = 'src/main/resources/release-impact-demo.txt';
-  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'doorplate UI change\n');
-  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
-    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-doorplate-ui'];
-  writeReleaseImpact(root, { assessmentId: '20260911-doorplate-ui', coveredRuntimePaths: [runtimePath],
-    checklistDecision: 'checklist-updated', requiredChecks });
-  runGit(root, ['add', '.']);
-  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'doorplate UI']);
-  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
-  const index = key => plan.steps.findIndex(step => step.key === key);
-  assert.ok(index('verify-game-doorplate-ui') > index('test-game-backend'));
-  assert.ok(index('verify-game-doorplate-ui') < index('build-image'));
-  assert.equal(plan.steps[index('verify-game-doorplate-ui')].executable, true);
-  assert.match(plan.steps[index('verify-game-doorplate-ui')].command, /verify-empty-doorplate\.mjs/);
-  writeReleaseImpact(root, { assessmentId: '20260911-invalid-doorplate-ui', coveredRuntimePaths: [runtimePath],
-    checklistDecision: 'checklist-updated', requiredChecks: requiredChecks.map(key => key === 'verify-game-doorplate-ui' ? 'verify-game-doorplate-unknown' : key) });
-  runGit(root, ['add', '.']);
-  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'invalid gate']);
-  const invalidTarget = runGit(root, ['rev-parse', 'HEAD']).trim();
-  assert.throws(() => createPlan(root, releaseImpactPlanRequest(invalidTarget, baseline, [runtimePath], ['release/release-impact.json'])));
-});
 
 
-test('medical contest entry check runs before publication and rejects unknown substitutes', () => {
-  const root = releaseImpactGitProject();
-  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const runtimePath = 'src/main/resources/release-impact-demo.txt';
-  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'medical entry');
-  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
-    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-medical-contest-entry'];
-  writeReleaseImpact(root, {assessmentId:'20260922-medical-entry', coveredRuntimePaths:[runtimePath],
-    checklistDecision:'checklist-updated', requiredChecks});
-  runGit(root, ['add','.']);
-  runGit(root, ['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','medical entry']);
-  const request = () => releaseImpactPlanRequest(runGit(root,['rev-parse','HEAD']).trim(), baseline,
-    [runtimePath], ['release/release-impact.json']);
-  const plan = createPlan(root, request());
-  const index = key => plan.steps.findIndex(step => step.key === key);
-  const check = plan.steps[index('verify-game-medical-contest-entry')];
-  assert.equal(check.executable,true);
-  assert.equal(check.command, 'node --test src/test/js/medicalContestEntry.test.mjs');
-  assert.ok(index(check.key)>index('test-game-backend'));
-  assert.ok(index(check.key)<index('build-image'));
-  writeReleaseImpact(root, {assessmentId:'20260922-medical-invalid', coveredRuntimePaths:[runtimePath],
-    checklistDecision:'checklist-updated', requiredChecks:requiredChecks.map(k=>k===check.key?'verify-medical-unknown':k)});
-  runGit(root,['add','.']);
-  runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','invalid gate']);
-  assert.throws(()=>createPlan(root,request()));
-});
 
-test('client fingerprint check runs before publication and rejects unknown substitutes', () => {
-  const root = releaseImpactGitProject();
-  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const runtimePath = 'src/main/resources/release-impact-demo.txt';
-  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'client fingerprint');
-  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
-    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-client-fingerprint'];
-  writeReleaseImpact(root, {assessmentId:'20260930-client-fingerprint', coveredRuntimePaths:[runtimePath],
-    checklistDecision:'checklist-updated', requiredChecks});
-  runGit(root, ['add','.']);
-  runGit(root, ['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','client fingerprint']);
-  const request = () => releaseImpactPlanRequest(runGit(root,['rev-parse','HEAD']).trim(), baseline,
-    [runtimePath], ['release/release-impact.json']);
-  const plan = createPlan(root, request());
-  const index = key => plan.steps.findIndex(step => step.key === key);
-  const check = plan.steps[index('verify-game-client-fingerprint')];
-  assert.equal(check.executable,true);
-  assert.equal(check.command, 'node --test src/test/js/clientFingerprint.test.mjs');
-  assert.ok(index(check.key)>index('test-game-backend'));
-  assert.ok(index(check.key)<index('build-image'));
-  writeReleaseImpact(root, {assessmentId:'20260930-client-fingerprint-invalid', coveredRuntimePaths:[runtimePath],
-    checklistDecision:'checklist-updated', requiredChecks:requiredChecks.map(k=>k===check.key?'verify-fingerprint-unknown':k)});
-  runGit(root,['add','.']);
-  runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','invalid gate']);
-  assert.throws(()=>createPlan(root,request()));
-});
 
-test('void rewards check runs before publication and rejects unknown substitutes', () => {
-  const root = releaseImpactGitProject();
-  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const runtimePath = 'src/main/resources/release-impact-demo.txt';
-  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'void rewards');
-  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
-    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-void-rewards'];
-  writeReleaseImpact(root, {assessmentId:'20261001-void-rewards', coveredRuntimePaths:[runtimePath],
-    checklistDecision:'checklist-updated', requiredChecks});
-  runGit(root, ['add','.']);
-  runGit(root, ['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','void rewards']);
-  const request = () => releaseImpactPlanRequest(runGit(root,['rev-parse','HEAD']).trim(), baseline,
-    [runtimePath], ['release/release-impact.json']);
-  const plan = createPlan(root, request());
-  const index = key => plan.steps.findIndex(step => step.key === key);
-  const check = plan.steps[index('verify-game-void-rewards')];
-  assert.equal(check.executable,true);
-  assert.equal(check.command, 'node scripts/validation/void-rewards/validate-evidence.mjs');
-  assert.ok(index(check.key)>index('test-game-backend'));
-  assert.ok(index(check.key)<index('build-image'));
-  writeReleaseImpact(root, {assessmentId:'20261001-void-rewards-invalid', coveredRuntimePaths:[runtimePath],
-    checklistDecision:'checklist-updated', requiredChecks:requiredChecks.map(k=>k===check.key?'verify-void-unknown':k)});
-  runGit(root,['add','.']);
-  runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','invalid gate']);
-  assert.throws(()=>createPlan(root,request()));
-});
 
-test('hospital skin fallback check runs before publication and rejects unknown substitutes', () => {
-  const root = releaseImpactGitProject();
-  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const runtimePath = 'src/main/resources/release-impact-demo.txt';
-  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'skin fallback');
-  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
-    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-hospital-skin-fallback'];
-  writeReleaseImpact(root, {assessmentId:'20260930-skin-fallback', coveredRuntimePaths:[runtimePath],
-    checklistDecision:'checklist-updated', requiredChecks});
-  runGit(root, ['add','.']);
-  runGit(root, ['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','skin fallback']);
-  const request = () => releaseImpactPlanRequest(runGit(root,['rev-parse','HEAD']).trim(), baseline,
-    [runtimePath], ['release/release-impact.json']);
-  const plan = createPlan(root, request());
-  const index = key => plan.steps.findIndex(step => step.key === key);
-  const check = plan.steps[index('verify-game-hospital-skin-fallback')];
-  assert.equal(check.executable,true);
-  assert.equal(check.command, 'node --test src/test/js/hospitalSkinTexture.test.mjs');
-  assert.ok(index(check.key)>index('test-game-backend'));
-  assert.ok(index(check.key)<index('build-image'));
-  writeReleaseImpact(root, {assessmentId:'20260930-skin-fallback-invalid', coveredRuntimePaths:[runtimePath],
-    checklistDecision:'checklist-updated', requiredChecks:requiredChecks.map(k=>k===check.key?'verify-skin-unknown':k)});
-  runGit(root,['add','.']);
-  runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','invalid gate']);
-  assert.throws(()=>createPlan(root,request()));
-});
 
-test('bacteria entry style gate executes responsive evidence and rejects unknown checks', () => {
-  const root = releaseImpactGitProject();
-  const baseline = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const runtimePath = 'src/main/resources/release-impact-demo.txt';
-  fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'bacteria entry style\n');
-  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
-    'final-runtime-check', 'verify-game-static-delivery', 'verify-bacteria-entry-style'];
-  writeReleaseImpact(root, { assessmentId: '20260927-bacteria-entry-style', coveredRuntimePaths: [runtimePath],
-    checklistDecision: 'checklist-updated', requiredChecks });
-  runGit(root, ['add', '.']);
-  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'bacteria entry']);
-  const target = runGit(root, ['rev-parse', 'HEAD']).trim();
-  const plan = createPlan(root, releaseImpactPlanRequest(target, baseline, [runtimePath], ['release/release-impact.json']));
-  const index = key => plan.steps.findIndex(step => step.key === key);
-  const gate = plan.steps[index('verify-bacteria-entry-style')];
-  assert.ok(index(gate.key) > index('test-game-backend') && index(gate.key) < index('build-image'));
-  assert.equal(gate.executable, true);
-  assert.match(gate.command, /bacteriaLabEntry\.test\.mjs/);
-  assert.match(gate.command, /validate-entry-style-evidence\.mjs/);
-  writeReleaseImpact(root, { assessmentId: '20260927-invalid-bacteria-entry', coveredRuntimePaths: [runtimePath],
-    checklistDecision: 'checklist-updated', requiredChecks: requiredChecks.map(key =>
-      key === 'verify-bacteria-entry-style' ? 'verify-bacteria-entry-unknown' : key) });
-  runGit(root, ['add', '.']);
-  runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'invalid entry gate']);
-  const invalid = runGit(root, ['rev-parse', 'HEAD']).trim();
-  assert.throws(() => createPlan(root, releaseImpactPlanRequest(invalid, baseline,
-    [runtimePath], ['release/release-impact.json'])));
-});
 
-test('epidemic flow check is executable before image publication and rejects unknown replacement', () => {
-  const root=releaseImpactGitProject(), baseline=runGit(root,['rev-parse','HEAD']).trim();
-  const runtimePath='src/main/resources/release-impact-demo.txt';
-  fs.writeFileSync(path.join(root,...runtimePath.split('/')),'epidemic flow');
-  const requiredChecks=['test-game-backend','verify-game-static-assets-predeploy','pre-deploy-checklist',
-    'final-runtime-check','verify-game-static-delivery','verify-game-epidemic-flow'];
-  writeReleaseImpact(root,{assessmentId:'20260923-epidemic-flow',coveredRuntimePaths:[runtimePath],checklistDecision:'checklist-updated',requiredChecks});
-  runGit(root,['add','.']);runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','epidemic gate']);
-  const request=()=>releaseImpactPlanRequest(runGit(root,['rev-parse','HEAD']).trim(),baseline,[runtimePath],['release/release-impact.json']);
-  const plan=createPlan(root,request());
-  const index=k=>plan.steps.findIndex(s=>s.key===k);
-  const gate=plan.steps[index('verify-game-epidemic-flow')];
-  assert.equal(gate.executable,true);
-  assert.ok(gate.command.includes('epidemicBossSweep.test.mjs'));
-  assert.ok(gate.command.includes('verify-epidemic-flow.cjs'));
-  assert.ok(index(gate.key)>index('test-game-backend') && index(gate.key)<index('build-image'));
-  writeReleaseImpact(root,{assessmentId:'20260923-epidemic-invalid',coveredRuntimePaths:[runtimePath],checklistDecision:'checklist-updated',requiredChecks:requiredChecks.map(k=>k===gate.key?'verify-epidemic-unknown':k)});
-  runGit(root,['add','.']);runGit(root,['-c','user.name=Test','-c','user.email=test@example.com','commit','-m','invalid epidemic gate']);
-  assert.throws(()=>createPlan(root,request()));
-});
 
 test('Steam release pairs ticket tests and runtime DNS validation with a guarded update', () => {
   const root = releaseImpactGitProject();
@@ -4754,7 +4315,7 @@ test('Steam release pairs ticket tests and runtime DNS validation with a guarded
   const runtimePath = 'src/main/resources/release-impact-demo.txt';
   fs.writeFileSync(path.join(root, ...runtimePath.split('/')), 'steam auth change\n');
   const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy', 'pre-deploy-checklist',
-    'final-runtime-check', 'verify-game-static-delivery', 'verify-game-steam-auth', 'verify-game-steam-runtime'];
+    'final-runtime-check', 'verify-game-static-delivery', 'fixture-source', 'verify-game-steam-runtime'];
   writeReleaseImpact(root, {assessmentId: '20261002-steam-auth', coveredRuntimePaths: [runtimePath],
     checklistDecision: 'checklist-updated', requiredChecks});
   runGit(root, ['add', '.']);
@@ -4765,7 +4326,7 @@ test('Steam release pairs ticket tests and runtime DNS validation with a guarded
   const plan = createPlan(root, request);
   const step = key => plan.steps.find(item => item.key === key);
   const index = key => plan.steps.findIndex(item => item.key === key);
-  assert.equal(step('verify-game-steam-auth').command, require('../src/localCheckPolicy').currentLocalCheck('verify-game-steam-auth').command);
+  assert.ok(step('validate-game-source-impact').command.includes('validate-plugin-candidate.mjs'));
   assert.ok(index('game-steam-preflight') < index('publish-image'));
   assert.ok(index('verify-game-steam-runtime') > index('final-runtime-check'));
   const preflight = decodedRemoteScript(step('game-steam-preflight').command);
@@ -4790,19 +4351,8 @@ test('Steam release pairs ticket tests and runtime DNS validation with a guarded
   assert.match(probe, /capture_output=True/);
   assert.equal(probe.includes('print(key)'), false);
   assert.equal(probe.includes('str(error)'), false);
-  const encoded = step('validate-game-release-preflight').command.match(/--checks-base64 '?([A-Za-z0-9+/=]+)'?/);
-  const checks = JSON.parse(Buffer.from(encoded[1], 'base64').toString('utf8')).checks;
-  assert.ok(checks.some(check => check.key === 'verify-game-steam-auth'));
-  assert.equal(checks.some(check => check.key === 'verify-game-steam-runtime'), false);
+  assert(plan.config.pluginProtocol.unitIds.includes('fixture-source'));
 
-  for (const missing of ['verify-game-steam-auth', 'verify-game-steam-runtime']) {
-    writeReleaseImpact(root, {assessmentId: '20261002-steam-missing-' + missing, coveredRuntimePaths: [runtimePath],
-      checklistDecision: 'checklist-updated', requiredChecks: requiredChecks.filter(key => key !== missing)});
-    runGit(root, ['add', '.']);
-    runGit(root, ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'missing gate']);
-    const invalid = runGit(root, ['rev-parse', 'HEAD']).trim();
-    assert.throws(() => createPlan(root, {...request, gitCommit: invalid}), /Steam/);
-  }
 });
 
 

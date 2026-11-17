@@ -9,7 +9,7 @@ const PHASES = ['source', 'artifact', 'pre-deploy', 'post-deploy'];
 const CAPABILITIES = ['engine-context@1', 'node-test@1', 'node-module@1', 'local-tools@1', 'node-dependencies@1'];
 const ID = /^[a-z0-9][a-z0-9.-]{0,99}$/;
 const ENVIRONMENT = new Set(['SystemRoot', 'TEMP', 'TMP', 'TZ', 'LANG', 'NODE_ENV', 'MAVEN_OPTS', 'MAVEN_ARGS', 'MAVEN_SKIP_RC']);
-const isDocument=file=>/^(?:AGENTS|README|CHANGELOG)\.md$/.test(file)||/^(?:docs|release\/evidence)\/.+\.(?:md|json)$/.test(file)||file==='release/release-impact.json';
+const isDocument=file=>/^(?:AGENTS|README|CHANGELOG)\.md$/.test(file)||/^(?:docs|release\/evidence)\/.+\.(?:md|json)$/.test(file)||/^docs\/evidence\/.+\.(?:png|jpg|jpeg)$/.test(file)||file==='release/release-impact.json';
 function fail(code, detail = '') { throw new Error(code + (detail ? ': ' + detail : '')); }
 function freeze(value) {
   if (value && typeof value === 'object') { for (const child of Object.values(value)) freeze(child); Object.freeze(value); }
@@ -133,6 +133,7 @@ function loadReleasePlugin({repositoryRoot, candidateCommit, baselineCommit, man
   for (const file of changedPaths) {
     if (file === manifestPath) {
       if (!/^[a-f0-9]{40}$/.test(baselineCommit || '') || text(repositoryRoot, 'merge-base', baselineCommit, candidateCommit) !== baselineCommit) fail('EXPLICIT_METADATA_BASELINE_REQUIRED');
+      for (const unit of plugin.units) if (unit.inputs.includes(manifestPath)) selected.add(unit.id);
       const previousEntry = manifest(repositoryRoot, baselineCommit).get(manifestPath);
       if (!previousEntry) { for (const unit of plugin.units) selected.add(unit.id); continue; }
       if (!['100644', '100755'].includes(previousEntry.mode) || Number(text(repositoryRoot, 'cat-file', '-s', previousEntry.oid)) > 1024 * 1024) fail('UNSAFE_BASELINE_MANIFEST');
@@ -194,4 +195,4 @@ function loadReleasePlugin({repositoryRoot, candidateCommit, baselineCommit, man
       close:() => fs.rmSync(root, {recursive:true, force:true})});
   } catch (error) { fs.rmSync(root, {recursive:true, force:true}); throw error; }
 }
-module.exports = {VERSION, CONTEXT_VERSION, PHASES, CAPABILITIES, validatePlugin, loadReleasePlugin, createReleaseContext, regular, fail,isDocument};
+module.exports = {VERSION, CONTEXT_VERSION, PHASES, CAPABILITIES, validatePlugin, loadReleasePlugin, createReleaseContext, regular, fail,isDocument,pluginPath};

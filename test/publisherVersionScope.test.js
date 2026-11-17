@@ -6,8 +6,8 @@ const {createLegacyBarrier,removeLegacyBarrier}=require('../src/publisherLegacyB
 function fixture(run){const root=fs.mkdtempSync(path.join(os.tmpdir(),'publisher-version-scope-'));try{
  const git=(...args)=>execFileSync('git',['-C',root,...args],{encoding:'utf8',windowsHide:true,stdio:['pipe','pipe','pipe']});
  const put=(name,value)=>{const file=path.join(root,name);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,value);};
- put('package.json','{"version":"0.2.0"}');put('server.js','// current');put('src/currentBehaviorChecks.json','{}');
- put('scripts/run-game-release-preflight.mjs','// current executable');put('service/runner.ps1','# current host');
+ put('package.json','{"version":"0.2.0"}');put('server.js','// current');put('src/releasePlugin.js','{}');
+ put('scripts/validate-plugin-candidate.mjs','// current executable');put('service/runner.ps1','# current host');
  put('src/manualArchiveChecks.json','{}');put('README.md','initial docs');
  git('init','-b','master');git('config','user.name','Fixture');git('config','user.email','fixture@example.invalid');git('add','.');git('commit','-m','current source');
  return run({root,git,put,runtime:capturePublisherRuntimeVersion(root)});
@@ -20,13 +20,13 @@ test('documentation-only commits retain executable identity without forcing rest
  put('README.md','new docs');git('add','README.md');git('commit','-m','docs only');const status=getPublisherVersionStatus(root,runtime);
  assert.notEqual(status.runtime.commit,status.repository.commit);assert.equal(status.runtime.contentHash,status.repository.contentHash);assert.equal(status.status,'UP_TO_DATE');
 }));
-test('actual preflight scripts host runner and current contracts still invalidate runtime',()=>{
- for(const file of ['scripts/run-game-release-preflight.mjs','service/runner.ps1','src/currentBehaviorChecks.json'])fixture(({root,put,runtime})=>{
+test('actual plugin scripts host runner and current contracts still invalidate runtime',()=>{
+ for(const file of ['scripts/validate-plugin-candidate.mjs','service/runner.ps1','src/releasePlugin.js'])fixture(({root,put,runtime})=>{
   put(file,'modified executable');const status=getPublisherVersionStatus(root,runtime);assert.equal(status.status,'UNCOMMITTED_CHANGES');assert.throws(()=>assertPublisherActionVersion(status));
  });
 });
 test('new executable commit requires restart and active jobs remain protected',()=>fixture(({root,git,put,runtime})=>{
- put('scripts/run-game-release-preflight.mjs','new executable');git('add','.');git('commit','-m','new runtime');
+ put('scripts/validate-plugin-candidate.mjs','new executable');git('add','.');git('commit','-m','new runtime');
  const status=getPublisherVersionStatus(root,runtime);assert.equal(status.status,'RESTART_REQUIRED');assert(shouldAutoRestartPublisher(status,false));assert(!shouldAutoRestartPublisher(status,true));
 }));
 test('owned update barrier remains a fail-closed action blocker without altering content identity',()=>fixture(({root,put,runtime})=>{
@@ -47,7 +47,7 @@ test('protected updater scopes cleanliness while preserving exact barrier owners
  assert.throws(()=>createLegacyBarrier(root,token),/clean/);
  assert.throws(()=>removeLegacyBarrier(root,'00000000-0000-0000-0000-000000000002'));
  removeLegacyBarrier(root,token);assert.equal(getPublisherVersionStatus(root,runtime).status,'UP_TO_DATE');
- put('scripts/run-game-release-preflight.mjs','unaccepted executable');assert.throws(()=>createLegacyBarrier(root,token),/clean/);
+ put('scripts/validate-plugin-candidate.mjs','unaccepted executable');assert.throws(()=>createLegacyBarrier(root,token),/clean/);
 }));
 test('Git status failure cannot hide an update barrier or authorize actions',()=>fixture(({root,runtime})=>{
  const repository=readPublisherRepositoryVersion(root,{gitRunner:(_exe,args)=>args[0]==='rev-parse'

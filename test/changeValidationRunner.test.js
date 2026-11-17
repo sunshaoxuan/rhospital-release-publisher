@@ -1,65 +1,10 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 const {validateChange,assertNodeResult,validateDocuments,identity}=require('../src/changeValidationRunner');
 const {receiptStore}=require('../src/changeValidationReceipts');
-const {gate,text,snapshot,copyDependencies}=require('../src/changeValidationGit');
+const {gate,text,snapshot}=require('../src/changeValidationGit');
 const {execFileSync}=require('node:child_process');
 const good='# tests 1\n# pass 1\n# fail 0\n# skipped 0\n# cancelled 0\n# todo 0\n';
 
-test('formal duplicate suppression requires signed complete same-tree same-environment coverage',()=>fixture(root=>{
- const command=(...args)=>execFileSync('git',['-C',root,...args],{encoding:'utf8',windowsHide:true,stdio:['pipe','pipe','pipe']});
- command('init','-b','master');fs.writeFileSync(path.join(root,'README.md'),'source');command('add','.');
- const coverage=require('../src/preflightCoverage'),keys=['verify-toilet-market'];
- assert.throws(()=>coverage.requireCoverage(root,keys),/authentic completed/);
- assert.throws(()=>coverage.writeCoverage(root,keys,[]),/Incomplete/);
- coverage.writeCoverage(root,keys,[{key:keys[0],status:0,output:good}]);assert(coverage.requireCoverage(root,keys));
- const previous=process.env.TZ;
- try {process.env.TZ='test-scope-change';assert.throws(()=>coverage.requireCoverage(root,keys),/authentic completed/);}
- finally {if(previous===undefined)delete process.env.TZ;else process.env.TZ=previous;}
- fs.appendFileSync(path.join(root,'README.md'),'changed');command('add','.');
- assert.throws(()=>coverage.requireCoverage(root,keys),/authentic completed/);
-}));
-test('signed coverage matches LF Git snapshots and CRLF Windows checkout without claiming raw byte equality',()=>fixture(root=>{
- execFileSync('git',['-C',root,'init','-b','master'],{stdio:'pipe'});
- fs.writeFileSync(path.join(root,'README.md'),'source');execFileSync('git',['-C',root,'add','.'],{stdio:'pipe'});
- const lf=path.join(root,'lf'),crlf=path.join(root,'crlf');
- for(const destination of [lf,crlf]){
-  fs.mkdirSync(destination);
-  for(const file of fs.readdirSync(path.join(__dirname,'../src'))){
-   if(!/\.(?:js|cjs|json)$/.test(file))continue;
-   const text=fs.readFileSync(path.join(__dirname,'../src',file),'utf8').replace(/\r\n/g,'\n');
-   fs.writeFileSync(path.join(destination,file),destination===crlf?text.replace(/\n/g,'\r\n'):text);
-  }
- }
- const issuer=require(path.join(lf,'preflightCoverage.js')),reader=require(path.join(crlf,'preflightCoverage.js'));
- const keys=['verify-toilet-market'];issuer.writeCoverage(root,keys,[{key:keys[0],status:0,output:good}]);
- assert(reader.requireCoverage(root,keys));
- assert.deepEqual(issuer.coverageIdentity(root,keys),reader.coverageIdentity(root,keys));
- assert.notDeepEqual(fs.readFileSync(path.join(lf,'preflightCoverage.js')),fs.readFileSync(path.join(crlf,'preflightCoverage.js')));
-}));
-
-test('skin asset contract rejects changed dimensions, opaque exterior and corrupt decode',()=>fixture(root=>{
- const {validateSkinAssets,assertResult}=require('../src/changeValidationRunner');
- fs.writeFileSync(path.join(root,'floor.png'),'synthetic decoder contract fixture');
- const assets=[{path:'floor.png',width:2,height:1,transparent:true}];
- const decode=()=>({width:2,height:1,data:Buffer.from([1,2,3,0,4,5,6,255])});
- const result=validateSkinAssets(root,assets,decode);assertResult({kind:'skin-assets',assets},result);
- assert.throws(()=>validateSkinAssets(root,[{...assets[0],width:3}],decode),/dimensions/);
- assert.throws(()=>validateSkinAssets(root,assets,()=>({...decode(),data:Buffer.alloc(8,255)})),/transparent/);
- assert.throws(()=>validateSkinAssets(root,assets,()=>{throw new Error('CRC error');}),/CRC/);
- assert.throws(()=>assertResult({kind:'skin-assets',assets},{...result,files:0}),/protocol/);
-}));
-
-test('Resident leaf identity rejects relevant drift and ignores absent unrelated archives',()=>fixture(root=>{
-  const check=require('../src/changeValidationPolicy').planChanges('game',['src/main/resources/static/js/scenes/utils/ResidentRewardDialog.mjs']).checks[0];
-  for(const file of check.inputs){const target=path.join(root,file);fs.mkdirSync(path.dirname(target),{recursive:true});fs.writeFileSync(target,'source');}
-  assert.throws(()=>identity(root,check,{}),/ENOENT/);
-  for(const name of check.dependencies){const target=path.join(root,'node_modules',name);fs.mkdirSync(target,{recursive:true});fs.writeFileSync(path.join(target,'index.js'),'dependency fixture');}
-  const before=identity(root,check,{});
-  fs.mkdirSync(path.join(root,'docs/evidence/unrelated'),{recursive:true});fs.writeFileSync(path.join(root,'docs/evidence/unrelated/broken.json'),'{');
-  assert.deepEqual(identity(root,check,{}),before);
-  const file=check.inputs.find(f=>f.endsWith('ResidentRewardDialog.mjs'));fs.appendFileSync(path.join(root,file),'changed');
-  assert.notDeepEqual(identity(root,check,{}),before);
-}));
 function fixture(fn){const root=fs.mkdtempSync(path.join(os.tmpdir(),'impact-test-'));return Promise.resolve().then(()=>fn(root)).finally(()=>fs.rmSync(root,{recursive:true,force:true}));}
 test('complete Node protocol rejects missing totals, skips and execution errors',()=>{
   assertNodeResult({status:0,output:good});
@@ -94,7 +39,7 @@ test('failure and input mutation never issue reusable evidence; signed result id
   store.write({id:1},{state:'PASS'});assert.equal(store.read({id:2}),null);
   fs.writeFileSync(path.join(root,'README.md'),'a');
   const plan={scope:'local-change',productionActions:false,checks:[{key:'documents',kind:'documents',inputs:['README.md']}]};
-  await assert.rejects(validateChange(root,plan,{cacheDirectory:path.join(root,'cache2'),write:()=>{},execute:()=>{fs.writeFileSync(path.join(root,'README.md'),'b');return {state:'PASS',protocol:'documents/v1'};}}),/changed during/);
+  await assert.rejects(validateChange(root,plan,{cacheDirectory:path.join(root,'cache2'),write:()=>{},execute:()=>{fs.writeFileSync(path.join(root,'README.md'),'b');return {state:'PASS',protocol:'documents/v1',files:1};}}),/changed during/);
 }));
 test('documents check new local links and malformed JSON without retesting historical links',()=>fixture(root=>{
   fs.writeFileSync(path.join(root,'README.md'),'[old](missing.md)');
@@ -115,54 +60,43 @@ test('JPEG evidence validates binary markers and rejects disguised or truncated 
   }
  }
 }));
-test('scoped installed dependencies are copied immutably and every byte participates in identity',()=>fixture(root=>{
-  const source=path.join(root,'source'),target=path.join(root,'target'),installed=path.join(source,'node_modules/pngjs');
-  fs.mkdirSync(installed,{recursive:true});fs.mkdirSync(target);
-  fs.writeFileSync(path.join(installed,'package.json'),JSON.stringify({version:'7.0.0'}));fs.writeFileSync(path.join(installed,'index.js'),'original');
-  fs.writeFileSync(path.join(target,'package-lock.json'),JSON.stringify({packages:{'node_modules/pngjs':{version:'7.0.0'}}}));
-  const check={key:'fixture',kind:'node-tests',inputs:[],dependencies:['pngjs']};
-  copyDependencies(source,target,[check]);const before=identity(target,check);
-  fs.writeFileSync(path.join(installed,'index.js'),'source changed');assert.equal(fs.readFileSync(path.join(target,'node_modules/pngjs/index.js'),'utf8'),'original');
-  fs.writeFileSync(path.join(target,'node_modules/pngjs/index.js'),'target changed');assert.notDeepEqual(identity(target,check),before);
-  fs.writeFileSync(path.join(installed,'package.json'),JSON.stringify({version:'8.0.0'}));assert.throws(()=>copyDependencies(source,target,[check]),/candidate lock/);
-  assert.throws(()=>copyDependencies(source,target,[{dependencies:['unregistered']}]),/Unregistered/);
+test('real staged publisher snapshot ignores dirty bytes and push reuses authentic document evidence',()=>fixture(async root=>{
+ const git=(...args)=>execFileSync('git',['-C',root,...args],{encoding:'utf8',windowsHide:true,stdio:['pipe','pipe','pipe']}).trim();
+ git('init','-b','master');git('config','user.name','Fixture');git('config','user.email','fixture@example.invalid');
+ const files=['changeValidationPolicy.js','changeValidationRunner.js','changeValidationReceipts.js','changeValidationGit.js','publisherGateInputs.json',
+  'releasePlugin.js','releasePluginRunner.js','releasePluginContext.js','releasePluginCandidate.js','releasePluginDocuments.js'];
+ fs.mkdirSync(path.join(root,'src'));for(const file of files)fs.copyFileSync(path.join(__dirname,'../src',file),path.join(root,'src',file));
+ fs.mkdirSync(path.join(root,'docs/design'),{recursive:true});
+ fs.copyFileSync(path.join(__dirname,'../docs/design/release-plugin-publisher-retirement.json'),path.join(root,'docs/design/release-plugin-publisher-retirement.json'));
+ fs.writeFileSync(path.join(root,'README.md'),'initial');git('add','.');git('commit','-m','base');
+ fs.writeFileSync(path.join(root,'README.md'),'accepted');git('add','.');fs.writeFileSync(path.join(root,'README.md'),'[dirty](missing.md)');
+ const logs=[];await gate(root,{repository:'publisher',write:s=>logs.push(s)});
+ assert(fs.readFileSync(path.join(root,'README.md'),'utf8').includes('dirty'));
+ git('commit','-m','docs');
+ const result=await gate(root,{repository:'publisher',phase:'push',write:s=>logs.push(s)});
+ assert.equal(result.checks[0].reused,true);assert(logs.join('').includes('paths=1 checks=1'));
+ git('switch','-c','codex/fixture');
+ const baseline=git('rev-parse','HEAD');fs.writeFileSync(path.join(root,'README.md'),'task docs');git('add','README.md');
+ const scoped=await gate(root,{repository:'publisher',phase:'source',baseline,write:()=>{}});
+ assert.equal(scoped.state,'PASS');assert.equal(scoped.baseline,baseline);assert.deepEqual(scoped.selectedKeys,['documents']);
+ assert.equal(scoped.candidateTree,git('write-tree'));
+ await assert.rejects(gate(root,{repository:'publisher',phase:'source',baseline:'HEAD',write:()=>{}}),/explicit ancestor/);
+ git('switch','-c','unowned');
+ await assert.rejects(gate(root,{repository:'publisher',write:()=>{}}),/dedicated codex/);
+ git('switch','codex/fixture');
+ fs.writeFileSync(path.join(root,'unknown.js'),'x');git('add','unknown.js');
+ await assert.rejects(gate(root,{repository:'publisher',write:()=>{}}),/UNMAPPED_CHANGE/);
+ const exported=snapshot(root,'HEAD',['README.md']);try{assert.equal(fs.readFileSync(path.join(exported.root,'README.md'),'utf8'),'accepted');}finally{exported.close();}
 }));
-test('real staged Git snapshot ignores dirty working bytes and push reuses exact document receipt',()=>fixture(async root=>{
-  const repo=path.join(root,'repo'),policy=path.join(root,'policy');fs.mkdirSync(repo);fs.mkdirSync(policy);
-  const command=(r,...args)=>execFileSync('git',['-C',r,...args],{encoding:'utf8',windowsHide:true,stdio:['pipe','pipe','pipe']}).trim();
-  for(const r of [repo,policy]){command(r,'init','-b','master');command(r,'config','user.name','Fixture');command(r,'config','user.email','fixture@example.invalid');}
-  for(const name of ['changeValidationPolicy','changeValidationRunner','changeValidationReceipts','changeValidationGit','residentMigrationCheck','skinAdminCheck','bacteriaOperatorCheck','giftPackCheck','preflightCoverage','localCheckLeaves']) {
-    fs.mkdirSync(path.join(policy,'src'),{recursive:true});fs.copyFileSync(path.join(__dirname,'../src',name+'.js'),path.join(policy,'src',name+'.js'));
-  }
-  for(const file of ['currentBehaviorInputs.json','publisherGateInputs.json','skinAdminCheckInputs.json','bacteriaOperatorCheckInputs.json','giftPackCheckInputs.json','catalogIconCheckInputs.json','skinAssetInputs.json','currentBehaviorChecks.json','currentBehaviorGuard.cjs'])fs.copyFileSync(path.join(__dirname,'../src',file),path.join(policy,'src',file));
-  command(policy,'add','.');command(policy,'commit','-m','policy');
-  fs.writeFileSync(path.join(repo,'README.md'),'initial');command(repo,'add','.');command(repo,'commit','-m','base');
-  fs.writeFileSync(path.join(repo,'README.md'),'accepted');command(repo,'add','.');fs.writeFileSync(path.join(repo,'README.md'),'[dirty](missing.md)');
-  const logs=[];await gate(repo,{repository:'game',policyRoot:policy,write:s=>logs.push(s)});
-  assert(fs.readFileSync(path.join(repo,'README.md'),'utf8').includes('dirty'));
-  command(repo,'commit','-m','docs');
-  const result=await gate(repo,{repository:'game',policyRoot:policy,phase:'push',write:s=>logs.push(s)});
-  assert.equal(result.checks[0].reused,true);assert(logs.join('').includes('paths=1 checks=1'));
-  command(repo,'switch','-c','codex/floor-one');
-  const baseline=command(repo,'rev-parse','HEAD');
-  fs.writeFileSync(path.join(repo,'README.md'),'floor documentation');command(repo,'add','.');
-  const scoped=await gate(repo,{repository:'game',policyRoot:policy,phase:'source',baseline,validate:true,write:()=>{}});
-  assert.equal(scoped.state,'PASS');assert.equal(scoped.baseline,baseline);assert.deepEqual(scoped.selectedKeys,['documents']);
-  assert.equal(scoped.candidateTree,command(repo,'write-tree'));
-  await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,phase:'source',baseline,coveredKeys:['verify-toilet-market'],write:()=>{}}),/formal preflight/);
-  await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,phase:'release-source',baseline,coveredKeys:['unknown'],write:()=>{}}),/Unknown covered/);
-  await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,phase:'release-source',baseline,coveredKeys:['verify-toilet-market'],write:()=>{}}),/authentic completed/);
-  const coverage=require('../src/preflightCoverage');
-  coverage.writeCoverage(repo,['verify-toilet-market'],[{key:'verify-toilet-market',status:0,output:good}]);
-  const covered=await gate(repo,{repository:'game',policyRoot:policy,phase:'release-source',baseline,coveredKeys:['verify-toilet-market'],write:()=>{}});
-  assert.equal(covered.state,'PASS');
-  fs.appendFileSync(path.join(repo,'README.md'),'new staged identity');command(repo,'add','.');
-  await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,phase:'release-source',baseline,coveredKeys:['verify-toilet-market'],write:()=>{}}),/authentic completed/);
-  await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,phase:'source',baseline:'HEAD',write:()=>{}}),/explicit ancestor/);
-  command(repo,'switch','-c','unowned-branch');
-  await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,write:()=>{}}),/dedicated codex/);
-  command(repo,'switch','codex/floor-one');
-  fs.writeFileSync(path.join(repo,'unknown.js'),'x');command(repo,'add','.');
-  await assert.rejects(gate(repo,{repository:'game',policyRoot:policy,write:()=>{}}),/UNMAPPED_CHANGE/);
-  const exported=snapshot(repo,'HEAD',['README.md']);try{assert.equal(fs.readFileSync(path.join(exported.root,'README.md'),'utf8'),'accepted');}finally{exported.close();}
+test('node receipt identity owns relevant source and rejects incomplete or duplicate plans',()=>fixture(async root=>{
+ fs.writeFileSync(path.join(root,'leaf.js'),'source');
+ const check={key:'fixture',kind:'node-tests',inputs:['leaf.js'],tests:['leaf.js'],timeoutSeconds:10};
+ const before=identity(root,check);fs.writeFileSync(path.join(root,'unrelated.json'),'{');assert.deepEqual(identity(root,check),before);
+ fs.appendFileSync(path.join(root,'leaf.js'),'changed');assert.notDeepEqual(identity(root,check),before);
+ const plan={scope:'local-change',productionActions:false,checks:[check,check]};
+ await assert.rejects(validateChange(root,plan,{cacheDirectory:path.join(root,'cache')}),/Invalid bounded/);
+ for(const output of ['partial',good.replace('# todo 0','# todo 1')]){
+  await assert.rejects(validateChange(root,{...plan,checks:[check]},{cacheDirectory:path.join(root,'cache'),write:()=>{},execute:()=>({state:'PASS',output})}),/Node completion/);
+ }
+ assert.throws(()=>identity(root,{...check,inputs:['missing.js']}),/Missing owned/);
 }));
