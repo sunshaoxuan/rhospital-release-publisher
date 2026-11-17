@@ -1,5 +1,9 @@
 # 变更记录
 
+## 2026-11-17 Plugin Consumer Batch A
+
+- Add an isolated release-plugin/v1 consumer, explicit release-context/v1 admission before cache, shared before-production Node execution, owned-input signed receipts and data-only fixture extension. Reuse the existing worktree fixture and bounded native checks. Publish producer fields and remaining tool/staged/server migration requirements. Existing server, application data and production are unchanged; source delivery does not activate the service.
+
 ## 2026-11-17 发布失败检讨与插件协议设计
 
 - 记录20261117正式Source检查的上下文失配及预检查就绪判断缺口；明确发版方持有业务插件数据、发布器持有通用执行和安全能力，定义统一入口、上下文、回执复用及不增加日常重复测试的迁移验收条件。本轮仅完成调查与设计，运行代码和服务未修改，游戏发布未重试。

@@ -1,6 +1,17 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {planChanges}=require('../src/changeValidationPolicy');
 
+test('generic plugin contract selects the existing isolated worktree fixture only',()=>{
+ const inputs=['src/releasePlugin.js','src/releasePluginRunner.js','test/releaseWorktree.test.js'];
+ const selected=planChanges('publisher',[...inputs,...inputs]);
+ assert.deepEqual(selected.checks.map(c=>c.key),['publisher-plugin']);
+ assert.deepEqual(selected.checks[0].tests,['test/releaseWorktree.test.js']);
+ for(const input of inputs)assert(selected.checks[0].inputs.includes(input));
+ for(const repository of ['game','forum'])assert.throws(()=>planChanges(repository,inputs));
+ assert.throws(()=>planChanges('publisher',['src/unregisteredPlugin.js']),/UNMAPPED_CHANGE/);
+ assert.deepEqual(planChanges('publisher',['docs/design/release-plugin-producer-v1.md']).checks.map(c=>c.key),['documents']);
+});
+
 test('Resident source art and standalone artifact code have exact bounded owners',()=>{
  const art='docs/artwork/resident-backlight-20261113/sources/leon-generated.png';
  assert.deepEqual(planChanges('game',[art,art]).checks.map(c=>c.key),['current-resident-exchange-presentation']);

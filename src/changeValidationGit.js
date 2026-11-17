@@ -39,7 +39,7 @@ function loadPolicy(repository,ref='HEAD') {
     'src/residentMigrationCheck.js','src/changeValidationGit.js','src/currentBehaviorInputs.json','src/publisherGateInputs.json',
     'src/skinAdminCheck.js','src/skinAdminCheckInputs.json','src/bacteriaOperatorCheck.js','src/bacteriaOperatorCheckInputs.json',
     'src/giftPackCheck.js','src/giftPackCheckInputs.json','src/catalogIconCheckInputs.json','src/skinAssetInputs.json','src/currentBehaviorChecks.json',
-    'src/preflightCoverage.js','src/localCheckLeaves.js','src/currentBehaviorGuard.cjs'];
+    'src/preflightCoverage.js','src/localCheckLeaves.js','src/currentBehaviorGuard.cjs','src/releasePlugin.js','src/releasePluginRunner.js'];
   const copy=snapshot(repository,ref,names);
   const req=createRequire(path.join(copy.root,'package.json'));
   return {...copy,plan:req('./src/changeValidationPolicy').planChanges,validate:req('./src/changeValidationRunner').validateChange};

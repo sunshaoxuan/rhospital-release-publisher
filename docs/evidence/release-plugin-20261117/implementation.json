@@ -1,0 +1,63 @@
+{
+  "scope": "Publisher plugin consumer batch A only",
+  "baseline": "d9655439ccdb8497fd43ac9840c980a5d3dcb917",
+  "implementationCommit": "1a3347899c277a94b5cc679875587e0708e2c00d",
+  "branch": "codex/release-plugin-core-20261117",
+  "state": "PASS",
+  "nativeCommitGate": {
+    "selected": ["documents", "publisher-plugin", "publisher-policy", "publisher-runner"],
+    "executed": 4,
+    "reused": 0,
+    "nodeTests": 36,
+    "passed": 36,
+    "failed": 0,
+    "checks": [
+      {"key": "documents", "elapsedMs": 1305, "protocol": "documents/v1"},
+      {"key": "publisher-plugin", "elapsedMs": 21896, "tests": 4, "pass": 4, "fail": 0,
+        "identityDigest": "8a7f73a18072e59d8afbe89bb98bcf226be911315ca6b1a7474930002e08a04c"},
+      {"key": "publisher-policy", "elapsedMs": 494, "tests": 20, "pass": 20, "fail": 0,
+        "identityDigest": "f7dc4ba4871f5895ec708e87fd4b53e3fb881b70e12126807a0f26b1c3ca3deb"},
+      {"key": "publisher-runner", "elapsedMs": 36192, "tests": 12, "pass": 12, "fail": 0,
+        "identityDigest": "6ba806a65258483836eb974956caea254e8acf246477f1bbcd6cf8da0a2af146"}
+    ],
+    "signatureReadback": "All four local receipt signatures verified without re-executing checks"
+  },
+  "previousFailure": {
+    "scope": "publisher-plugin only; native hook stopped before policy/runner",
+    "tests": 4,
+    "passed": 2,
+    "failed": 2,
+    "elapsedMs": 9780.7061,
+    "causes": ["TAP directive regex matched the normal todo=0 summary", "Windows supplied ambient PATH to the child despite explicit environment"],
+    "repair": "Correct directive matching and preload admitted environment into every leaf/test worker",
+    "rerunRecord": "Original task guide A1; native hook owns revalidation"
+  },
+  "fixtureAcceptance": {
+    "dataOnlyExtension": "PASS; existing opaque runner adds one new unit without core changes",
+    "initialPrefix": {"selected": 2, "executed": 2, "reused": 0, "pending": 0},
+    "relocatedFormalPrefix": {"selected": 2, "executed": 0, "reused": 2, "pending": 0},
+    "dataExtensionPrefix": {"selected": 3, "executed": 1, "reused": 2, "pending": 0},
+    "missingContextBeforeCache": "PASS; store factory never invoked even with valid old receipts",
+    "metadataScope": "PASS; changed one unit definition selects only that unit against explicit baseline",
+    "committedBytes": "PASS; dirty invalid working manifest is ignored",
+    "unsafeInputs": "PASS; absolute/parent paths, unowned entrypoints and Git link mode reject",
+    "unsupportedDeclarations": "PASS; unknown version/runner/capability, duplicate IDs/inputs/coverage and safety override fields reject",
+    "completeProtocol": "PASS; nonzero exit, timeout/signal, missing counters, skips/todo and incorrect digest reject",
+    "duringExecutionDrift": "PASS; changed owned input produces no receipt",
+    "productionBarrier": "PASS; production boundary unsupported, pre-deploy unit pending with zero execution"
+  },
+  "reviewRounds": {
+    "selection": "Exact generic group mapped to existing worktree fixture; unknown scope rejects; game/forum cannot select publisher source",
+    "transitive": "New consumer imports Git object helpers and signed receipt store, never legacy business acceptance; same execute function owns both prefix stages",
+    "trustBoundary": "Approved repository code executes with host Node permissions. JSON, argv, read-only file modes and preload are not an OS/network malicious-code sandbox"
+  },
+  "notRun": ["npm full suite", "Maven", "application tests", "Docker build", "game release", "production upload/migration/switch/rollback", "service activation", "UI checks"],
+  "remaining": {
+    "B": "Application manifests/leaves and exact dependency/tool contracts owned by application chat",
+    "C": "Staged adapter, controlled tools/dependencies, document leaf policy, real formal entry switch and legacy registration/root removal",
+    "D": "Separate user-requested plan performance and log/check tab redesign",
+    "wholeChainAcceptance": "NOT_COMPLETE",
+    "serviceActivation": "NOT_AUTHORIZED",
+    "productionDeployment": "NOT_AUTHORIZED"
+  }
+}

@@ -1,6 +1,12 @@
 # 发布插件协议与发布器职责调整
 
-状态：结构设计，尚未接入运行代码。日期2026-11-17 JST。
+状态：A批通用消费方已实现并通过隔离fixture与原生定向验证，正式入口尚未切换。日期2026-11-17 JST。后续原始设计中的“尚未实施”描述保留其设计阶段时点，当前运行范围以本节和实施回执为准。
+
+## Batch A Consumer Implementation
+
+The isolated generic consumer is implemented in src/releasePlugin.js and src/releasePluginRunner.js. Native focused validation passed 36/36 tests; [implementation evidence](../evidence/release-plugin-20261117/implementation.json) records the exact scope. It loads committed manifests, admits explicit release-context/v1 before receipt reads, executes source/artifact Node leaves through one before-production entry, and reuses locally signed owned-input receipts. Runtime validation is a bounded closed v1 interpreter with semantic admission, not a general JSON Schema engine. The existing schema remains a design/reference artifact.
+
+The [producer contract](release-plugin-producer-v1.md) freezes Node result fields, context file, manifest path, metadata baseline semantics and the minimal call. Maven/JVM/Python/Docker/dependency grants, staged candidate adapter, real server switch and removal of old registrations remain C work following producer B. Existing server behavior is unchanged in A. No formal release readiness or production acceptance is claimed. UI/log-tab performance work is a separate user-requested batch.
 
 ## 事故与责任
 
