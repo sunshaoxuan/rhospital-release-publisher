@@ -35,29 +35,39 @@ function dependencyClosure(unit,context) {
   }
   return result;
 }
-function localEnvironment(context) {
-  const tools=context.tools,environment={...context.environment};
-  for(const key of ['java','python','docker','git','cmd'])if(!tools?.[key]||!path.isAbsolute(tools[key])||!fs.statSync(tools[key]).isFile())fail('MISSING_LOCAL_TOOL',key);
+function selectedTools(unit,context) {
+  const tools={};
+  for(const key of unit.tools||[]) {
+    const file=key==='node'?context.nodeExecutable:context.tools[key];
+    if(!file||!path.isAbsolute(file)||!fs.statSync(file).isFile())fail('MISSING_LOCAL_TOOL',key);tools[key]=file;
+  }
+  return tools;
+}
+function localEnvironment(unit,context) {
+  const tools=selectedTools(unit,context),maven=Boolean(tools.java||tools.cmd);
+  const environment=Object.fromEntries(Object.entries(context.environment).filter(([key])=>maven||!key.startsWith('MAVEN_')));
   const systemRoot=environment.SystemRoot;
-  environment.PATH=[...new Set(Object.values(tools).map(p=>path.dirname(p)).concat(systemRoot?[path.join(systemRoot,'System32'),systemRoot]:[]))].join(path.delimiter);
-  environment.JAVA_HOME=path.dirname(path.dirname(tools.java));environment.ComSpec=tools.cmd;
-  if(!/^npipe:\/\/\/\/\.\/pipe\/[A-Za-z0-9_.-]+$/.test(context.dockerHost||'')&&!/^unix:\/\/\/[A-Za-z0-9_./-]+$/.test(context.dockerHost||''))fail('LOCAL_DOCKER_ENDPOINT_REQUIRED');
-  if(!context.dockerConfigRoot||hash(JSON.parse(fs.readFileSync(regular(context.dockerConfigRoot,'config.json'),'utf8')))!==hash({auths:{}}))fail('CREDENTIAL_FREE_DOCKER_CONFIG_REQUIRED');
-  environment.DOCKER_HOST=context.dockerHost;environment.DOCKER_CONFIG=context.dockerConfigRoot;
+  environment.PATH=[...new Set([context.nodeExecutable,...Object.values(tools)].map(p=>path.dirname(p)).concat(systemRoot?[path.join(systemRoot,'System32'),systemRoot]:[]))].join(path.delimiter);
+  if(tools.java)environment.JAVA_HOME=path.dirname(path.dirname(tools.java));if(tools.cmd)environment.ComSpec=tools.cmd;
+  if(tools.docker){
+    if(!/^npipe:\/\/\/\/\.\/pipe\/[A-Za-z0-9_.-]+$/.test(context.dockerHost||'')&&!/^unix:\/\/\/[A-Za-z0-9_./-]+$/.test(context.dockerHost||''))fail('LOCAL_DOCKER_ENDPOINT_REQUIRED');
+    if(!context.dockerConfigRoot||hash(JSON.parse(fs.readFileSync(regular(context.dockerConfigRoot,'config.json'),'utf8')))!==hash({auths:{}}))fail('CREDENTIAL_FREE_DOCKER_CONFIG_REQUIRED');
+    environment.DOCKER_HOST=context.dockerHost;environment.DOCKER_CONFIG=context.dockerConfigRoot;
+  }
   return environment;
 }
 function localIdentity(unit,context) {
   if(!unit.requires.includes('local-tools@1'))return {};
-  const environment=localEnvironment(context),tools=Object.fromEntries(Object.entries(context.tools).map(([k,file])=>[k,{path:file,digest:hash(fs.readFileSync(file))}]));
+  const environment=localEnvironment(unit,context),tools=Object.fromEntries(Object.entries(selectedTools(unit,context)).map(([k,file])=>[k,{path:file,digest:hash(fs.readFileSync(file))}]));
   const run=args=>execFileSync(context.tools.docker,args,{env:environment,encoding:'utf8',windowsHide:true,timeout:10000,maxBuffer:1024*1024}).trim();
-  const daemon=run(['info','--format','{{.ID}}|{{.OSType}}']);
-  if(!daemon.endsWith('|linux'))fail('LOCAL_DOCKER_LINUX_REQUIRED');
+  const daemon=unit.tools.includes('docker')?run(['info','--format','{{.ID}}|{{.OSType}}']):'';
+  if(unit.tools.includes('docker')&&!daemon.endsWith('|linux'))fail('LOCAL_DOCKER_LINUX_REQUIRED');
   const images={};
   for(const name of unit.images||[]) {
     const digest=run(['image','inspect',name,'--format','{{.Id}}']);
     if(!/^sha256:[a-f0-9]{64}$/.test(digest))fail('INVALID_LOCAL_IMAGE_ID',name);images[name]=digest;
   }
-  return {tools,daemon,images,endpoint:context.dockerHost,environment:hash(Object.fromEntries(Object.entries(environment).filter(([k])=>!['TEMP','TMP','DOCKER_CONFIG'].includes(k))))};
+  return {tools,daemon,images,endpoint:unit.tools.includes('docker')?context.dockerHost:'',environment:hash(Object.fromEntries(Object.entries(environment).filter(([k])=>!['TEMP','TMP','DOCKER_CONFIG'].includes(k))))};
 }
 function installDependencies(closure,root) {
   for(const [name,spec] of Object.entries(closure))for(const file of Object.keys(spec.files)) {
@@ -82,13 +92,22 @@ function hostContextOptions(plan,{artifactRoot,dependencyRoot,environment,tools,
       }
       fail('MISSING_LOCAL_TOOL',name);
     };
-    tools=tools||{java:resolve('java',environment.JAVA_HOME&&path.join(environment.JAVA_HOME,'bin','java.exe')),
-      python:resolve('python',environment.PYTHON),docker:resolve('docker'),git:resolve('git'),cmd:resolve('cmd',environment.ComSpec)};
-    dockerHost=dockerHost||environment.DOCKER_HOST;
-    if(!dockerHost)fail('EXPLICIT_LOCAL_DOCKER_TARGET_REQUIRED');
-    if(!dockerConfigRoot)fail('EXPLICIT_CREDENTIAL_FREE_DOCKER_CONFIG_REQUIRED');
-    const configFile=path.join(dockerConfigRoot,'config.json');
-    if(!fs.existsSync(configFile)||fs.lstatSync(configFile).isSymbolicLink()||hash(JSON.parse(fs.readFileSync(configFile,'utf8')))!==hash({auths:{}}))fail('CREDENTIAL_FREE_DOCKER_CONFIG_REQUIRED');
+    const requested=new Set(plan.units.filter(unit=>unit.requires.includes('local-tools@1')).flatMap(unit=>unit.tools));
+    const hints={java:environment.JAVA_HOME&&path.join(environment.JAVA_HOME,'bin','java.exe'),python:environment.PYTHON,cmd:environment.ComSpec,
+      powershell:semantic.SystemRoot&&path.join(semantic.SystemRoot,'System32/WindowsPowerShell/v1.0/powershell.exe')};
+    tools=Object.fromEntries([...requested].map(key=>{
+      if(key==='node')return [key,process.execPath];
+      const explicit=tools?.[key];
+      if(explicit&&(!path.isAbsolute(explicit)||!fs.existsSync(explicit)||!fs.statSync(explicit).isFile()))fail('MISSING_EXPLICIT_LOCAL_TOOL',key);
+      return [key,resolve(key,explicit||hints[key])];
+    }));
+    if(requested.has('docker')){
+      dockerHost=dockerHost||environment.DOCKER_HOST;
+      if(!dockerHost)fail('EXPLICIT_LOCAL_DOCKER_TARGET_REQUIRED');
+      if(!dockerConfigRoot)fail('EXPLICIT_CREDENTIAL_FREE_DOCKER_CONFIG_REQUIRED');
+      const configFile=path.join(dockerConfigRoot,'config.json');
+      if(!fs.existsSync(configFile)||fs.lstatSync(configFile).isSymbolicLink()||hash(JSON.parse(fs.readFileSync(configFile,'utf8')))!==hash({auths:{}}))fail('CREDENTIAL_FREE_DOCKER_CONFIG_REQUIRED');
+    }
     capabilities.push('local-tools@1');
     for(const key of ['MAVEN_OPTS','MAVEN_ARGS','MAVEN_SKIP_RC'])if(environment[key])semantic[key]=environment[key];
   }
@@ -101,4 +120,4 @@ function hostContextOptions(plan,{artifactRoot,dependencyRoot,environment,tools,
 function assertDependencyExport(closure,root) {
   for(const [name,spec] of Object.entries(closure))if(hash(treeFiles(path.join(root,'node_modules',name)))!==hash(spec.files))fail('DEPENDENCY_EXPORT_DRIFT',name);
 }
-module.exports={hostContextOptions,dependencyClosure,installDependencies,assertDependencyExport,localIdentity,localEnvironment};
+module.exports={hostContextOptions,dependencyClosure,installDependencies,assertDependencyExport,localIdentity,localEnvironment,selectedTools};

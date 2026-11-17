@@ -37,7 +37,7 @@ function validatePlugin(data) {
   list(data.units, () => {}, 1, 128);
   const ids = new Set();
   for (const unit of data.units) {
-    shape(unit, ['id', 'phase', 'requires', 'inputs', 'run', ...['dependencies','images'].filter(k=>Object.hasOwn(unit,k))]); id(unit.id);
+    shape(unit, ['id', 'phase', 'requires', 'inputs', 'run', ...['dependencies','images','tools'].filter(k=>Object.hasOwn(unit,k))]); id(unit.id);
     if (ids.has(unit.id)) fail('DUPLICATE_UNIT_ID', unit.id); ids.add(unit.id);
     if (!PHASES.includes(unit.phase)) fail('UNKNOWN_PHASE');
     list(unit.requires, c => { if (typeof c !== 'string' || !/^[a-z][a-z0-9-]*@[1-9][0-9]*$/.test(c)) fail('INVALID_CAPABILITY'); }, 1, 32);
@@ -45,9 +45,15 @@ function validatePlugin(data) {
     if(unit.dependencies!==undefined)list(unit.dependencies,name=>{if(typeof name!=='string'||!/^(@[a-z0-9_.-]+\/)?[a-z0-9][a-z0-9_.-]*$/.test(name))fail('INVALID_DEPENDENCY_NAME');},1,128);
     if(unit.requires.includes('node-dependencies@1')!==Boolean(unit.dependencies?.length))fail('MISSING_DECLARED_DEPENDENCIES');
     if(unit.requires.includes('local-tools@1')&&!Array.isArray(unit.images))fail('MISSING_LOCAL_IMAGE_DECLARATION');
+    if(unit.requires.includes('local-tools@1')&&!unit.tools?.length)fail('MISSING_TOOL_DECLARATION');
+    if(unit.tools!==undefined){
+      list(unit.tools,name=>{if(!['node','git','powershell','java','python','docker','cmd'].includes(name))fail('UNKNOWN_LOCAL_TOOL',name);},1,7);
+      if(!unit.requires.includes('local-tools@1'))fail('UNGRANTED_LOCAL_TOOL');
+    }
     if(unit.images!==undefined){
       list(unit.images,name=>{if(typeof name!=='string'||!(/^[a-z0-9][a-z0-9:._/@-]{0,255}$/).test(name))fail('INVALID_LOCAL_IMAGE');},0,32);
       if(!unit.requires.includes('local-tools@1'))fail('UNGRANTED_LOCAL_IMAGE');
+      if(unit.images.length&&!unit.tools.includes('docker'))fail('UNGRANTED_LOCAL_IMAGE');
     }
     const run = unit.run;
     if (!run || !['node-test', 'node-module', 'maven-test'].includes(run.kind)) fail('UNKNOWN_RUNNER');

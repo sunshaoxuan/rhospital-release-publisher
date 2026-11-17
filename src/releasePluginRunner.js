@@ -5,7 +5,7 @@ const {execFile} = require('node:child_process');
 const {pathToFileURL} = require('node:url');
 const {hash, receiptStore} = require('./changeValidationReceipts');
 const {VERSION, CONTEXT_VERSION, createReleaseContext, regular, fail} = require('./releasePlugin');
-const {dependencyClosure,installDependencies,assertDependencyExport,localIdentity,localEnvironment}=require('./releasePluginContext');
+const {dependencyClosure,installDependencies,assertDependencyExport,localIdentity,localEnvironment,selectedTools}=require('./releasePluginContext');
 
 function digestFile(file) { return hash(fs.readFileSync(file)); }
 function artifactIdentity(root) {
@@ -43,7 +43,7 @@ function prepare(plan, context, onlyUnit) {
     }));
     const identity = {schema:VERSION, pluginId:plan.pluginId, target:plan.target, unit, inputs, executor, tools,
       context:{apiVersion:CONTEXT_VERSION, requires:unit.requires.slice().sort(),
-        environment:Object.fromEntries(Object.entries(environment).filter(([k])=>unit.requires.includes('local-tools@1')||!k.startsWith('MAVEN_')))},
+        environment:Object.fromEntries(Object.entries(environment).filter(([k])=>unit.tools?.some(tool=>['java','cmd'].includes(tool))||!k.startsWith('MAVEN_')))},
       dependencies:Object.fromEntries(Object.entries(dependencies).map(([name,spec])=>[name,{version:spec.version,files:spec.files}])),
       localTools:localIdentity(unit,admitted),artifacts:unit.phase === 'source' ? {} : artifactIdentity(admitted.artifactRoot)};
     return {unit, identity, dependencies,inputDigest:hash(inputs)};
@@ -116,8 +116,8 @@ async function executeReleasePlugin(plan, context, {boundary, stage, receiptsDir
       const contextFile = path.join(scratch, 'context.json');
       fs.writeFileSync(contextFile, JSON.stringify({apiVersion:CONTEXT_VERSION, candidateRoot:workerRoot,
         checkRoot:workerRoot, artifactRoot:admitted.artifactRoot, target:admitted.target, unitId:unit.id, inputDigest,
-        environment:unit.requires.includes('local-tools@1')?localEnvironment(admitted):Object.fromEntries(Object.entries(admitted.environment).filter(([k])=>!k.startsWith('MAVEN_'))),
-        tools:unit.requires.includes('local-tools@1')?admitted.tools:{}}), {flag:'wx', mode:0o400});
+        environment:unit.requires.includes('local-tools@1')?localEnvironment(unit,admitted):Object.fromEntries(Object.entries(admitted.environment).filter(([k])=>!k.startsWith('MAVEN_'))),
+        tools:unit.requires.includes('local-tools@1')?selectedTools(unit,admitted):{}}), {flag:'wx', mode:0o400});
       // Windows may add user defaults even to an explicit child environment. Preload in every test worker too.
       const bootstrap = path.join(scratch, 'bootstrap.mjs');
       fs.writeFileSync(bootstrap, `import fs from 'node:fs';import {fileURLToPath} from 'node:url';

@@ -69,7 +69,7 @@ function pluginFixture() {
   fs.writeFileSync(path.join(repo,'value.txt'),'fixture input');fs.writeFileSync(path.join(repo,'second.txt'),'second input');
   fs.writeFileSync(path.join(repo,'leaf.mjs'),`import fs from 'node:fs';
 const c=JSON.parse(fs.readFileSync(process.env.RELEASE_CONTEXT_FILE,'utf8'));
-if(c.apiVersion!=='release-context/v1'||!c.candidateRoot||!c.checkRoot||!c.artifactRoot||process.env.RHOSPITAL_RELEASE_PUBLISHER_ROOT||!process.env.NODE_OPTIONS.startsWith('--import file:')||process.env.PATH)process.exit(2);
+if(c.apiVersion!=='release-context/v1'||!c.candidateRoot||!c.checkRoot||!c.artifactRoot||process.env.RHOSPITAL_RELEASE_PUBLISHER_ROOT||!process.env.NODE_OPTIONS.startsWith('--import file:')||process.env.PATH&&!c.tools?.node)process.exit(2);
 console.log(JSON.stringify({protocol:'check-result-v1',unitId:c.unitId,state:'PASS',inputDigest:c.inputDigest,checks:1,passed:1,failed:0,skipped:0,cancelled:0,todo:0}));`);
   fs.writeFileSync(path.join(repo,'leaf.test.mjs'),`import test from 'node:test';import assert from 'node:assert/strict';import fs from 'node:fs';
 test('explicit exported context',()=>{const c=JSON.parse(fs.readFileSync(process.env.RELEASE_CONTEXT_FILE));assert.equal(c.apiVersion,'release-context/v1');assert.equal(fs.readFileSync('value.txt','utf8'),'fixture input');});`);
@@ -182,11 +182,24 @@ test('controlled tool admission rejects remote target and missing image declarat
   const f=pluginFixture();let plan;
   try {
     f.unit.requires.push('local-tools@1');assert.throws(()=>validatePlugin(f.plugin),/MISSING_LOCAL_IMAGE_DECLARATION/);
-    f.unit.images=[];f.commit();plan=f.load();
+    f.unit.images=[];f.unit.tools=['node','docker'];f.commit();plan=f.load();
     const config=path.join(f.root,'docker-config');fs.mkdirSync(config);fs.writeFileSync(path.join(config,'config.json'),'{}');
     const context=createReleaseContext({...f.context(plan),capabilities:[...f.context(plan).capabilities,'local-tools@1'],
       tools:Object.fromEntries(['java','python','git','docker','cmd'].map(k=>[k,process.execPath])),dockerHost:'tcp://remote.invalid:2375',dockerConfigRoot:config});
     let lookups=0;
     await assert.rejects(executeReleasePlugin(plan,context,{...f.options,storeFactory:()=>{lookups++;}}),/LOCAL_DOCKER_ENDPOINT_REQUIRED/);assert.equal(lookups,0);
+  } finally {plan?.close();f.close();}
+});
+
+test('selected tool subset executes positively and ignores unrequested Java or Docker drift',async()=>{
+  const f=pluginFixture();let plan;
+  try {
+    f.unit.requires.push('local-tools@1');f.unit.tools=['node'];f.unit.images=[];f.commit();plan=f.load();
+    const context=createReleaseContext({...f.context(plan),capabilities:[...f.context(plan).capabilities,'local-tools@1'],
+      tools:{node:process.execPath,java:'unrequested-missing-java'},dockerHost:'unrequested-remote-target'});
+    const result=await executeReleasePlugin(plan,context,f.options);assert.deepEqual(result.counts,{selected:1,executed:1,reused:0,pending:0});
+    context.tools.java='another-unrequested-java';context.dockerHost='another-unused-target';
+    const reused=await executeReleasePlugin(plan,context,{...f.options,stage:'formal',requireReceipts:true});
+    assert.deepEqual(reused.counts,{selected:1,executed:0,reused:1,pending:0});
   } finally {plan?.close();f.close();}
 });
