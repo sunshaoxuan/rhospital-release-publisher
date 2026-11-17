@@ -1,0 +1,50 @@
+# Console Layout And Plan Latency
+
+## Goal And Scope
+
+User requests faster step generation and a dedicated tab for each step's checks/logs, so the main page stays light and details are easy to locate. This is batch D linked to [plugin architecture](20261117-release-plugin-architecture.md). C2 validation uses its separate frozen worktree; this branch must not alter its candidate, worker kernel or application inputs. Keep native publisher gates, production safety, active jobs and the installed service unchanged. No application validation, release, database, SSH or deployment command is allowed.
+
+Method: trace the plan request and render/poll data flow, measure the existing local isolated-console request, identify the observed bottleneck, then implement the smallest safe improvement. Use existing vanilla UI and Node libraries. The details tab must open directly from a selected step, show that step's checks/logs, support keyboard navigation and preserve selection during polling. Main plan view shows concise status/actions without eagerly creating hidden detailed DOM. Hidden-tab polling must not fetch/render unnecessary full logs. Plan requests must stay bound to current inputs, avoid duplicate in-flight requests and ignore stale responses. Never reuse a stale release plan as authorization.
+
+Candidate paths, direct consumers and native test selection will be frozen after evidence tracing: public/app.js, public/index.html, public/styles.css, the directly affected server/core plan path only if latency evidence requires it, and existing relevant publisher tests/documentation. No unrelated refactoring. Separate C2 Source-phase association is retained when integrating. C2 must finish on its task branch before D is rebased onto it; canonical master waits for producer B source delivery.
+
+## Observable Completion And Verification
+
+Measure baseline/final plan generation with the same isolated fixture inputs, report actual server timing and response size. Verify real page: generate a plan, open a specific step's details, switch back, update selection during polling, long logs, errors, empty/no-log states and rapid repeated generation. Console must have no new JavaScript errors and relevant requests must succeed. Verify wide desktop (1440x1000) and narrow mobile (390x844), full page plus original-size crops. Test data is isolated synthetic publisher data, never live application or production evidence.
+
+UI budget before implementation: use the existing grid and design tokens, desktop content within 24px outer padding, mobile within 16px; tabs/primary controls minimum 44px high, adjacent actionable hit areas at least 6px apart; actual glyphs at least 3px from usable inner frames. Glyph center deviation at most min(2px,10% of glyph height); controls in the same row share a center line. Title/status, plan summary, concise steps and actions form clear regions; details occupies its own panel with a step selector and checks/log sections. No horizontal page overflow, clipped borders/corners, overlapping controls or disconnected action groups. Functional, geometry and visual results are recorded separately. Real screenshots are reviewed first by the main agent and then the currently callable Gemini visual model via Sub2API. No visual PASS before actual screenshot review.
+
+Cheap syntax/import/static checks precede native validation. Freeze the exact D path/check union, expected time and stop condition before the native commit; do not manually pre-run that same union. Reuse valid C2 owned results. Any repeated check must state changed inputs and smallest affected scope here. Final acceptance requires actual runtime/browser evidence and native source delivery; installed service activation remains separately authorized. Clean this task's temporary fixture/server files while retaining formal screenshot/evidence documents.
+
+## Status
+
+Investigation started from c3a6755bfa279215946426983a3a44d823cd0605 in isolated worktree codex/publisher-console-ui-20261117. No UI implementation or UI PASS yet.
+
+
+## Measured Scope And Decisions
+
+C2 independently delivered master/origin e194b3c1fb1ce47709cfc078b0f08fe99e28acef;185 tests PASS, push reused every group. Source chat owns service activation and real formal application prefix. D is rebased onto that immutable source without modifying the kernel.
+
+Baseline isolated HTTP fixture (no application/SSH/Docker validation):37-step full response858204bytes,1485/1123/1047ms. Browser's visible33 steps eagerly created66 command blocks,910 DOM nodes and a94051px page at1280x720. Before the valid measurements, a fixture with an unsupported host was correctly rejected and corrected to the controlled config; remote-tag read stays disabled and status sampling has no supported target. Baseline screenshot records the synthetic environment and unavailable production sampling.
+
+Implement overview/details/history tabs, direct phase-to-step navigation and one selected detail card. Main plan response and background job polls carry summaries only. A fixed four-entry/five-minute in-memory preview store serves selected preview details; it cannot authorize execution, which still calls fresh prepareReleaseRequest/createPlan. Selected job details and aggregate logs are fetched only on demand; JSON renders last500 lines with an explicit complete-log download. Server-assigned view revisions and selection epochs reject stale detail; identical in-flight preview requests coalesce and changed inputs abort/ignore older requests. History waits for its tab.
+
+Claude exact live model claude-opus-5-5-high failed with no available accounts. Canonical deepseek-flash/high returned bounded nonvisual race/test advice. Main agent retains implementation/acceptance; use generation and selection tokens, explicit summary projection and bounded preview storage. Refcounted multi-consumer cancellation and extra state reducers are unnecessary for this single-page owner.
+
+The native publisher-plan test file mixes UI/source assertions with long safety checks. This D batch may move its actual public-file consumers into a focused console test file and map public-only edits to that file, preserving backend safety tests. Reason: observed native plan group125.093s while many UI assertions take milliseconds. This is a consumer/test split for real UI behavior, not a new rerun-rule gate. Freeze exact imports and changed paths before native validation; no full npm or application suite.
+
+## D Verification Freeze
+
+Frozen paths: CHANGELOG.md; public/app.js, public/index.html, public/styles.css; server.js; src/releaseConsoleView.js and src/changeValidationPolicy.js; test/changeValidationPolicy.test.js, test/releasePublisherCore.test.js and test/releaseConsole.test.js; this guide and docs/evidence/20261117-console-layout/baseline-desktop.jpg. Temporary preview fixture/logs below .task-tmp are excluded from staging.
+
+Direct contract: summary preview/job API; on-demand selected-step detail and bounded logs; read-only preview store; tab/selection/poll/plan request lifecycle; actual public-file consumer split. Existing ten UI consumers moved out of the Core monolith; its status assertion now executes the actual class function and its old regeneration regex is replaced with real asynchronous request failure/retry/race tests. Backend/migration/cutover/recovery tests remain. Public-only edits select publisher-console. Console inputs44 are the exact static import/runtime-data closure, without unrelated test files, service sources or archive metadata.
+
+Cheap syntax and mapped-scope/import/existence checks passed; native union: documents, publisher-policy, publisher-runner, publisher-plan, publisher-console. Expected3minutes, report at5 and stop adding work at6; follow one original process. Native commit owns the union, with no manual pre-run. No npm aggregate, application suite or production action. After the source commit, start only the isolated local console on127.0.0.1:18789 with disabled remote-tag reads and unsupported status-sampling target, then inspect final runtime screenshots before judging geometry, test evidence and Gemini review. If actual UI defects require a fix, document its owned inputs and rerun only console; the Core group no longer owns public files.
+
+Canonical publisher master stays e194 while the source owner runs its actual prefix. D source can be validated in this separate branch; integration waits for that freeze to end. No service update or real task is started from D.
+
+D native attempt1: documents0.982s, policy8/8 in0.431s, runner8/8 in21.936s passed. Old mixed plan group136/137 in283.354s failed because an exported temp path hospital-impact-HjIn4s contains "-H"; the string-substring assertion falsely identified a Docker remote flag. Match the option token boundary instead, preserving local Docker target checks. No product command or safety behavior changed.
+
+This failure also confirms the remaining combined test-file container selected the unchanged formal Source fixture for a UI-only candidate. Finish the planned consumer split: publisher-plan owns Core safety tests, publisher-source owns the existing fullGateScope file and its real CLI closure, publisher-console owns public consumers. Source source/modules/CLI have no D changes, so that integration is unselected for this batch. No new test requirement or rerun-rule gate is added; no PASS is copied or rewritten. Core/Source changes select their actual consumers explicitly. Invalidated inputs: the Core test assertion and native selection policy. Minimum rerun: native commit selects documents/policy/runner/Core/console, without unchanged Source file. Expected3minutes while the source owner's separate build remains active, report at4 and stop adding work at5. Prior real Source evidence remains in its original C2 scope.
+
+Gemini Pro3.1-high minimum image requests failed twice with upstream_error after a healthy bridge/catalog check; gemini-3.8-flash-high minimum image request succeeded. Final screenshot review will use the validated Flash model. No gateway or authentication change.

@@ -60,6 +60,9 @@ const publicRoot = path.join(__dirname, 'public');
 const port = Number(process.env.RELEASE_PUBLISHER_PORT || 8787);
 const bindAddress = process.env.RELEASE_PUBLISHER_HOST || '127.0.0.1';
 const jobs = new Map();
+const {projectJob,stepByKey,createPreviewStore}=require('./src/releaseConsoleView');
+const previewStore=createPreviewStore();
+let consoleViewRevision=0;
 const jobControllers = new Map();
 const pendingDiagnoses = new Set();
 const {buildReleaseDiagnostics, loadProtectedDiagnosticConfig} = require('./src/releaseDiagnostics');
@@ -213,16 +216,27 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/plan' && req.method === 'POST') {
       const body = await readBody(req);
       assertPublisherActionReady();
-      return sendJson(res, 200, createPlan(projectRoot, prepareReleaseRequest(body, false)));
+      const plan=createPlan(projectRoot,prepareReleaseRequest(body,false));
+      if(requestUrl.searchParams.get('view')==='summary')return sendJson(res,200,previewStore.put(plan));
+      if(requestUrl.searchParams.has('view'))throw new Error('无效的计划查看范围');
+      return sendJson(res,200,plan);
+    }
+    if(pathname.startsWith('/api/previews/')&&req.method==='GET'){
+      const match=pathname.match(/^\/api\/previews\/([^/]+)\/steps\/([^/]+)$/);
+      if(!match)return sendJson(res,404,{message:'预览步骤不存在'});
+      return sendJson(res,200,previewStore.step(decodeURIComponent(match[1]),decodeURIComponent(match[2])));
     }
     if (pathname === '/api/execute' && req.method === 'POST') {
       const body = await readBody(req);
       assertPublisherActionReady();
+      const view=requestUrl.searchParams.get('view');if(view&&view!=='summary')throw new Error('无效的执行查看范围');
       const job = createExecutionJob(prepareReleaseRequest(body, true));
-      return sendJson(res, 202, job);
+      return sendJson(res, 202,view==='summary'?projectJob(job,{revision:++consoleViewRevision}):job);
     }
     if (pathname === '/api/jobs/active' && req.method === 'GET') {
-      return sendJson(res, 200, publisherActivity(jobs.values(), jobControllers.size));
+      const activity=publisherActivity(jobs.values(),jobControllers.size);
+      if(requestUrl.searchParams.get('view')==='summary'&&activity.job)activity.job=projectJob(activity.job,{revision:++consoleViewRevision});
+      return sendJson(res,200,activity);
     }
     if (pathname.startsWith('/api/jobs/') && req.method === 'GET') {
       const id = decodeURIComponent(pathname.slice('/api/jobs/'.length));
@@ -230,6 +244,14 @@ const server = http.createServer(async (req, res) => {
       if (!job) {
         return sendJson(res, 404, {message: '执行任务不存在或已过期'});
       }
+      const view=requestUrl.searchParams.get('view');
+      if(view==='step-log'||view==='job-log'){
+        const lines=view==='step-log'?stepByKey(job.plan,requestUrl.searchParams.get('step')).logs:job.logs;
+        res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8','Content-Disposition':'attachment; filename="release.log"','Cache-Control':'no-store'});
+        return res.end((lines||[]).join('\n'));
+      }
+      if(view)return sendJson(res,200,projectJob(job,{view,stepKey:requestUrl.searchParams.get('step')||'',
+        includeLogs:requestUrl.searchParams.get('includeLogs')==='1',revision:++consoleViewRevision}));
       return sendJson(res, 200, job);
     }
     if (pathname.startsWith('/api/jobs/') && req.method === 'DELETE') {

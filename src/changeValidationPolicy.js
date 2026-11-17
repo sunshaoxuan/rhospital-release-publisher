@@ -5,16 +5,99 @@ const pluginInputs=['src/releasePlugin.js','src/releasePluginRunner.js','src/rel
   'scripts/validate-plugin-candidate.mjs','src/changeValidationReceipts.js','src/changeValidationGit.js','src/changeValidationPolicy.js','src/releaseWorktree.js','test/releaseWorktree.test.js'];
 const PUBLISHER_GATE_INPUTS=[...new Set([...POLICY_FILES,...pluginInputs,...require('./publisherGateInputs.json').files,
   'src/releaseFlowAcceptance.js','test/fullGateScope.test.js','test/releasePublisherCore.test.js','test/helpers/ownedFixtures.js',
-  'release-publisher.config.json','public/app.js','public/index.html','public/styles.css','public/release-status.js','server.js',
+  'release-publisher.config.json','server.js',
   'scripts/run-release-console.ps1','scripts/build-windows-service.ps1','scripts/install-windows-service.ps1','scripts/uninstall-windows-service.ps1','service/RHospitalReleaseConsoleService.cs',
   'src/publisherVersion.js','src/publisherOperationLock.js','src/releaseWorktree.js','src/gameStandbyCandidate.js'])];
+const CONSOLE_INPUTS=[
+  "public/app.js",
+  "public/index.html",
+  "public/release-status.js",
+  "public/styles.css",
+  "release-publisher.config.json",
+  "scripts/check-game-runtime-secrets.py",
+  "scripts/check-game-startup.py",
+  "scripts/game-deployment-transaction.py",
+  "scripts/game-retry-baseline.py",
+  "server.js",
+  "src/bacteriaInventoryBackup.js",
+  "src/changeValidationGit.js",
+  "src/changeValidationReceipts.js",
+  "src/gameCodegraphCutover.js",
+  "src/gameDeploymentTransaction.js",
+  "src/gameFormalProductionTransition.js",
+  "src/gameMaintenanceHealth.js",
+  "src/gameMeelokMaintenance.js",
+  "src/gameProductionConfigGuard.js",
+  "src/gameProductionDatabase.js",
+  "src/gameRecoveryIdentity.js",
+  "src/gameRetryBaseline.js",
+  "src/gameRuntimeSecrets.js",
+  "src/gameSigningBinding.js",
+  "src/gameStandbyCandidate.js",
+  "src/gameStartupContract.js",
+  "src/gameTechnologyFormatCutover.js",
+  "src/meelokRecoverySupervisor.js",
+  "src/publisherOperationLock.js",
+  "src/publisherVersion.js",
+  "src/releaseConsoleView.js",
+  "src/releaseDiagnostics.js",
+  "src/releaseJobStore.js",
+  "src/releaseOutcomeStatus.js",
+  "src/releasePlugin.js",
+  "src/releasePluginCandidate.js",
+  "src/releasePluginContext.js",
+  "src/releasePluginDocuments.js",
+  "src/releasePluginRunner.js",
+  "src/releasePublisherCore.js",
+  "src/releaseWorktree.js",
+  "src/tomcatSecurityCheck.js",
+  "test/helpers/ownedFixtures.js",
+  "test/releaseConsole.test.js"
+];
+const SOURCE_INPUTS=[
+  "release-publisher.config.json",
+  "scripts/check-game-runtime-secrets.py",
+  "scripts/check-game-startup.py",
+  "scripts/game-deployment-transaction.py",
+  "scripts/game-retry-baseline.py",
+  "scripts/validate-plugin-candidate.mjs",
+  "src/bacteriaInventoryBackup.js",
+  "src/changeValidationGit.js",
+  "src/changeValidationReceipts.js",
+  "src/gameCodegraphCutover.js",
+  "src/gameDeploymentTransaction.js",
+  "src/gameFormalProductionTransition.js",
+  "src/gameMaintenanceHealth.js",
+  "src/gameMeelokMaintenance.js",
+  "src/gameProductionConfigGuard.js",
+  "src/gameProductionDatabase.js",
+  "src/gameRecoveryIdentity.js",
+  "src/gameRetryBaseline.js",
+  "src/gameRuntimeSecrets.js",
+  "src/gameSigningBinding.js",
+  "src/gameStandbyCandidate.js",
+  "src/gameStartupContract.js",
+  "src/gameTechnologyFormatCutover.js",
+  "src/meelokRecoverySupervisor.js",
+  "src/releaseDiagnostics.js",
+  "src/releasePlugin.js",
+  "src/releasePluginCandidate.js",
+  "src/releasePluginContext.js",
+  "src/releasePluginDocuments.js",
+  "src/releasePluginRunner.js",
+  "src/releasePublisherCore.js",
+  "src/tomcatSecurityCheck.js",
+  "test/fullGateScope.test.js"
+];
 const groups=[
  {key:'publisher-plugin',tests:['test/releaseWorktree.test.js'],inputs:pluginInputs},
  {key:'publisher-policy',tests:['test/changeValidationPolicy.test.js'],inputs:[...POLICY_FILES,'test/changeValidationPolicy.test.js']},
  {key:'publisher-runner',tests:['test/changeValidationRunner.test.js'],inputs:[...POLICY_FILES,...pluginInputs,'src/releasePluginDocuments.js','.gitattributes','test/changeValidationRunner.test.js']},
  {key:'publisher-version',tests:['test/publisherVersionScope.test.js'],inputs:['src/publisherVersion.js','src/publisherLegacyBarrier.js','test/publisherVersionScope.test.js']},
  {key:'publisher-recovery',tests:['test/gameRecoverySafety.test.js'],inputs:[...require('./publisherGateInputs.json').files,'scripts/game-service-recovery.mjs','scripts/game-service-recovery.py','test/gameRecoverySafety.test.js']},
- {key:'publisher-plan',tests:['test/fullGateScope.test.js','test/releasePublisherCore.test.js'],inputs:PUBLISHER_GATE_INPUTS}
+ {key:'publisher-plan',tests:['test/releasePublisherCore.test.js'],inputs:PUBLISHER_GATE_INPUTS.filter(file=>file!=='test/fullGateScope.test.js')},
+ {key:'publisher-source',tests:['test/fullGateScope.test.js'],inputs:SOURCE_INPUTS},
+ {key:'publisher-console',tests:['test/releaseConsole.test.js'],inputs:CONSOLE_INPUTS}
 ];
 function safePath(file){
  if(typeof file!=='string'||!file||path.posix.isAbsolute(file)||/[\\:\x00-\x1f]/.test(file)||file.split('/').some(p=>!p||p==='.'||p==='..'))throw new Error('Invalid change path: '+file);
@@ -32,12 +115,17 @@ function planChanges(repository,changedPaths){
   if(document(file)){docs.push(file);continue;}
   if(retirement.files.includes(file)){for(const key of retirement.checks)selected.add(key);continue;}
   let keys=[];
-  if(['src/changeValidationGit.js','src/changeValidationReceipts.js'].includes(file))keys=['publisher-policy','publisher-runner','publisher-plugin'];
+  if(['src/changeValidationGit.js','src/changeValidationReceipts.js'].includes(file))keys=['publisher-policy','publisher-runner','publisher-plugin','publisher-source'];
   else if(['src/changeValidationPolicy.js','src/publisherGateInputs.json','test/changeValidationPolicy.test.js'].includes(file))keys=['publisher-policy','publisher-runner'];
   else if(['src/changeValidationRunner.js','test/changeValidationRunner.test.js','.gitattributes','.githooks/pre-commit','.githooks/pre-push','scripts/validate-local-change.mjs'].includes(file))keys=['publisher-runner'];
-  else if(pluginInputs.includes(file))keys=['publisher-plugin'];
+  else if(['test/releaseWorktree.test.js','src/releaseWorktree.js'].includes(file))keys=['publisher-plugin'];
+  else if(pluginInputs.includes(file))keys=['publisher-plugin','publisher-source'];
   else if(['test/gameRecoverySafety.test.js','scripts/game-service-recovery.mjs','scripts/game-service-recovery.py'].includes(file))keys=['publisher-recovery'];
   else if(['src/publisherVersion.js','src/publisherLegacyBarrier.js','test/publisherVersionScope.test.js'].includes(file))keys=['publisher-version'];
+  else if(file==='src/releasePublisherCore.js')keys=['publisher-plan','publisher-source','publisher-console'];
+  else if(file==='server.js')keys=['publisher-plan','publisher-console'];
+  else if(file==='test/fullGateScope.test.js')keys=['publisher-source'];
+  else if(['public/app.js','public/index.html','public/styles.css','public/release-status.js','src/releaseConsoleView.js','test/releaseConsole.test.js'].includes(file))keys=['publisher-console'];
   else if(PUBLISHER_GATE_INPUTS.includes(file))keys=['publisher-plan'];
   else unmapped.push(file);
   for(const key of keys)selected.add(key);
@@ -47,4 +135,4 @@ function planChanges(repository,changedPaths){
  if(docs.length)checks.unshift({key:'documents',kind:'documents',inputs:docs,timeoutSeconds:30});
  return {schema:1,repository,changedPaths:paths,checks,scope:'local-change',productionActions:false};
 }
-module.exports={planChanges,safePath,document,POLICY_FILES,PUBLISHER_GATE_INPUTS};
+module.exports={planChanges,safePath,document,POLICY_FILES,PUBLISHER_GATE_INPUTS,CONSOLE_INPUTS};

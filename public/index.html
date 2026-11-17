@@ -25,43 +25,16 @@
     </div>
   </header>
 
-  <section class="flow-panel release-outcome" aria-labelledby="release-outcome-title">
-    <h2 id="release-outcome-title">部署与验收状态</h2>
-    <div id="release-outcome" aria-live="polite">正在读取状态；尚未确认部署健康。</div>
-  </section>
-
-  <section class="flow-panel">
-    <div class="flow-head">
-      <div>
-        <span class="kicker">release flow</span>
-        <h2 id="flow-title">下一份发布计划（未执行）</h2>
-      </div>
-      <div class="plan-image-summary">
-        <div class="image-summary-row">
-          <span>本次计划发布镜像</span>
-          <strong id="target-image-flow" class="is-loading" aria-live="polite">
-            <span class="loading-spinner" aria-hidden="true"></span>
-            <span>正在计算</span>
-          </strong>
-        </div>
-        <div class="image-summary-row production-image-row">
-          <span>生产编排当前镜像</span>
-          <strong id="production-image-flow" class="is-loading" aria-live="polite">
-            <span class="loading-spinner" aria-hidden="true"></span>
-            <span>正在读取</span>
-          </strong>
-        </div>
-      </div>
-    </div>
-    <div id="pipeline" class="pipeline" aria-busy="true">
-      <div class="pipeline-loading" role="status">
-        <span class="loading-spinner" aria-hidden="true"></span>
-        <span>正在生成发布流程</span>
-      </div>
-    </div>
-  </section>
-
-  <section class="layout">
+  <nav class="console-tabs" role="tablist" aria-label="控制台页面">
+    <button type="button" id="tab-overview" class="console-tab active" role="tab" aria-selected="true" aria-controls="view-overview" tabindex="0"><span>发布概览</span></button>
+    <button type="button" id="tab-details" class="console-tab" role="tab" aria-selected="false" aria-controls="view-details" tabindex="-1"><span>检查与日志</span></button>
+    <button type="button" id="tab-history" class="console-tab" role="tab" aria-selected="false" aria-controls="view-history" tabindex="-1"><span>发布历史</span></button>
+  </nav>
+  <div class="status" id="status" role="status"></div>
+  <div id="release-diagnostics" aria-live="polite"></div>
+  <div id="view-overview" role="tabpanel" aria-labelledby="tab-overview">
+    <div class="overview-grid">
+  <div class="overview-sidebar">
     <form class="panel" id="release-form">
       <h2>版本输入</h2>
       <div class="field">
@@ -117,7 +90,6 @@
         <button type="button" class="primary" id="execute-btn">执行流程</button>
         <button type="button" class="secondary danger" id="cancel-btn" disabled>取消执行</button>
       </div>
-      <div class="status" id="status" role="status"></div>
     </form>
 
     <aside class="panel config-panel">
@@ -127,20 +99,21 @@
         <div class="metric"><span>变更识别</span><strong id="change-analysis">读取中</strong></div>
         <div class="metric"><span>发布方式</span><strong id="deployment-mode">读取中</strong></div>
         <div class="metric"><span>镜像处理</span><strong id="image-handling">读取中</strong></div>
+        <div class="metric"><span>Catalog 预期版本</span><strong id="catalog-schema-version">读取中</strong></div>
+        <div class="metric"><span>目标服务器</span><strong id="server-name">读取中</strong></div>
+      </div>
+      <details class="config-details">
+        <summary>连接与解析详情</summary>
+        <div class="metrics detail-metrics">
         <div class="metric"><span>项目目录</span><strong id="project-root">读取中</strong></div>
         <div class="metric"><span>配置文件</span><strong id="run-config">读取中</strong></div>
         <div class="metric"><span>本地发布配置镜像</span><strong id="current-image">读取中</strong></div>
         <div class="metric"><span>本地发布配置 APP_TAG</span><strong id="current-tag">读取中</strong></div>
         <div class="metric"><span>发布分支</span><strong id="git-branch-current">读取中</strong></div>
         <div class="metric"><span>发布提交</span><strong id="git-commit-current">读取中</strong></div>
-        <div class="metric"><span>Catalog 预期版本</span><strong id="catalog-schema-version">读取中</strong></div>
-        <div class="metric"><span>目标服务器</span><strong id="server-name">读取中</strong></div>
         <div class="metric"><span>Dockerfile</span><strong id="dockerfile">读取中</strong></div>
         <div class="metric"><span>生产编排目录</span><strong id="remote-compose-path">读取中</strong></div>
-      </div>
-      <details class="config-details">
-        <summary>连接与解析详情</summary>
-        <div class="metrics detail-metrics">
+
           <div class="metric"><span>Docker context 来源</span><strong id="docker-context-source">读取中</strong></div>
           <div class="metric"><span>Docker endpoint</span><strong id="docker-endpoint">读取中</strong></div>
           <div class="metric"><span>Docker context 状态</span><strong id="docker-context-note">读取中</strong></div>
@@ -160,39 +133,76 @@
         </div>
       </details>
     </aside>
-  </section>
-
-  <section class="panel">
-    <div class="plan-head">
+  </div>
+      <div class="overview-main">
+  <section class="flow-panel">
+    <div class="flow-head">
       <div>
-        <span class="kicker">step detail</span>
-        <h2>步骤动作与校验</h2>
+        <span class="kicker">release flow</span>
+        <h2 id="flow-title">下一份发布计划（未执行）</h2>
       </div>
-      <div class="plan-image-summary compact-image-summary">
+      <div class="plan-image-summary">
         <div class="image-summary-row">
           <span>本次计划发布镜像</span>
-          <strong id="target-image" class="is-loading" aria-live="polite">
+          <strong id="target-image-flow" class="is-loading" aria-live="polite">
             <span class="loading-spinner" aria-hidden="true"></span>
             <span>正在计算</span>
           </strong>
         </div>
+        <div class="image-summary-row production-image-row">
+          <span>生产编排当前镜像</span>
+          <strong id="production-image-flow" class="is-loading" aria-live="polite">
+            <span class="loading-spinner" aria-hidden="true"></span>
+            <span>正在读取</span>
+          </strong>
+        </div>
       </div>
     </div>
-    <div id="release-diagnostics" aria-live="polite"></div>
-    <div id="steps" class="steps"></div>
-    <details class="aggregate-logs">
-      <summary>汇总执行日志</summary>
-      <ul id="logs" class="logs"></ul>
+    <div id="pipeline" class="pipeline" aria-busy="true">
+      <div class="pipeline-loading" role="status">
+        <span class="loading-spinner" aria-hidden="true"></span>
+        <span>正在生成发布流程</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="flow-panel release-outcome" aria-labelledby="release-outcome-title">
+    <h2 id="release-outcome-title">部署与验收状态</h2>
+    <div id="release-outcome" aria-live="polite">正在读取状态；尚未确认部署健康。</div>
+  </section>
+
+      </div>
+    </div>
+  </div>
+
+  <section class="panel detail-panel" id="view-details" role="tabpanel" aria-labelledby="tab-details" hidden>
+    <div class="plan-head">
+      <div><span class="kicker">step inspection</span><h2>检查与日志</h2><p class="panel-note">选择一个步骤，查看对应的检查要求、执行命令与原始输出。</p></div>
+    </div>
+    <p class="detail-context">当前计划 <strong id="target-image">等待生成</strong><span id="detail-context">预览尚未执行</span></p>
+    <div class="step-toolbar">
+      <label class="step-picker" for="step-select"><span>定位步骤</span><select id="step-select" disabled><option>等待生成发布流程</option></select></label>
+      <div class="step-navigation">
+        <button type="button" class="secondary" id="step-prev" disabled><span>上一步</span></button>
+        <button type="button" class="secondary" id="step-next" disabled><span>下一步</span></button>
+      </div>
+    </div>
+    <div id="steps" class="steps"><p class="empty-detail">生成计划后，在这里查看具体步骤。</p></div>
+    <details class="aggregate-logs" id="aggregate-logs">
+      <summary>任务汇总日志 <span id="aggregate-log-count"></span></summary>
+      <div class="log-actions"><span>显示最近 500 行</span><a id="download-job-log" hidden>下载完整任务日志</a></div>
+      <ul id="logs" class="logs"><li>预览尚无执行日志。</li></ul>
     </details>
   </section>
 
-  <section class="panel">
+  <section class="panel" id="view-history" role="tabpanel" aria-labelledby="tab-history" hidden>
     <div class="plan-head">
       <div>
         <span class="kicker">build history</span>
-        <h2>构造历史</h2>
+        <h2>发布历史</h2>
       </div>
       <div class="history-tools">
+        <button type="button" class="secondary slim" id="history-refresh"><span>刷新记录</span></button>
         <strong id="history-count">0 条</strong>
         <button type="button" class="secondary slim" id="history-prev">上一页</button>
         <button type="button" class="secondary slim" id="history-next">下一页</button>

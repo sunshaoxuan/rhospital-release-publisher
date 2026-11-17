@@ -112,6 +112,12 @@
   let executionSubmitting = false;
   let activeJobCutoverRefreshed = false;
   let appTagEdited = false;
+  let activeView='overview', currentPlan=null, displayedJobId='', selectedStepKey='', selectedDetail=null;
+  let detailEpoch=0, detailController=null, detailError='', detailRevision=0, jobRevision=0;
+  let lastDetailMarkup='', lastStepOptions='', planFlight=null, historyLoaded=false, historyDirty=true;
+  const stepSelect=document.getElementById('step-select'), stepPrev=document.getElementById('step-prev'), stepNext=document.getElementById('step-next');
+  const aggregateLogs=document.getElementById('aggregate-logs');
+
 
   async function requestJson(url, options) {
     const response = await fetch(url, {
@@ -328,18 +334,11 @@
   }
 
   function renderPlan(plan) {
-    document.getElementById('flow-title').textContent=activeJobId?'本次执行流程':'下一份发布计划（未执行）';
-    const logScrollState = new Map();
-    for (const existing of steps.querySelectorAll('.step[data-step-key]')) {
-      const key = existing.dataset.stepKey;
-      const list = existing.querySelector('.step-logs');
-      if (key && list) {
-        logScrollState.set(key, {
-          top: list.scrollTop,
-          nearBottom: list.scrollTop + list.clientHeight >= list.scrollHeight - 8
-        });
-      }
-    }
+    const previousSource=displayedJobId||currentPlan?.previewId;
+    const nextSource=displayedJobId||plan.previewId;
+    currentPlan=plan;
+    if(previousSource!==nextSource){invalidateDetail();selectedDetail=null;detailRevision=0;}
+    document.getElementById('flow-title').textContent=displayedJobId?'本次执行流程':'下一份发布计划（未执行）';
     const remoteImageState = latestConfig ? {
       remoteOnlineResolved: latestConfig.remoteOnlineResolved,
       remoteOnlineImage: latestConfig.remoteOnlineImage,
@@ -354,58 +353,105 @@
     renderChangeAnalysis(plan.changeAnalysis);
     setStaticValue(fields.targetImage, plan.imageTag);
     setStaticValue(fields.targetImageFlow, plan.imageTag);
-    const visibleSteps = plan.steps.filter(step => !step.recoveryOnly || step.status !== 'pending');
-    renderPipeline(buildPipelinePhases(visibleSteps));
-    steps.innerHTML = '';
-    for (const [index, step] of visibleSteps.entries()) {
-      const status = step.status || 'pending';
-      const done = status === 'done' || status === 'dry-run-checked';
-      const item = document.createElement('article');
-      item.className = `step ${done ? 'checked' : ''} ${status === 'running' ? 'running' : ''} ${status === 'failed' || status === 'cancelled' || status === 'interrupted' ? 'failed' : ''} ${step.finalCheck ? 'final-step' : ''}`;
-      item.dataset.stepKey = step.key;
-      const badge = actionTypeLabel(step);
-      const stepLogs = Array.isArray(step.logs) ? step.logs : [];
-      item.innerHTML = `
-        <div class="step-title">
-          <div class="step-index">${String(index + 1).padStart(2, '0')}</div>
-          <div>
-            <h3>${escapeHtml(step.title)}</h3>
-            <p>${escapeHtml(step.summary || '')}</p>
-          </div>
-          <div class="step-meta">
-            <span class="step-timer">${escapeHtml(stepTimerLabel(step))}</span>
-            <span class="badge ${badgeClass(step)}">${badge}</span>
-          </div>
-        </div>
-        <div class="command-block">
-          <span>动作</span>
-          <pre class="command action-command"></pre>
-        </div>
-        <div class="command-block validation-block">
-          <span>校验</span>
-          <pre class="command validation-command"></pre>
-        </div>
-        <div class="command-block step-log-block ${stepLogs.length ? '' : 'empty'}">
-          <span>本步日志</span>
-          <ul class="step-logs"></ul>
-        </div>
-      `;
-      item.querySelector('.action-command').textContent = step.command || '';
-      item.querySelector('.validation-command').textContent = step.validation || '';
-      const stepLogList = item.querySelector('.step-logs');
-      if (stepLogs.length) {
-        for (const line of stepLogs) {
-          const logItem = document.createElement('li');
-          logItem.textContent = line;
-          stepLogList.appendChild(logItem);
-        }
-      } else {
-        const logItem = document.createElement('li');
-        logItem.textContent = '等待执行到此步骤';
-        stepLogList.appendChild(logItem);
+    const visible=visiblePlanSteps();
+    if(!visible.some(step=>step.key===selectedStepKey))selectedStepKey=(visible.find(step=>step.status==='failed'||step.status==='running')||visible[0])?.key||'';
+    if(activeView==='overview')renderPipeline(buildPipelinePhases(visible));
+    if(activeView==='details'){renderStepOptions();renderSelectedStep();}
+  }
+  function visiblePlanSteps(){return (currentPlan?.steps||[]).filter(step=>!step.recoveryOnly||step.status!=='pending');}
+  function invalidateDetail(){detailEpoch++;detailController?.abort();detailController=null;detailError='';lastDetailMarkup='';}
+  function renderStepOptions(){
+    const list=visiblePlanSteps(),fingerprint=JSON.stringify(list.map(step=>[step.key,step.title,step.status]));
+    if(fingerprint!==lastStepOptions){
+      stepSelect.replaceChildren();
+      for(const [index,step] of list.entries()){
+        const option=document.createElement('option');option.value=step.key;option.textContent=String(index+1).padStart(2,'0')+' · '+step.title+' · '+statusLabel(step.status);stepSelect.appendChild(option);
       }
-      steps.appendChild(item);
-      restoreLogScroll(stepLogList, logScrollState.get(step.key));
+      if(!list.length){const option=document.createElement('option');option.value='';option.textContent='等待生成发布流程';stepSelect.appendChild(option);}
+      lastStepOptions=fingerprint;
+    }
+    stepSelect.disabled=!list.length;stepSelect.value=selectedStepKey;
+    const index=list.findIndex(step=>step.key===selectedStepKey);stepPrev.disabled=index<=0;stepNext.disabled=index<0||index>=list.length-1;
+    document.getElementById('detail-context').textContent=displayedJobId?'本次执行 · '+displayedJobId:'预览尚未执行';
+  }
+  function renderSelectedStep(){
+    if(activeView!=='details')return;
+    const list=visiblePlanSteps(),index=list.findIndex(step=>step.key===selectedStepKey),step=list[index];
+    if(!step){steps.innerHTML='<p class="empty-detail">生成计划后，在这里查看具体步骤。</p>';return;}
+    const detail=selectedDetail?.key===step.key?selectedDetail:null;
+    const fingerprint=JSON.stringify({key:step.key,title:step.title,summary:step.summary,status:step.status,detail,error:detailError});
+    if(fingerprint===lastDetailMarkup){const timer=steps.querySelector('.step-timer');if(timer)timer.textContent=stepTimerLabel(step);return;}
+    const oldLog=steps.querySelector('.step-logs'),oldScroll=oldLog?{top:oldLog.scrollTop,nearBottom:oldLog.scrollTop+oldLog.clientHeight>=oldLog.scrollHeight-8}:null;
+    const commandOpen=steps.querySelector('.detail-command')?.open===true;
+    const item=document.createElement('article'),state=step.status||'pending';
+    item.className=executionClasses(step,'step');
+    item.dataset.stepKey=step.key;
+    item.innerHTML='<div class="step-title"><div class="step-index">'+String(index+1).padStart(2,'0')+'</div><div><h3>'+escapeHtml(step.title)+'</h3><p>'+escapeHtml(step.summary||'')+'</p></div><div class="step-meta"><span class="step-timer">'+escapeHtml(stepTimerLabel(step))+'</span><span class="badge '+badgeClass(step)+'">'+actionTypeLabel(step)+'</span></div></div>';
+    if(!detail){
+      const message=document.createElement('p');message.className='empty-detail';message.textContent=detailError||'正在读取本步骤的检查与日志…';
+      if(detailError)message.setAttribute('role','alert');item.appendChild(message);
+    }else{
+      const validation=document.createElement('div');validation.className='command-block validation-block';
+      validation.innerHTML='<span>检查要求</span><pre class="command validation-command"></pre>';validation.querySelector('pre').textContent=detail.validation||'此步骤没有独立校验命令。';item.appendChild(validation);
+      const command=document.createElement('details');command.className='detail-command';command.open=commandOpen;
+      command.innerHTML='<summary>查看执行命令</summary><pre class="command action-command"></pre>';command.querySelector('pre').textContent=detail.command||'元数据检查，无系统命令。';
+      if(detail.validationCommand){const pre=document.createElement('pre');pre.className='command';pre.textContent=detail.validationCommand;command.appendChild(pre);}
+      item.appendChild(command);
+      const block=document.createElement('div');block.className='command-block step-log-block';
+      block.innerHTML='<span>本步日志</span><div class="log-actions"><span></span><a hidden>下载完整本步日志</a></div><ul class="step-logs"></ul>';
+      block.querySelector('.log-actions span').textContent=detail.logsTruncated?'显示最近 500 行，共 '+detail.logCount+' 行':(detail.logCount||0)+' 行日志';
+      const download=block.querySelector('a');
+      if(displayedJobId){download.hidden=false;download.href='/api/jobs/'+encodeURIComponent(displayedJobId)+'?view=step-log&step='+encodeURIComponent(step.key);download.download='release-step.log';}
+      const lines=detail.logs?.length?detail.logs:[displayedJobId?'等待执行到此步骤。':'预览尚未执行，没有执行日志。'];
+      for(const line of lines){const li=document.createElement('li');li.textContent=line;block.querySelector('ul').appendChild(li);}item.appendChild(block);
+    }
+    steps.replaceChildren(item);lastDetailMarkup=fingerprint;restoreLogScroll(steps.querySelector('.step-logs'),oldScroll);
+  }
+  function detailSource(){return displayedJobId?'job:'+displayedJobId:currentPlan?.previewId?'preview:'+currentPlan.previewId:'';}
+  function detailJobUrl(id){
+    return '/api/jobs/'+encodeURIComponent(id)+'?view=step&step='+encodeURIComponent(selectedStepKey)+(aggregateLogs.open?'&includeLogs=1':'');
+  }
+  function acceptStepDetail(result,epoch,source,key){
+    if(activeView!=='details'||epoch!==detailEpoch||source!==detailSource()||key!==selectedStepKey||result.stepDetail?.key!==key)return;
+    if(result.viewRevision&&result.viewRevision<detailRevision)return;
+    detailRevision=result.viewRevision||detailRevision;selectedDetail=result.stepDetail;detailError='';renderSelectedStep();
+    if(aggregateLogs.open&&Array.isArray(result.logs))renderLogs(result.logs);
+    document.getElementById('aggregate-log-count').textContent=result.logCount?'('+result.logCount+' 行)':'';
+  }
+  async function loadSelectedDetail(){
+    if(activeView!=='details'||!selectedStepKey||!detailSource())return;
+    detailController?.abort();const controller=new AbortController();detailController=controller;
+    const epoch=++detailEpoch,source=detailSource(),key=selectedStepKey;
+    detailError='';renderSelectedStep();
+    const url=displayedJobId?detailJobUrl(displayedJobId):'/api/previews/'+encodeURIComponent(currentPlan.previewId)+'/steps/'+encodeURIComponent(key);
+    try{const result=await requestJson(url,{signal:controller.signal});acceptStepDetail(result,epoch,source,key);}
+    catch(error){if(controller.signal.aborted||epoch!==detailEpoch||activeView!=='details'||source!==detailSource()||key!==selectedStepKey)return;
+      detailError=error.message;selectedDetail=null;renderSelectedStep();}
+    finally{if(detailController===controller)detailController=null;}
+  }
+  function selectStep(key){
+    if(!visiblePlanSteps().some(step=>step.key===key))return;
+    invalidateDetail();selectedStepKey=key;selectedDetail=null;detailRevision=0;
+    renderStepOptions();renderSelectedStep();void loadSelectedDetail();
+  }
+  function setView(view){
+    if(!['overview','details','history'].includes(view))return;
+    activeView=view;
+    for(const name of ['overview','details','history']){
+      const button=document.getElementById('tab-'+name),active=name===view;
+      button.setAttribute('aria-selected',String(active));button.tabIndex=active?0:-1;button.classList.toggle('active',active);
+      document.getElementById('view-'+name).hidden=!active;
+    }
+    if(view!=='details')invalidateDetail();
+    if(view==='overview'&&currentPlan)renderPipeline(buildPipelinePhases(visiblePlanSteps()));
+    if(view==='details'){renderStepOptions();renderSelectedStep();void loadSelectedDetail();}
+    if(view==='history'&&(!historyLoaded||historyDirty))loadHistory().catch(error=>setStatus(error.message,'error'));
+  }
+  function lockExecutionInputs(locked){
+    for(const control of document.querySelectorAll('#release-form input,#release-form select,#release-form button')){
+      if(control.id==='cancel-btn')continue;
+      if(locked){if(control.dataset.executionDisabled===undefined)control.dataset.executionDisabled=control.disabled?'1':'0';control.disabled=true;}
+      else if(control.dataset.executionDisabled!==undefined){control.disabled=control.dataset.executionDisabled==='1';delete control.dataset.executionDisabled;}
     }
   }
 
@@ -512,12 +558,13 @@
           && members.every(step => step.key === 'forum-rollback-command')
           ? '记录论坛恢复入口'
           : definition.title,
-        validation: `${members.length} 项检查，详情与原始日志保留在下方`,
+        validation: `${members.length} 项检查，点击查看本阶段的检查与日志`,
         status,
         durationMs: durationValues.length === members.length
           ? durationValues.reduce((sum, value) => sum + value, 0)
           : undefined,
         elapsedMs: elapsedValues.reduce((sum, value) => sum + value, 0),
+        stepKeys:members.map(step=>step.key),
         finalCheck: definition.key === 'observe'
       };
     });
@@ -571,7 +618,7 @@
       const status = step.status || 'pending';
       const done = status === 'done' || status === 'dry-run-checked';
       const node = document.createElement('article');
-      node.className = `flow-node ${done ? 'checked' : ''} ${status === 'running' ? 'running' : ''} ${status === 'failed' || status === 'cancelled' || status === 'interrupted' ? 'failed' : ''} ${step.finalCheck ? 'final-node' : ''}`;
+      node.className=executionClasses(step,'flow-node');
       node.innerHTML = `
         <div class="flow-mark">${done ? '✓' : String(index + 1).padStart(2, '0')}</div>
         <div class="flow-copy">
@@ -580,8 +627,20 @@
           <span>${escapeHtml(statusWithDuration(step, status))}</span>
         </div>
       `;
+      const open=document.createElement('button');open.type='button';open.className='flow-open';open.textContent='查看检查与日志';
+      open.addEventListener('click',()=>{
+        const keys=step.stepKeys||[step.key],target=visiblePlanSteps().find(item=>keys.includes(item.key)&&['running','failed'].includes(item.status))||visiblePlanSteps().find(item=>keys.includes(item.key));
+        setView('details');if(target)selectStep(target.key);window.scrollTo({top:0,behavior:'auto'});stepSelect.focus();
+      });
+      node.querySelector('.flow-copy').appendChild(open);
       pipeline.appendChild(node);
     }
+  }
+
+  function executionClasses(step,base) {
+    const status=step.status||'pending';
+    return [base,['done','dry-run-checked'].includes(status)?'checked':'',status==='running'?'running':'',
+      ['failed','cancelled','interrupted'].includes(status)?'failed':'',step.finalCheck?(base==='step'?'final-step':'final-node'):''].filter(Boolean).join(' ');
   }
 
   function statusWithDuration(step, status) {
@@ -676,6 +735,7 @@
   }
 
   function renderLogs(result) {
+    if(activeView!=='details'||!aggregateLogs.open)return;
     logs.innerHTML = '';
     const lines = Array.isArray(result) ? result : result.logs || [];
     for (const line of lines) {
@@ -808,7 +868,7 @@
   async function loadConfig(resetTargetValues = false, allowAutomaticTarget = true) {
     void loadReleaseStatus();
     const requestId = ++configLoadRequestId;
-    ++planRequestId;
+    invalidatePlanRequest();
     setStatus('读取配置中', '');
     renderPlanLoading();
     renderProductionImage({});
@@ -824,7 +884,7 @@
       setStatus('流程已生成，正在读取分支和历史', '');
       const results = await Promise.allSettled([
         loadBranches(),
-        loadHistory()
+        activeView==='history'?loadHistory():Promise.resolve()
       ]);
       if (requestId !== configLoadRequestId) return;
       const failed = results.find(result => result.status === 'rejected');
@@ -1007,41 +1067,34 @@
   async function loadHistory() {
     const result = await requestJson(`/api/history?page=${historyPage}&limit=10`);
     renderHistory(result);
+    historyLoaded=true;historyDirty=false;
     linkSupplementalHistory();
   }
 
+  function invalidatePlanRequest(){++planRequestId;planFlight?.controller.abort();planFlight=null;}
   async function plan() {
-    const requestId = ++planRequestId;
-    const request = payload();
-    setStatus('正在生成发布流程', '');
-    renderPlanLoading();
-    if (!request.appTag) {
-      pipeline.setAttribute('aria-busy', 'false');
-      setStaticValue(fields.targetImageFlow, '等待镜像 TAG');
-      setStaticValue(fields.targetImage, '等待镜像 TAG');
-      setStatus('等待镜像 TAG', '');
-      return null;
-    }
-    try {
-      const result = await requestJson('/api/plan', {
-        method: 'POST',
-        body: JSON.stringify(request)
-      });
-      if (requestId !== planRequestId) return null;
-      renderPlan(result);
-      setStatus('发布流程已生成', 'success');
-      return result;
-    } catch (error) {
-      if (requestId !== planRequestId) return null;
-      setStaticValue(fields.targetImageFlow, '发布流程生成失败', true);
-      setStaticValue(fields.targetImage, '发布流程生成失败', true);
-      if (fields.productionImageFlow.classList.contains('is-loading')) {
-        setStaticValue(fields.productionImageFlow, '计划失败，暂未读取');
+    if(activeJobId)return null;
+    const request=payload(),key=JSON.stringify(request);
+    if(planFlight?.key===key)return planFlight.promise;
+    invalidatePlanRequest();const requestId=planRequestId,controller=new AbortController();
+    const promise=(async()=>{
+      setStatus('正在生成发布流程','');renderPlanLoading();
+      displayedJobId='';currentPlan=null;selectedDetail=null;invalidateDetail();renderStepOptions();renderSelectedStep();
+      if(!request.appTag){pipeline.setAttribute('aria-busy','false');setStaticValue(fields.targetImageFlow,'等待镜像 TAG');setStaticValue(fields.targetImage,'等待镜像 TAG');setStatus('等待镜像 TAG','');return null;}
+      try{
+        const result=await requestJson('/api/plan?view=summary',{method:'POST',body:JSON.stringify(request),signal:controller.signal});
+        if(requestId!==planRequestId||controller.signal.aborted)return null;
+        renderPlan(result);setStatus('发布流程已生成','success');
+        if(activeView==='details')void loadSelectedDetail();return result;
+      }catch(error){
+        if(requestId!==planRequestId||controller.signal.aborted)return null;
+        setStaticValue(fields.targetImageFlow,'发布流程生成失败',true);setStaticValue(fields.targetImage,'发布流程生成失败',true);
+        if(fields.productionImageFlow.classList.contains('is-loading'))setStaticValue(fields.productionImageFlow,'计划失败，暂未读取');
+        renderPlanError(error.message);detailError=error.message;renderSelectedStep();setStatus('发布流程生成失败：'+error.message,'error');throw error;
       }
-      renderPlanError(error.message);
-      setStatus(`发布流程生成失败：${error.message}`, 'error');
-      throw error;
-    }
+    })();
+    planFlight={key,requestId,controller,promise};
+    try{return await promise;}finally{if(planFlight?.requestId===requestId)planFlight=null;}
   }
 
   async function execute() {
@@ -1054,7 +1107,8 @@
     try {
       setStatus('执行请求处理中', '');
       renderLogs(['任务提交中']);
-      const job = await requestJson('/api/execute', {
+      invalidatePlanRequest();
+      const job = await requestJson('/api/execute?view=summary', {
         method: 'POST',
         body: JSON.stringify(payload())
       });
@@ -1071,7 +1125,7 @@
 
   async function resumeActiveJob() {
     if (activeJobId) return;
-    const result = await requestJson('/api/jobs/active');
+    const result = await requestJson('/api/jobs/active?view=summary');
     const job = result && result.job;
     if (!job || !isActiveJobStatus(job.status) || activeJobId) return;
     activeJobId = job.id;
@@ -1086,8 +1140,9 @@
   async function pollJob(jobId) {
     if (jobId !== activeJobId) return;
     let job;
+    const selection=detailEpoch,source=detailSource(),key=selectedStepKey;
     try {
-      job = await requestJson(`/api/jobs/${encodeURIComponent(jobId)}`);
+      job = await requestJson(activeView==='details'&&selectedStepKey?detailJobUrl(jobId):`/api/jobs/${encodeURIComponent(jobId)}?view=summary`);
     } catch (error) {
       if (jobId !== activeJobId) return;
       setStatus(`任务状态读取失败，将自动重试：${error.message}`, 'error');
@@ -1096,7 +1151,9 @@
       return;
     }
     if (jobId !== activeJobId) return;
+    if(job.viewRevision&&job.viewRevision<jobRevision)return;
     renderJob(job);
+    if(job.stepDetail)acceptStepDetail(job,selection,source,key);
     if (job.cutoverCommitted === true && !activeJobCutoverRefreshed) {
       activeJobCutoverRefreshed = true;
       refreshProductionImageOnly().catch(error => {
@@ -1114,11 +1171,11 @@
     activeJobTimer = null;
     cancelBtn.disabled = true;
     try {
-      await loadHistory();
+      historyDirty=true;if(activeView==='history')await loadHistory();
       await refreshProductionImageOnly().catch(() => null);
       setStatus(`执行状态: ${job.status}`, terminalStatusKind(job.status));
     } finally {
-      activeJobId = '';
+      activeJobId = '';lockExecutionInputs(false);
       document.getElementById('flow-title').textContent='本次执行流程（已结束）';
       void loadReleaseStatus();
       document.getElementById('execute-btn').disabled = false;
@@ -1126,6 +1183,8 @@
   }
 
   function renderJob(job) {
+    if(displayedJobId!==job.id){invalidateDetail();selectedDetail=null;jobRevision=0;detailRevision=0;}
+    displayedJobId=job.id;jobRevision=job.viewRevision||jobRevision;
     if(outcomeData){
       outcomeData={...outcomeData,activity:{busy:isActiveJobStatus(job.status),jobId:isActiveJobStatus(job.status)?job.id:null}};
       outcomePanel.innerHTML=window.ReleaseStatusView.markup(outcomeData);
@@ -1134,7 +1193,8 @@
     if (job.plan) {
       renderPlan(job.plan);
     }
-    renderLogs(job.logs || []);
+    if(activeView==='details'&&aggregateLogs.open&&Array.isArray(job.logs))renderLogs(job.logs);
+    const download=document.getElementById('download-job-log');download.hidden=false;download.href='/api/jobs/'+encodeURIComponent(job.id)+'?view=job-log';download.download='release-job.log';
     document.getElementById('release-diagnostics').innerHTML = diagnosticMarkup(job.diagnostics);
     cancelBtn.disabled = !(job.status === 'RUNNING' || job.status === 'CANCELLING');
     if (isActiveJobStatus(job.status)) {
@@ -1155,6 +1215,7 @@
         job.diagnostics?.hasWarnings && job.status === 'EXECUTED' ? '' : terminalStatusKind(job.status));
     }
     restorePageScroll(pageScroll);
+    lockExecutionInputs(isActiveJobStatus(job.status));
   }
 
   function isActiveJobStatus(value) {
@@ -1226,6 +1287,20 @@
   cancelBtn.addEventListener('click', () => {
     cancelActiveJob().catch(error => setStatus(error.message, 'error'));
   });
+  for(const view of ['overview','details','history']){
+    const button=document.getElementById('tab-'+view);
+    button.addEventListener('click',()=>setView(view));
+    button.addEventListener('keydown',event=>{
+      const views=['overview','details','history'],index=views.indexOf(view);
+      const next=event.key==='ArrowRight'?(index+1)%3:event.key==='ArrowLeft'?(index+2)%3:event.key==='Home'?0:event.key==='End'?2:-1;
+      if(next<0)return;event.preventDefault();document.getElementById('tab-'+views[next]).focus();setView(views[next]);
+    });
+  }
+  stepSelect.addEventListener('change',()=>selectStep(stepSelect.value));
+  stepPrev.addEventListener('click',()=>{const list=visiblePlanSteps(),index=list.findIndex(step=>step.key===selectedStepKey);if(index>0)selectStep(list[index-1].key);});
+  stepNext.addEventListener('click',()=>{const list=visiblePlanSteps(),index=list.findIndex(step=>step.key===selectedStepKey);if(index>=0&&index<list.length-1)selectStep(list[index+1].key);});
+  aggregateLogs.addEventListener('toggle',()=>{if(aggregateLogs.open&&activeView==='details'){if(displayedJobId)void loadSelectedDetail();else renderLogs(['预览尚无执行日志。']);}});
+  document.getElementById('history-refresh').addEventListener('click',()=>loadHistory().catch(error=>setStatus(error.message,'error')));
   historyPrev.addEventListener('click', () => {
     if (historyPage > 1) {
       historyPage -= 1;
