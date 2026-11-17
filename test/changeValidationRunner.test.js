@@ -100,3 +100,36 @@ test('node receipt identity owns relevant source and rejects incomplete or dupli
  }
  assert.throws(()=>identity(root,{...check,inputs:['missing.js']}),/Missing owned/);
 }));
+
+test('each real Node check receives only its own inputs and unrelated failure cannot leak across leaves',()=>fixture(async root=>{
+ fs.writeFileSync(path.join(root,'a.txt'),'a');fs.writeFileSync(path.join(root,'b.txt'),'b');
+ fs.writeFileSync(path.join(root,'a.test.cjs'),"const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');test('owned A',()=>{assert.equal(fs.readFileSync('a.txt','utf8'),'a');assert(!fs.existsSync('b.txt'));assert(!fs.existsSync('b.test.cjs'));});");
+ fs.writeFileSync(path.join(root,'b.test.cjs'),"const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');test('owned B',()=>{assert.equal(fs.readFileSync('b.txt','utf8'),'b');assert(!fs.existsSync('a.txt'));});");
+ const a={key:'owned-a',kind:'node-tests',inputs:['a.txt','a.test.cjs'],tests:['a.test.cjs'],timeoutSeconds:10};
+ const b={key:'owned-b',kind:'node-tests',inputs:['b.txt','b.test.cjs'],tests:['b.test.cjs'],timeoutSeconds:10};
+ const plan={scope:'local-change',productionActions:false,checks:[a,b]},options={cacheDirectory:path.join(root,'cache'),write:()=>{}};
+ assert.equal((await validateChange(root,plan,options)).checks.filter(check=>!check.reused).length,2);
+ fs.unlinkSync(path.join(root,'b.txt'));
+ assert.equal((await validateChange(root,{...plan,checks:[a]},{...options,requireReceipts:true})).checks[0].reused,true);
+ fs.writeFileSync(path.join(root,'a.test.cjs'),"const test=require('node:test'),fs=require('node:fs');test('mutation',()=>fs.appendFileSync('a.txt','drift'));");
+ const count=fs.readdirSync(options.cacheDirectory).filter(file=>file.endsWith('.json')).length;
+ await assert.rejects(validateChange(root,{...plan,checks:[a]},options),/Owned inputs changed/);
+ assert.equal(fs.readFileSync(path.join(root,'a.txt'),'utf8'),'a');
+ assert.equal(fs.readdirSync(options.cacheDirectory).filter(file=>file.endsWith('.json')).length,count);
+ assert(!fs.readdirSync(root).some(file=>file.startsWith('.check-')));
+}));
+test('unrelated policy mapping bytes do not invalidate a leaf while path-admission code remains bound',()=>fixture(root=>{
+ fs.writeFileSync(path.join(root,'leaf.js'),'source');
+ const check={key:'fixture',kind:'node-tests',inputs:['leaf.js'],tests:['leaf.js'],timeoutSeconds:10};
+ const load=(name,change)=>{
+  const directory=path.join(root,name);fs.mkdirSync(path.join(directory,'src'),{recursive:true});fs.mkdirSync(path.join(directory,'docs/design'),{recursive:true});
+  for(const file of ['changeValidationRunner.js','changeValidationReceipts.js','changeValidationPolicy.js','releasePluginDocuments.js','publisherGateInputs.json']){
+   let text=fs.readFileSync(path.join(__dirname,'../src',file),'utf8');if(file==='changeValidationPolicy.js')text=change(text);fs.writeFileSync(path.join(directory,'src',file),text);
+  }
+  fs.copyFileSync(path.join(__dirname,'../docs/design/release-plugin-publisher-retirement.json'),path.join(directory,'docs/design/release-plugin-publisher-retirement.json'));
+  return require(path.join(directory,'src/changeValidationRunner.js')).identity(root,check);
+ };
+ const original=load('original',text=>text),mapping=load('mapping',text=>text+'\n// unrelated mapping annotation\n');
+ assert.deepEqual(mapping,original);
+ assert.notDeepEqual(load('admission',text=>text.replace('Invalid change path: ','Rejected change path: ')),original);
+}));

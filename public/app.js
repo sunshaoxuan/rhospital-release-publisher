@@ -134,6 +134,10 @@
   function setStatus(message, kind) {
     status.textContent = message || '';
     status.className = `status ${kind || ''}`.trim();
+    if(kind==='error'&&!currentPlan&&!activeJobId){
+      setStaticValue(fields.targetImageFlow,'计划未就绪',true);setStaticValue(fields.targetImage,'计划未就绪',true);
+      renderPlanError(message);
+    }
   }
 
   async function loadPublisherVersion() {

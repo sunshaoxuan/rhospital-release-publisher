@@ -342,3 +342,13 @@ test('selected-step responses require current tab selection epoch source and ser
  apply(3);assert.equal(context.selectedDetail.text,'r3');apply(2);apply(4,1);apply(5,2,'job:old');apply(6,2,'job:current','other');
  context.activeView='overview';apply(7);assert.equal(rendered.length,1);assert.equal(context.selectedDetail.text,'r3');
 });
+
+test('unavailable plan errors end loading while active job details remain visible',()=>{
+ const source=appSource(),messages=[],fields={targetImageFlow:{},targetImage:{}};
+ const context=vm.createContext({status:{textContent:'',className:''},fields,currentPlan:null,activeJobId:'',
+  pipeline:{getAttribute:()=> 'true'},setStaticValue:(field,value)=>{field.value=value;},renderPlanError:message=>messages.push(message)});
+ vm.runInContext(source.slice(source.indexOf('  function setStatus('),source.indexOf('  function ',source.indexOf('  function setStatus(')+5)),context);
+ context.setStatus('version locked','error');assert.equal(fields.targetImage.value,'计划未就绪');assert.deepEqual(messages,['version locked']);
+ context.currentPlan={};context.setStatus('job failure','error');assert.equal(messages.length,1);
+ context.currentPlan=null;context.activeJobId='active';context.setStatus('network unavailable','error');assert.equal(messages.length,1);
+});

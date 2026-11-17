@@ -20,7 +20,7 @@ function assertNodeResult(result){
   ||/^\s*(?:ok|not ok)\b[^\r\n]*#\s*(?:SKIP|TODO)\b/mi.test(output))throw new Error('Missing or failed Node completion protocol');
 }
 function nodeTests(root,tests,seconds,launch=spawnSync){
- const env={...process.env};for(const key of ['GIT_DIR','GIT_WORK_TREE','GIT_COMMON_DIR','GIT_INDEX_FILE'])delete env[key];
+ const env={...process.env};for(const key of ['GIT_DIR','GIT_WORK_TREE','GIT_COMMON_DIR','GIT_INDEX_FILE','NODE_TEST_CONTEXT'])delete env[key];
  const r=launch(process.execPath,['--experimental-vm-modules','--test','--test-concurrency=1',...tests],{cwd:root,env,encoding:'utf8',windowsHide:true,timeout:seconds*1000,maxBuffer:8*1024*1024});
  const result={status:r.status,signal:r.signal,error:r.error?.message,output:(r.stdout||'')+(r.stderr||'')};
  try{assertNodeResult(result);}catch(error){throw new Error(error.message+'\n'+result.output.slice(-24000));}return result.output;
@@ -33,7 +33,7 @@ function identity(root,check,context={}){
   if(value==='absent'&&check.kind!=='documents'&&!['package.json','package-lock.json'].includes(file))throw new Error('Missing owned input: '+file);
   inputs[file]=value;
  }
- const executor=hash(Object.fromEntries(['changeValidationRunner.js','changeValidationReceipts.js','changeValidationPolicy.js','changeValidationGit.js','releasePluginDocuments.js'].map(file=>[file,hash(fs.readFileSync(path.join(__dirname,file)))])));
+ const executor=hash({admission:safePath.toString().replace(/\r\n/g,'\n'),modules:Object.fromEntries(['changeValidationRunner.js','changeValidationReceipts.js','releasePluginDocuments.js'].map(file=>[file,hash(fs.readFileSync(path.join(__dirname,file)))]))});
  const environment={node:process.version,executable:hash(fs.readFileSync(process.execPath)),platform:process.platform,arch:process.arch,os:os.release()};
  if(check.kind==='node-tests')environment.variables=hash(Object.fromEntries(['NODE_OPTIONS','NODE_PATH','NODE_ENV','PATH','Path','ComSpec','SystemRoot','TZ','LANG'].map(k=>[k,process.env[k]||''])));
  const baseline=check.kind==='documents'?Object.fromEntries(check.inputs.map(file=>[file,hash(context.baseFile?.(file)||'')])):{};
@@ -44,6 +44,25 @@ function assertResult(check,result){
  if(check.kind==='node-tests')assertNodeResult({status:0,output:result.output});
  else if(check.kind!=='documents'||result.protocol!=='documents/v1'||result.files!==check.inputs.length)throw new Error('Invalid publisher completion protocol');
 }
+
+function scopedNodeTests(root,check,context,expected){
+ const owner=fs.realpathSync(root),privateRoot=fs.mkdtempSync(path.join(owner,'.check-'));
+ try{
+  for(const file of [...new Set([...check.inputs,'package.json','package-lock.json'])]){
+   const source=path.join(owner,file);if(!fs.existsSync(source))continue;
+   const destination=path.join(privateRoot,safePath(file));fs.mkdirSync(path.dirname(destination),{recursive:true});fs.copyFileSync(source,destination);
+  }
+  const before=hash(identity(privateRoot,check,context));
+  if(before!==hash(expected))throw new Error('Owned inputs changed before validation: '+check.key);
+  const output=nodeTests(privateRoot,check.tests,check.timeoutSeconds);
+  if(before!==hash(identity(privateRoot,check,context)))throw new Error('Owned inputs changed during validation: '+check.key);
+  return output;
+ }finally{
+  if(fs.lstatSync(privateRoot).isSymbolicLink()||path.dirname(fs.realpathSync(privateRoot))!==owner)throw new Error('Private check directory identity changed; retained');
+  fs.rmSync(privateRoot,{recursive:true,force:true});
+ }
+}
+
 async function validateChange(root,plan,{cacheDirectory,requireReceipts=false,write=text=>process.stdout.write(text),execute,...context}={}){
  if(plan.scope!=='local-change'||plan.productionActions!==false||new Set(plan.checks.map(c=>c.key)).size!==plan.checks.length)throw new Error('Invalid bounded validation plan');
  const prepared=plan.checks.map(check=>({check,id:identity(root,check,context)})),store=receiptStore(cacheDirectory),results=[];
@@ -55,7 +74,7 @@ async function validateChange(root,plan,{cacheDirectory,requireReceipts=false,wr
   let result;
   if(execute)result=await execute(check);
   else if(check.kind==='documents')result=validateDocuments(root,check.inputs,context);
-  else result={state:'PASS',output:nodeTests(root,check.tests,check.timeoutSeconds)};
+  else result={state:'PASS',output:scopedNodeTests(root,check,context,id)};
   assertResult(check,result);
   if(hash(identity(root,check,context))!==hash(id))throw new Error('Owned inputs changed during validation: '+check.key);
   store.write(id,result);results.push({key:check.key,reused:false});write('CHANGE_CHECK_PASS key='+check.key+' reused=false elapsed_ms='+(Date.now()-started)+'\n');

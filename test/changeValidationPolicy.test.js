@@ -10,16 +10,16 @@ test('plugin modules select their isolated consumer once without application reg
  for(const repository of ['game','forum'])assert.throws(()=>planChanges(repository,paths),/committed release plugin/);
 });
 test('publisher controller owns its public contract and production safety consumers',()=>{
- const check=planChanges('publisher',['src/releasePublisherCore.js','server.js','public/app.js']).checks[0];
+ const check=planChanges('publisher',['src/releasePublisherCore.js','server.js','public/app.js']).checks.find(check=>check.key==='publisher-plan');
  assert.equal(check.key,'publisher-plan');
  assert.deepEqual(check.tests,['test/releasePublisherCore.test.js']);
  for(const file of ['src/releasePluginCandidate.js','src/releasePlugin.js','src/gameProductionDatabase.js','test/helpers/ownedFixtures.js'])assert(check.inputs.includes(file),file);
  assert(!check.inputs.some(file=>/localCheckPolicy|currentBehavior|CheckInputs/.test(file)));
 });
 test('changed shared gate infrastructure selects only explicit direct consumers',()=>{
- assert.deepEqual(keys(['src/changeValidationGit.js']),['publisher-plugin','publisher-policy','publisher-runner','publisher-source']);
+ assert.deepEqual(keys(['src/changeValidationGit.js']),['publisher-policy','publisher-runner','publisher-plugin','publisher-source']);
  assert.deepEqual(keys(['src/changeValidationPolicy.js']),['publisher-policy','publisher-runner']);
- assert.deepEqual(keys(['src/changeValidationRunner.js']),['publisher-runner']);
+ assert.deepEqual(keys(['src/changeValidationRunner.js']),['publisher-policy','publisher-runner','publisher-console','publisher-recovery','publisher-version','publisher-plugin','publisher-plan','publisher-source']);
  assert.deepEqual(keys(['scripts/game-service-recovery.py']),['publisher-recovery']);
 });
 test('documents and image evidence remain static while archive metadata is excluded from runtime checks',()=>{
@@ -60,15 +60,15 @@ test('public-only changes select console consumers without rerunning backend saf
  }
  const backend=planChanges('publisher',['test/releasePublisherCore.test.js']).checks[0];
  assert.equal(backend.key,'publisher-plan');assert(!backend.inputs.includes('public/app.js'));
- assert.deepEqual(keys(['server.js']),['publisher-plan','publisher-console']);
+ assert.deepEqual(keys(['server.js']),['publisher-console','publisher-plan']);
 });
 
 test('formal Source integration has its own unchanged consumer scope',()=>{
  assert.deepEqual(keys(['test/fullGateScope.test.js']),['publisher-source']);
  assert.deepEqual(keys(['test/releaseWorktree.test.js']),['publisher-plugin']);
  assert.deepEqual(keys(['test/releasePublisherCore.test.js']),['publisher-plan']);
- assert.deepEqual(keys(['server.js']),['publisher-plan','publisher-console']);
+ assert.deepEqual(keys(['server.js']),['publisher-console','publisher-plan']);
  const checks=planChanges('publisher',['src/releasePublisherCore.js']).checks;
- assert.deepEqual(checks.map(check=>check.key),['publisher-plan','publisher-source','publisher-console']);
+ assert.deepEqual(checks.map(check=>check.key),['publisher-console','publisher-plan','publisher-source']);
  assert(checks.find(check=>check.key==='publisher-source').tests.includes('test/fullGateScope.test.js'));
 });
