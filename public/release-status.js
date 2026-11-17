@@ -39,9 +39,9 @@
           <p class="outcome-note">健康快照不等于整体验收通过。</p>
           <details class="outcome-details" data-status-detail="${escape('deployment:'+d.image)}"><summary>查看完整部署身份</summary>${identity('完整镜像',d.image)}</details>
         </article>
-        <article class="outcome-card history-outcome-card" aria-label="历史执行结果"><div class="outcome-card-head"><h3>历史执行结果</h3><span class="outcome-eyebrow">最近一次游戏发布任务</span></div>
-          ${h?`<div class="outcome-history-line"><strong class="outcome-version">${escape(h.appTag)}</strong><span class="status-chip ${h.status==='EXECUTED'?'tone-good':'tone-attention'}">${escape(h.status)}</span></div>
-          <p class="outcome-meta">执行时间 ${time(h.createdAt)} · 记录中的目标版本</p>
+        <article class="outcome-card history-outcome-card" aria-label="历史执行结果"><div class="outcome-card-head"><h3>历史执行结果</h3>${h?`<span class="status-chip ${h.status==='EXECUTED'?'tone-good':'tone-attention'}">${escape(({ERROR:'执行失败',EXECUTED:'执行完成',DRY_RUN:'仅演练',RECOVERY_REQUIRED:'待恢复'})[h.status]||'执行状态')} · ${escape(h.status)}</span>`:''}<span class="outcome-eyebrow">最近一条游戏执行历史</span></div>
+          ${h?`<div class="outcome-history-line"><span class="outcome-eyebrow">目标版本</span><strong class="outcome-version">${escape(h.appTag)}</strong></div>
+          <p class="outcome-meta">执行记录时间 ${time(h.createdAt)}</p>
           ${h.firstFailure?`<div class="outcome-failure"><strong>失败步骤：${escape(h.firstFailure.title)}</strong>${h.firstFailure.errorCode?`<p>${escape(h.firstFailure.errorCode)}${h.firstFailure.path?`：${escape(h.firstFailure.path)}`:''}</p>`:''}<p>原始记录保留，详细输出见本次任务日志。</p></div>`:''}
           <details class="outcome-details history-identity" data-status-detail="${escape('history:'+h.id)}"><summary>查看原执行记录身份</summary>${identity('原记录',h.id)}</details>`:'<p class="outcome-meta">暂无游戏执行历史。</p>'}
           ${record?supplemental(!fresh&&record.applicability==='MATCHED'?{...record,applicability:'UNKNOWN'}:record,now):'<p class="outcome-meta">尚无可关联的有效补验收证据。</p>'}

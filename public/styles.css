@@ -1033,6 +1033,7 @@ button.danger {
 .outcome-notice { margin: 10px 0; font-size: 12px; line-height: 1.7; color: #795012; overflow-wrap: anywhere; }
 .outcome-failure { margin-top: 12px; padding: 12px; border-left: 3px solid #b43a2d; background: #fff2ed; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
 .outcome-failure p { margin: 6px 0 0; }
+.history-outcome-card .outcome-card-head > .outcome-eyebrow { flex-basis: 100%; }
 .outcome-card h3 { font-size: 14px; font-weight: 650; color: var(--muted); }
 .outcome-eyebrow { color: var(--muted); font-size: 11px; }
 .outcome-version { display: block; color: var(--ink); font-size: 18px; line-height: 1.45; overflow-wrap: anywhere; }

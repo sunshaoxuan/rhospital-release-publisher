@@ -148,5 +148,6 @@ test('history projection exposes exact failed step and safe mapped error while r
  assert.equal(projected.createdAt,record.createdAt);assert.equal(JSON.stringify(record),original);assert.doesNotMatch(JSON.stringify(projected),/PRIVATE_VALUE|password|logs/);
  const markup=view.markup({deployment:{freshness:'UNAVAILABLE',failureCode:'STATUS_SNAPSHOT_INVALID'},latestHistory:projected},now);
  assert.match(markup,/aria-label="当前部署状态"/);assert.match(markup,/aria-label="历史执行结果"/);assert.match(markup,/失败步骤：验证本次源码影响范围/);assert.match(markup,/UNMAPPED_PLUGIN_CHANGE/);
+ assert.match(markup,/<h3>历史执行结果<\/h3><span class="status-chip [^"]+">执行失败 · ERROR<\/span>/);
  assert.equal(historyView(null),null);
 });

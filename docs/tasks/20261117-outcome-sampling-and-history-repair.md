@@ -20,6 +20,8 @@
 
 ## 当前状态
 
+首轮原生f30a093通过46断言：policy10/10、runner10/10、console15/15、outcome11/11；documents静态通过。实际只读schema2采样及本地validator确认当前2026111501健康，原服务尚未更新。浏览器复用仓库现有Chrome/CDP工具，因本会话无CUA/node_repl工具，使用独立headless浏览器测试本次实际视图模块及CSS，原始生产快照/历史只读复制，固定采样时钟；失败状态显式注入，非生产操作。4个桌面/手机成功/失败场景无JS/网络错误，展开历史ID成功。Gemini3.1Pro上游失败；3.8Flash视觉请求成功。主审核：桌面卡四边完整，模型边框缺失判断与截图不符；移动镜像标签换行完整、详情可复制，不改变；采纳历史ERROR直接归属标题，补“执行失败”及目标版本标签，记录时间明确。失效输入public/release-status.js、styles.css及其UI断言；最小原生重跑documents+console15+outcome11，policy/runner仍可复用，预计12秒。无后端业务测试。
+
 根因证据：实际服务仍e194且空闲。只读SSH采样退出0，生产镜像hospital-backend:2026111501、副本healthy、服务version50869；旧validator强制@sha256并将仓库摘要与配置ID混比，拒收合法标签。改用schema2独立imageId，采样前后核对服务及解析出的配置ID，旧schema1缓存重新采样。原历史2026-11-17T04:01:24.973Z-20261117在validate-game-source-impact失败，UNMAPPED_PLUGIN_CHANGE: release/release-impact.json，候选f6431453；生产动作done数量0。该提交清单的影响映射为空；当前游戏HEAD已明确映射到application-release-contract.release-plugin-producer。保持历史ERROR，修复状态展示，应用仓库无须本次修改或重跑。
 
 范围冻结：src/releaseOutcomeStatus.js、scripts/read-game-runtime-status.py、public/release-status.js、public/styles.css、test/releaseOutcomeStatus.test.js，及实际登记该既有回归所需的src/changeValidationPolicy.js/test/changeValidationPolicy.test.js，CHANGELOG及本记录。直接消费者：状态API、状态视图、只读Python采样器。原状态测试文件未被当前原生门禁登记，补入publisher-outcome叶子，只拥有其4个直接输入；不增加产品检查。选中documents、policy、runner、console、outcome；先Node/Python语法与映射廉价前检，原生提交执行并集一次，预计45秒，超过90秒报告卡点并停止追加检查。后端Core、Source、业务检查及通用worker内核均无变更。Claude5.5-high无可用账户，DeepSeek Flash/high完成非视觉身份/负例建议，主Agent复核采用配置ID和仓库摘要分离、TOCTOU负例与错误码白名单。视觉仅交Gemini。
