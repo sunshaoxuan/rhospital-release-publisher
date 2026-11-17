@@ -1,86 +1,173 @@
-# Release Plugin Producer Contract
+# 发版插件标准 v1
 
-Batch A contract, 2026-11-17. The existing server is not switched by this document. Producer B belongs to the application chat; consumer C must connect the real formal entry before whole-chain acceptance. No application or production mutation from the publisher task.
+协议标识：`release-plugin/v1`。本文件是游戏及论坛发版方的现行插件标准，日常操作遵循[发版插件操作手册](../release-plugin-handbook.md)。[JSON Schema](release-plugin-v1.schema.json)和[最小结构示例](release-plugin-v1.example.json)供结构核对。运行时由闭合的 v1 解释器执行语义准入，Schema 未由发布器动态加载，结构可描述的内容不代表执行能力已经授予。
 
-## Manifest Location And Data
+## 1. 职责与交付
 
-Use `release/publisher/game.json` and `release/publisher/forum.json`, addressed explicitly by trusted target configuration. The loader reads these files from the exact 40-character committed candidate, never working bytes or a discovered parent directory.
+| 所有者 | 必须维护的内容 |
+| --- | --- |
+| 发版方 | 已提交清单、业务检查程序、影响映射、完整输入闭包、业务断言、迁移 SQL、发布影响评估及功能验收证据 |
+| 发布器 | 通用协议、候选身份、能力准入、显式上下文、去重、回执、互斥、取消、超时及固定生产安全步骤 |
+| 环境维护方 | 受控目标、凭据引用、数据库角色、备份、上传、切换、回滚及现场运行条件 |
 
-Required root fields: `apiVersion: release-plugin/v1`, `pluginId` (stable namespace), `target` (`game` or `forum`), `coverage`, `units`, `migrations`. The schema and example are linked from [v1 design](release-plugin-v1.md). No extra fields, inline commands, credentials, safety-step overrides or remote targets.
+新增普通业务检查使用现有能力时，只修改应用清单与程序，无须改动或更新发布器服务。新增通用 runner、协议或阶段适配能力时，双方分别交付兼容候选。禁止在发布器重新登记游戏道具、玩法、Java 类名或业务路径。
 
-Coverage entries have `paths` (exact Git paths), `prefixes` (Git directory prefixes ending `/`), and `units` (defined leaf IDs). Changed scope must be explicit and entirely mapped. Unknown scope fails before checks; overlapping rules select the union once. Duplicate declarations/IDs are rejected. If changedPaths contains the manifest itself, pass explicit ancestor baselineCommit: changed unit definitions and changed coverage rules select only their affected units. Namespace/target changes select all; first committed manifest selects all from proved baseline absence; removing a unit requires the atomic migration instead of silently accepting lost coverage. Do not add a blanket manifest-path rule selecting every business unit. Application-owned documentation can map to an application static leaf; no publisher business registration is required.
+游戏清单固定为 `release/publisher/game.json`，论坛为 `release/publisher/forum.json`。检查程序及迁移均在应用仓库。发布器从精确的 40 位 Git 提交对象读取输入；原生门禁把实际暂存树表示为独立候选对象，并在结束时复核 HEAD 和暂存树。交付明确目标、版本、完整候选 SHA、基线和实际差异，清单不嵌入自身 SHA。
 
-Each unit has `id`, `phase` (`source`, `artifact`, `pre-deploy`, `post-deploy`), `requires`, `inputs`, `run`. Every invoked entrypoint must be in `inputs`; list the complete executable/import/test/dependency closure, including lock/config files actually consumed. Inputs are regular committed files, not globs, absolute paths, directories, symlinks, parent paths or unrelated historical evidence. Independent leaves must not invoke other acceptance suites.
+插件不能替换固定安全步骤，不能携带凭据、远程目标或内联脚本正文。脚本属于受信任仓库可执行代码；路径和 argv 校验不构成操作系统级安全沙箱。
 
-Bounded resource admission: at most 4,096 inputs per unit, 16,384 distinct exported inputs, 1 MiB manifest JSON, 8 MiB per owned file and 128 MiB total exported content. The real 2,086-file compile closure fits the per-unit budget. Git object sizes and contents are read in batches. Exceeding a limit is a precise admission error, never an implicit full suite or silently truncated closure.
+## 2. 清单字段
 
-Node-test run: `kind: node-test`, exact `entrypoints`, `timeoutSeconds` 1..3600, `protocol: tap-v1`; requires `engine-context@1` and `node-test@1`. The core explicitly supplies --experimental-vm-modules, TAP reporter and serial file execution. All TAP completion counters must be complete with tests=pass>0 and fail/skipped/cancelled/todo=0.
+根对象必须且只能有以下六个字段：
 
-Node-module run: `kind: node-module`, `entrypoint`, `args` (literal argv), `timeoutSeconds`, `protocol: check-result-v1`; requires `engine-context@1` and `node-module@1`. Stdout is one JSON object: `protocol`, `unitId`, `state: PASS`, `inputDigest`, `checks`, `passed`, `failed`, `skipped`, `cancelled`, `todo`. Require checks=passed>0 and every remaining counter zero. Nonzero exit, signal, timeout, extra/missing result fields or input mismatch fail. Diagnostic text may use stderr. No shell is used.
+| 字段 | 约束 |
+| --- | --- |
+| `apiVersion` | 固定 `release-plugin/v1` |
+| `pluginId` | 稳定应用命名空间，例如 `hospital.game` |
+| `target` | 与调用方目标一致，现行发布目标为 `game`、`forum` |
+| `coverage` | 非空影响映射数组 |
+| `units` | 1 至 128 个独立检查单元 |
+| `migrations` | 本次正式生产差异涉及的已提交 `.sql` 路径；无迁移填 `[]` |
 
-Maven declarations use the design's `maven-test`/`junit-xml-v1` and `maven-test@1`. Batch A must reject an unprovided capability before cache or execution. Real Maven support is required in C if B selects it; this document does not claim it callable yet. Producer must identify exact classes, owned source/resources/build inputs and actual compilation/dependency/toolchain needs; no implicit full suite.
+ID 长度 1 至 100，仅使用小写字母、数字、点和连字符，首字符须为字母或数字。字段和协议值区分大小写，禁止额外字段。
 
-`migrations` lists regular committed `.sql` files. It never authorizes execution or replaces backup, SQL safety, identity, pre-deploy, runtime or rollback checks. B must provide cumulative production-diff migration declarations and the existing required safety assessment, in its own project.
+### 2.1 影响映射
 
-## Explicit Context And Minimal Call
+每个 `coverage` 项必须有 `paths`、`prefixes`、`units`。前两者分别为精确 Git 文件路径和以 `/` 结尾的目录前缀，至少一个非空；`units` 非空并引用已定义 ID。覆盖路径/前缀不能重复，多个规则命中时取并集，每个单元只选一次。
 
-Publisher API is `loadReleasePlugin(options)`, `createReleaseContext(options)`, `executeReleasePlugin(plan, context, options)`. Core caller supplies repositoryRoot, candidateCommit, manifestPath, target, changedPaths and an existing task-owned workspaceRoot. Plan owns a committed export and close() cleanup.
+未知变化立即拒绝，不能推断为无须检查或自动扩大到全产品回归。单元拥有的文档/元数据也须有映射，例如游戏的 `release/release-impact.json` 映射到 producer 合同。检查程序不得借文档分类逃避其真实拥有输入。
 
-```javascript
-const {loadReleasePlugin, createReleaseContext} = require('./src/releasePlugin');
-const {executeReleasePlugin} = require('./src/releasePluginRunner');
-const plan = loadReleasePlugin({repositoryRoot, candidateCommit,
-  manifestPath:'release/publisher/game.json', target:'game', changedPaths, workspaceRoot});
-try {
-  const context = createReleaseContext({candidateRoot:plan.sourceRoot,
-    checkRoot:plan.sourceRoot, artifactRoot, target:'game',
-    capabilities:['engine-context@1', 'node-test@1', 'node-module@1'],
-    nodeExecutable:process.execPath, environment:{}});
-  const result = await executeReleasePlugin(plan, context, {
-    boundary:'before-production', stage:'precheck', receiptsDirectory});
-} finally { plan.close(); }
+没有被单元拥有的根 `AGENTS.md`、`README.md`、`CHANGELOG.md`，以及 `docs/`、`release/evidence/` 内 Markdown/JSON，可交给核心静态文档检查；`docs/evidence/` 内 PNG/JPG/JPEG 可作为静态证据。运行图片必须显式映射，其他路径不能仅凭扩展名认定已被文档门禁接纳。
+
+清单自身变化使用元数据增量选择，必须有明确祖先基线。首次引入选中全部单元；随后按单元定义、覆盖规则差异选择，并选中显式拥有清单的消费者。禁止用覆盖清单自身的总规则触发所有业务检查。当前解释器拒绝直接删除单元，删除或重命名须独立设计原子迁移并先确认通用准入支持。
+
+### 2.2 单元与完整输入
+
+| 字段 | 必需性与含义 |
+| --- | --- |
+| `id` | 必需；稳定且唯一 |
+| `phase` | 必需；见阶段支持表 |
+| `requires` | 必需；能力列表，含 `engine-context@1` 及对应 runner 能力 |
+| `inputs` | 必需；完整、非空、无重复的已提交文件闭包 |
+| `run` | 必需；执行种类、入口/参数、超时及结果协议 |
+| `tools`、`images` | 使用 `local-tools@1` 时必需；不用镜像也填 `images: []` |
+| `dependencies` | 使用 `node-dependencies@1` 时必需；精确包名 |
+
+输入包含入口、传递导入、测试、资源、配置和实际消费的锁文件。每个 worker 仅获得本单元声明的源码与依赖导出，禁止依赖其他单元偶然带入文件。单元是具有独立成功协议的叶子，不调用其他功能完整验收、递归预检或其他验收器获取摘要。共享检查使用同一 ID 去重；编译、迁移等独立失败域分别签名，避免单项失败重复重检查。
+
+### 2.3 当前阶段与 runner 支持
+
+| 阶段 | 当前边界 |
+| --- | --- |
+| `source` | 现行游戏接入阶段，执行或复用检查 |
+| `artifact` | 共用执行器可消费显式 `artifactRoot`。当前正式 Source 默认新建空产物目录，未提供本次后续构建产物；接入前必须确认受控产物阶段和目录已接线 |
+| `pre-deploy`、`post-deploy` | 在生产动作前执行器中保持 `pending`。使用前须完成对应受控阶段接入，不能凭前缀 PASS 宣称这些单元通过 |
+
+| `run.kind` | 专有字段 | `protocol` | 当前支持 |
+| --- | --- | --- | --- |
+| `node-test` | `entrypoints`，精确测试文件数组 | `tap-v1` | 可用，要求 `node-test@1` |
+| `node-module` | `entrypoint`、字符串数组 `args` | `check-result-v1` | 可用，要求 `node-module@1` |
+| `maven-test` | `testClasses` | `junit-xml-v1` | 仅结构预留；当前不授予 `maven-test@1`，执行前拒绝 |
+
+`run` 还须有整数 `timeoutSeconds`，范围 1 至 3600。入口必须属于本单元输入。`args` 为字面 argv，最多 64 项，每项最多 4096 字符，无控制字符。Node 测试由核心提供 VM modules、TAP reporter 和文件串行执行。现行 JVM 检查使用应用自有 `node-module` 包装 Maven wrapper，并核对完整 Surefire 结果。
+
+### 2.4 工具、依赖和资源限制
+
+当前能力目录为 `engine-context@1`、`node-test@1`、`node-module@1`、`local-tools@1`、`node-dependencies@1`。声明不等于授予，选中集合的准入先于文档/业务回执读取。
+
+`tools` 是 `node`、`git`、`powershell`、`java`、`python`、`docker`、`cmd` 的非空唯一子集，只列实际消费者。核心构造所选工具 PATH 和 Java/cmd 环境，先做最小可调用检查。未使用工具的变化不使其他单元失效。工具文件可读不能代替实际可启动证明。
+
+非空 `images` 要求 Docker 工具，镜像为明确的本地测试引用。核心绑定本地 Linux daemon 及镜像 ID，创建无凭据 Docker 配置。禁止任意远程 endpoint。
+
+Node 依赖要求输入包含 `package.json`、`package-lock.json`，从显式 `dependencyRoot` 读取已安装且锁文件版本匹配的包。核心递归复制其 `dependencies` 闭包并绑定字节，拒绝链接或版本漂移。
+
+| 资源 | 上限 |
+| --- | --- |
+| 清单 | 1 MiB |
+| 覆盖规则 / 单元 | 1024 / 128 |
+| 每单元输入 / 不同导出文件 | 4096 / 16384 |
+| 单个拥有文件 / 导出总内容 | 8 MiB / 128 MiB |
+| 路径 | 512 字符，仅字母、数字、下划线、点、连字符和 `/`；禁止绝对路径、空段、`.`、`..`、通配符和链接 |
+| Node 依赖闭包 | 最多 128 包；每包最多 64 MiB、16384 文件 |
+
+超限应修正实际闭包或独立评估通用能力，禁止截断输入或以全量测试代替准入。
+
+## 3. 显式上下文
+
+程序从核心创建的绝对路径 `RELEASE_CONTEXT_FILE` 读取 `release-context/v1` JSON。worker 字段为 `apiVersion`、`candidateRoot`、`checkRoot`、`artifactRoot`、`target`、`unitId`、`inputDigest`、`environment`、`tools`。当前候选根和检查根须一致。脚本不从临时目录名推导业务，不搜索或导入本机发布器，不修改候选输入。
+
+可信主机配置由应用本地 Git 配置 `release.pluginContextFile` 指向。`--context-file` 和 `RHOSPITAL_RELEASE_PLUGIN_CONTEXT_FILE` 是显式来源断言，多个来源必须指向同一真实文件；歧义、无效文件、链接或冲突拒绝。配置留在机器受控位置，不提交应用仓库，不含凭据。
+
+配置内容为 `tools` 的绝对工具路径、本地 `dockerHost`、已安装依赖 `dependencyRoot` 及 `environment`。环境仅允许 `SystemRoot`、`TEMP`、`TMP`、`TZ`、`LANG`、`NODE_ENV`、`MAVEN_OPTS`、`MAVEN_ARGS`、`MAVEN_SKIP_RC`。可信文件可用 `null` 清除继承值，最终 worker 只得到准入后的字符串；空值和缺失状态不可擅自互换。
+
+核心清除隐含环境，构造所选工具设置。外部 `NODE_OPTIONS` 不被接纳，核心 bootstrap 自身的设置用于嵌套 Node 传播。TEMP/TMP 和导出目录属于临时位置，相关语义环境、工具及能力绑定回执。业务程序不得自行修补环境掩盖缺少授权。该机制不承诺文件系统或网络强隔离。
+
+## 4. 结果与回执
+
+`node-test` 须有唯一完整 TAP 汇总：`tests=pass>0`，`fail/skipped/cancelled/todo` 全为 0，且无真实 SKIP/TODO 指令或失败项。
+
+`node-module` stdout 只能是一个 JSON 对象，且只能有以下十个字段；诊断写 stderr：
+
+```json
+{
+  "protocol": "check-result-v1",
+  "unitId": "feature.contract",
+  "state": "PASS",
+  "inputDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "checks": 3,
+  "passed": 3,
+  "failed": 0,
+  "skipped": 0,
+  "cancelled": 0,
+  "todo": 0
+}
 ```
 
-The formal caller uses the same function, options boundary and context builder, with stage `formal`. Stage is diagnostic only, not a cache invalidator. A successful prefix is `PREFIX_PASS`, not a production release PASS. Source/artifact leaves execute before the production barrier; pre-deploy/post-deploy declarations remain pending until C supplies the appropriate controlled phase. Dry preview issues no execution receipt.
+这只是字段形状，真实 ID/digest 取自上下文，计数来自实际检查，不能照抄签发 PASS。要求安全整数 `checks=passed>0`，其他计数全为 0。非零退出、信号、超时、额外字段、缺失结果或身份不匹配均失败。
 
-Leaf scripts read `RELEASE_CONTEXT_FILE`, a core-created JSON file. They receive explicit version, roots, target, unit ID and input digest. No installed publisher repository, `findPublisherRoot`, upward search or `RHOSPITAL_RELEASE_PUBLISHER_ROOT` is required. Use contract fixtures in application tests. Environment is explicit and limited to SystemRoot/TEMP/TMP/TZ/LANG/NODE_ENV; Node is invoked by resolved absolute path. No inherited PATH/NODE_OPTIONS/NODE_PATH or production credentials. Declaring capabilities does not grant them; the core controls grants before receipt lookup.
+回执绑定单元定义、拥有输入、执行内核、相关工具/依赖/语义环境及适用产物。整体清单摘要、候选 SHA 和阶段是审计信息，不能单独使不相关单元失效。HMAC 只用于受信任本地存储，不承诺跨机器移植；禁止复制密钥、改写旧 PASS 或把未签名部分成功伪造为完整结果。工具可调用性始终重新准入。
 
-The JSON also holds the admitted `environment` object. A core preload strips Windows-added defaults before loading each leaf/test worker, then supplies only this admitted environment and RELEASE_CONTEXT_FILE. TEMP/TMP and export locations are scratch paths, not business semantics; other admitted environment values, tool bytes and capability versions are bound to receipts. This is explicit execution context, not OS-level code isolation.
+| 结果 | 证明范围 |
+| --- | --- |
+| 计划预览 / `DRY_RUN` | 计划或相应只读检查，没有真实完整发布链执行证明 |
+| `PREFIX_PASS` | 共用插件执行器的受限前缀，仍须核对 `pending` |
+| CLI `release-candidate-validation/v1` | `state=PASS`、`scope=before-production`、`prefixState=PREFIX_PASS`；记录身份和 `selected/executed/reused/pending` |
+| `BEFORE_PRODUCTION_PASS` | 正式引擎完成生产前步骤，`productionActions=0` 且记录 `stoppedBefore` |
+| 正式生产发布 | 另有生产授权，并完成实际备份、迁移、上传、切换及上线后门禁 |
 
-Receipts bind the unit definition, owned bytes, executor, tool and semantic context/environment. Whole-manifest digest/candidate/stage are audit provenance; unrelated unit metadata must not alone invalidate other owned evidence. Leaf code must not derive business assertions from export-directory names or access undeclared inputs. JSON and argv validation are not a malicious-code sandbox. Local HMAC receipts require trusted local storage, not cross-machine portability.
+## 5. 迁移和发布评估
 
-### C Integration Requirements Raised By Producer
+`migrations` 与正式计划从真实生产差异解析的列表必须一致，不能列入全部历史迁移或漏掉本次 SQL。声明不授权执行。数据库相关变化还须更新应用 `release/release-impact.json`：新评估 ID、精确累计运行路径、代码/数据库影响、风险、检查决策及必需检查理由。引用须解析为固定安全步骤或已准入插件单元。
 
-Frozen C producer extension: `requires` may include `local-tools@1` and `node-dependencies@1`. The former requests a core-created local validation tool bundle (Java, Python, local Docker, Git, cmd, Maven wrapper support); only requesting units consume that bundle identity. It grants no production credentials or remote target. The latter requires optional unit field `dependencies: ["pngjs"]` (generic package names, not a core business registry), plus owned package.json/package-lock.json. Core copies the selected locked dependency closure from the explicit dependencyRoot, rejects links/version mismatch, and binds every copied byte. No application-side PATH/environment repair. Existing vm-modules Node support remains explicit.
+SQL 须版本化、幂等、可验证，满足实际引擎、短期切换/回滚与对象归属要求。保留 `apply-database-migrations`、备份、现场兼容性和最终运行门禁。生产游戏关卡以生产数据库为权威，本地目录和种子不得覆盖已初始化目录。环境细则归 `C:/workspace/rhospital`。
 
-Every local-tools unit declares `images` (array, possibly empty): exact local test image references. Core binds the local daemon identity and those resolved image IDs before cache. No arbitrary Docker remote endpoint or credential config is accepted. The trusted context file may provide `tools` (java/python/docker/git/cmd absolute executable paths), `dockerHost` (explicit local named-pipe or Unix socket), `dependencyRoot` (installed node_modules), and `environment` (only admitted semantic settings). The same file is supplied by --context-file or explicit RHOSPITAL_RELEASE_PLUGIN_CONTEXT_FILE in the formal/CLI environment. Core creates its own credential-free Docker config. The bootstrap's core-owned NODE_OPTIONS preload propagates into nested Node children; ambient NODE_OPTIONS remains forbidden.
+## 6. 最小清单示例
 
-C2 producer refinement: every local-tools unit also declares `tools`, a nonempty unique subset of node/git/powershell/java/python/docker/cmd. game-gate declares [node,git,powershell] with images=[]; JVM-wrapper leaves declare their actual java/cmd/powershell needs; include docker/python only when consumed. Node is already a common runner tool. Core constructs PATH from those selected absolute tools and OS command directories, hashes only the requested tool subset, and probes Docker/images only for units requesting docker. No raw PATH is accepted from a plugin or used as a global cache invalidator. Extra configured but unrequested tools do not invalidate another unit's PASS. C2 removes the C1 coarse bundle requirement before real application validation.
+```json
+{
+  "apiVersion": "release-plugin/v1",
+  "pluginId": "example.game",
+  "target": "game",
+  "coverage": [
+    {"paths": ["src/feature.mjs", "src/test/js/feature.test.mjs"], "prefixes": [], "units": ["feature.contract"]}
+  ],
+  "units": [
+    {
+      "id": "feature.contract",
+      "phase": "source",
+      "requires": ["engine-context@1", "node-test@1"],
+      "inputs": ["src/feature.mjs", "src/test/js/feature.test.mjs"],
+      "run": {"kind": "node-test", "entrypoints": ["src/test/js/feature.test.mjs"], "timeoutSeconds": 60, "protocol": "tap-v1"}
+    }
+  ],
+  "migrations": []
+}
+```
 
-C2 persistent source: set application repository local Git config release.pluginContextFile to the absolute trusted JSON path. Both committed CLI and formal command builder use resolvePluginContextFile from releasePluginCandidate.js; linked release worktrees read the same common local config. --context-file and RHOSPITAL_RELEASE_PLUGIN_CONTEXT_FILE remain explicit assertions and must resolve to that same file when a persistent value exists. Conflicting/ambiguous/missing declared files reject before workers/cache; no parent-directory search. The application owner configures its Git metadata after an ongoing validation finishes. The service needs no privately injected environment variable for this source.
+使用前替换为真实已提交路径并补齐闭包，不能直接作为游戏完整清单。完整实例在 `C:/workspace/hospital-backend/release/publisher/game.json`。
 
-CLI: node /absolute/publisher/scripts/validate-plugin-candidate.mjs --repository-root /absolute/application --phase source --baseline <40-char-ancestor> --target game --manifest release/publisher/game.json --context-file /absolute/trusted-context.json. Optional flags: --commit, --remote, --workspace, --receipts, --dependencies-root, --artifact-root. Commit phase defaults its baseline to actual HEAD; source/release-source require explicit baseline; push/remote require genuine receipts. Context configuration and executable discovery happen in the core, never by business leaf fallback. Final stdout is one JSON prefix result; diagnostic identity components go to stderr.
+## 7. 生效与维护
 
-The CLI/native adapter result has `protocol: release-candidate-validation/v1`, `state: PASS`, `scope: before-production`, `prefixState: PREFIX_PASS`, candidateTree, baseline, changedPaths, selectedKeys, counts, documents and productionActions=0. This PASS belongs to bounded candidate validation, not deployment. The lower shared executor retains PREFIX_PASS. selectedKeys uses opaque plugin unit IDs plus core.documents only when real dynamic document validation applies. Producer snapshots must include the committed CLI and its transitive generic core files; no mutable working code or business registry is required after C.
+以后发版必须遵循本标准和操作手册。普通业务变化在应用更新清单、程序、适用评估和日志；协议或通用能力变化同步维护标准与手册并独立验证兼容性。纯文档整理只做相关静态检查，不修改 Schema、清单、执行器、历史回执或生产状态。
 
-Generic snapshot closure for this entry: scripts/validate-plugin-candidate.mjs; src/releasePlugin.js, releasePluginRunner.js, releasePluginContext.js, releasePluginCandidate.js, releasePluginDocuments.js, changeValidationGit.js, changeValidationReceipts.js. Candidate/loader admission always runs fresh. Individual worker receipts bind the execution kernel (runner/context/receipt code), actual unit definition/inputs/tools/dependencies/context, not unrelated legacy Git-policy export lists or an entire publisher commit. New grants/result protocol changes are still admitted and old result completeness revalidated before reuse. Each worker receives only its own declared source/dependency export; this prevents incidental cross-leaf file availability, with host OS permissions unchanged.
-
-C supplies `validatePluginCandidate(repositoryRoot, options)` from src/releasePluginCandidate.js and scripts/validate-plugin-candidate.mjs. Options name phase (commit/source/push/remote/release-source), explicit baseline for source/release-source, target, manifestPath and actual commit/remote identity where relevant. Commit/source use the actual index tree represented as a detached Git candidate object; after validation the real index/tree identity is checked again. Push/remote require complete owned receipts and do not run missing business checks. Dynamic documentation is a genuine core static check with relevant base-document identity, not an empty business leaf. Manifest changes use the unit/coverage delta described above.
-
-The native thin client invokes the publisher CLI by an explicitly configured executable/script path (for example a repository-local Git config value release.publisherExecutable or an explicit argv path). No upward root lookup or old RHOSPITAL_RELEASE_PUBLISHER_ROOT fallback. The application owns that thin client and its contract fixtures; business leaf workers never import a locally installed publisher. Actual server execution calls the same candidate/context/execute API directly. The exact CLI argv is frozen with its implementation before C verification.
-
-The existing application requires Java/Maven-wrapper/Python/Docker and pngjs. A's node-only context does not execute those real leaves. C must add controlled, explicitly granted tool descriptors (absolute executable plus argv/version/digest and minimal environment), dependency closure and lock validation, and selected-unit capability identity before cache. No application script may patch process.env to simulate these missing grants. The exact tool/dependency extension will be frozen with B's actual selected contracts before C verification; current v1 fixtures do not claim these capabilities callable.
-
-Application native commit/source integration must provide the exact staged tree and explicit task baseline. A only accepts actual Git commit objects. C must supply a staged-candidate adapter that creates a detached candidate object from the real index, checks owned tree identity, and runs the same plugin loader/executor; commit/push identity checks remain separate and must not rerun valid owned checks. A committed-only helper is insufficient for the real native hook.
-
-Publisher-owned business files to transfer in B before C removes their consumers: currentBehaviorInputs.json/currentBehaviorChecks.json, catalogIconCheckInputs.json, skinAdminCheck.js and its inputs, giftPackCheck.js and its inputs, bacteriaOperatorCheck.js and its inputs, residentMigrationCheck.js and their business fixture/helper dependencies. C must trace remaining consumers in changeValidationPolicy.js, changeValidationGit.js, changeValidationRunner.js, localCheckPolicy.js, localCheckLeaves.js and releasePublisherCore.js before deleting registrations. No blind deletion or long-term dual registration; fixed production safety is retained. This is a migration inventory, not permission for this chat to edit application files.
-
-## Producer Handoff Checklist
-
-1. Provide game/forum candidate manifests and exact changed-path sets per task/release baseline.
-2. Identify every selected leaf, source/import/test/resource/lock/config closure, result protocol and capability; remove hidden publisher lookup from application tests.
-3. Identify Maven classes/build needs, artifact inputs and any pre/post-deploy leaves requiring C adapter integration. Report exact expected selected sets for equivalence review.
-4. Keep application business logic/migrations/assessments in the application repository. Preserve valid scoped evidence and give genuine receipt provenance; never rewrite historical PASS.
-5. Notify consumer of the exact committed producer candidate. C must prove the real formal entry stops before every production action, with selected/executed/reused counts, then remove replaced legacy paths atomically. Production and service activation remain separately controlled.
-
-Candidate admission recognizes PNG/JPG/JPEG only below docs/evidence as static document evidence; runtime artwork still requires explicit plugin coverage. Selected local tools for source/artifact units must answer their minimal version contract under the exact controlled local environment before cache lookup or any business leaf. This live availability check does not issue or invalidate owned business PASS and does not alter the frozen worker kernel. Generic Source snapshot closure stays unchanged.
+静态实现依据：`src/releasePlugin.js`、`releasePluginContext.js`、`releasePluginRunner.js`、`releasePluginCandidate.js`、`releasePublisherCore.js` 和 `scripts/validate-plugin-candidate.mjs`。历史事故及取舍见[改造任务记录](../tasks/20261117-release-plugin-architecture.md)，历史阶段说明不作为当前操作指令。

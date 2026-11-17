@@ -1,5 +1,9 @@
 # RHospital Release Console
 
+## 发版插件标准与手册
+
+以后游戏和论坛发版统一遵循[中文发版插件标准 v1](docs/design/release-plugin-producer-v1.md)与[中文操作手册](docs/release-plugin-handbook.md)。应用维护业务清单和检查程序，发布器解释通用协议并保留固定安全步骤。普通业务检查使用现有能力时，无须修改发布器运行代码或更新服务。支持范围、候选/回执身份、工具配置及生产授权边界以标准和手册为准。
+
 Startup configuration checks and the separate service-only recovery CLI are
 documented in [the recovery workflow](docs/tasks/20261026-startup-and-service-recovery.md).
 
@@ -36,7 +40,7 @@ RHospital 发布控制台使用仓库内受控配置生成游戏与论坛发布�
 正式游戏切换前只读通知 Meelok 五项服务的运行副本、健康状态、容器身份、启动时间和容器内重启次数。遗留维护标记、服务未启动、健康异常、采集失败或超时均记录通知与 WARNING，游戏继续自身发布检查。Meelok 暂停与恢复也采用通知结果，失败不会触发游戏回滚或把游戏结果改为 `RECOVERY_REQUIRED`；用户取消及游戏自身的安全门禁继续生效。通知原始证据和警告保存在发布历史中。此行为只适用于正式游戏切换，论坛与仅上传游戏镜像的流程保持原状。生产恢复和重新发布仍须单独授权。
 
 - 发布器全局串行执行任务。已有任务处于 `RUNNING`、`CANCELLING`、`RECOVERING` 或尚在清理时，新执行请求返回 HTTP 409，错误码为 `PUBLISHER_JOB_ACTIVE`。游戏、论坛、dry run、多标签页和 API 调用共用这一门禁。
-- `GET /api/jobs/active` 同时返回 `job` 和 `busy`，终态任务仍在清理时 `busy=true`。应用提交和推送先检查空闲状态，再用发布器已提交 HEAD 的隔离工作树生成只读计划；无关未提交内容不会进入策略。验证结束重新检查活动、策略提交和基线配置。正式发布接口仍要求运行版本和仓库一致。
+- `GET /api/jobs/active` 同时返回 `job` 和 `busy`，终态任务仍在清理时 `busy=true`。应用原生提交/推送通过显式已提交 CLI 和可信上下文验证候选，无须调用发布器 HTTP 服务；正式发布接口继续核对实际运行版本、受控配置和活动互斥。
 - 页面提交请求期间以及任务运行期间禁用“执行流程”，避免重复点击创建任务。任务结束后恢复按钮；提交失败时释放提交锁。
 - 轮询在请求前和响应后确认当前任务 ID，失效任务的响应不能更新进度或建立下一次轮询。状态读取暂时失败时保留任务并自动重试。
 - 页面刷新后从服务端恢复当前唯一的活动任务，继续显示真实步骤、日志、计时和取消入口。刷新浏览器不改变后台任务状态。

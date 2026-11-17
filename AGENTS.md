@@ -1,5 +1,11 @@
 # RHospital Release Publisher Rules
 
+## 发版插件文档标准（强制）
+
+- 以后游戏和论坛发版统一遵循[中文发版插件标准 v1](docs/design/release-plugin-producer-v1.md)和[中文操作手册](docs/release-plugin-handbook.md)。修改协议或通用能力时同步更新文档，字段可解析与实际执行能力分别核对。
+- 普通业务检查、映射和输入闭包归应用插件，使用已有能力时不得向发布器新增业务登记。历史设计、事故和阶段任务只保留原范围证据，不作为当前操作要求。
+- 文档任务只执行相关静态检查，不运行产品套件、构建、服务更新或生产动作。原生检查、回执复用、生产前停止及实际生产授权按手册分阶段执行。
+
 ## Dedicated Task Branch And Source Validation
 
 - Each specialty develops on its own codex/<task-slug> branch. Validate the exact staged candidate, integrate into master only after all applicable requirements pass, push and verify the master commit, then delete only the merged development branch. Preserve other tasks. Fast-forward integration reuses valid owned-input receipts; no hook bypass.
@@ -22,7 +28,7 @@
 - 先检查选中范围的语法、配置、绑定、依赖和计划，再编译或执行耗时测试。纯文档、注释和不改变行为的格式修改只做相关静态检查；不默认触发 Maven 全套、npm 全套、Docker 构建或游戏功能验收。
 - 开发阶段运行必要的针对性测试；提交阶段验证受影响行为与必要编译；推送阶段核对实际提交、有效证据、范围覆盖与远端身份。同一稳定输入的昂贵检查取并集执行一次，禁止按子任务、提交阶段和推送阶段重复执行。
 - 证据复用须匹配检查拥有的源码及测试输入、依赖、命令、策略和相关环境，并验证完整真实 PASS。暂存候选与实际提交的相关输入一致时保留对应结果；无关文档或其他功能变化不使该结果失效。提交、树、基线和远端身份仍分别核对，禁止伪造或改写历史 PASS。
-- 正式发版保留候选范围内的完整后端测试、选中业务验收和发布现场门禁，按稳定候选及必要目标环境执行一次。全产品回归另仅允许有证据的全局影响或用户明确要求，并须提前记录理由。数据库执行、备份、部署和现场运行结果不可用离线测试替代。
+- 正式发版完整执行或复用候选范围内选中的后端与业务检查，并保留构建产物验证和现场门禁；Source通过后Maven只编译打包，不重复测试。全产品回归仅允许有证据的全局影响或用户明确要求，并须提前记录理由。数据库执行、备份、部署和现场运行结果不可用离线测试替代。
 - 失败后只修复并复测受影响检查，保留其他有效结果。新增需求、新发现的真实依赖或输入变化先更新有界计划；超时或未知影响应停止并定位，禁止自动追加测试直到覆盖全产品。
 - 测试选择必须有正例和反例：应选项不遗漏，无关测试失败不牵连当前验收，重复项只执行一次，未映射影响不能被当成无须测试；无法确定时先补齐影响分析。
 - 本规则优先于本文件旧的无条件全量条款。现存可执行门禁的适配属于单独实现范围；规则写入仅做静态核对，不启动旧全量验证规则文字，不临时使用跳过钩子或伪造证据的方式提交。尚未适配时明确报告规则与实现的差距。
@@ -38,8 +44,8 @@
 
 1. A game or forum runtime change must not enter a formal release plan unless the target commit contains a fresh release impact assessment that exactly covers the production-baseline diff.
 2. The publisher must validate the assessment identifier, changed paths, code impact, database impact, risk level, CheckList decision, required checks, and reasons before any build or production action.
-3. Core checks remain publisher-owned and mandatory. Business commits cannot remove or replace the game backend test, game pre-deploy CheckList, game final runtime check, forum source validation, forum preflight, or forum final runtime check.
-4. Any new or renamed executable validation step that can be referenced by an assessment must be added to the registered check set and covered by tests.
+3. Core safety checks remain publisher-owned and mandatory. Preserve impact-selected game Source validation, backend compilation/packaging, pre-deploy CheckList and final runtime checks, plus forum source validation, preflight and final runtime checks. The current test-game-backend step packages only after scoped validation.
+4. Application business checks referenced by an assessment belong to its admitted release plugin. Publisher generic capabilities and fixed safety steps remain publisher-owned. Validate changed executable behavior under the bounded rule; documentation-only work uses static checks.
 5. Database-related runtime changes must declare database impact. Changed migration scripts must keep the migration safety gate and select `apply-database-migrations`.
 6. Release history must retain the assessment identifier, risk, database impact, decision, covered runtime paths, and selected checks for audit.
 7. Missing, stale, incomplete, excessive, unknown, or unavailable CheckList declarations must fail closed during plan creation.

@@ -1,100 +1,10 @@
-# 发布插件协议与发布器职责调整
+# 发版插件文档入口
 
-状态：A批通用消费方已实现并通过隔离fixture与原生定向验证，正式入口尚未切换。日期2026-11-17 JST。后续原始设计中的“尚未实施”描述保留其设计阶段时点，当前运行范围以本节和实施回执为准。
+现行协议为 `release-plugin/v1`，以后发版统一遵循：
 
-## Batch A Consumer Implementation
+1. [中文发版插件标准](release-plugin-producer-v1.md)：字段、能力、输入、结果、回执、迁移及支持边界。
+2. [中文操作手册](../release-plugin-handbook.md)：配置、业务变更、候选交付、生产前验证和故障处理。
 
-The isolated generic consumer is implemented in src/releasePlugin.js and src/releasePluginRunner.js. Native focused validation passed 36/36 tests; [implementation evidence](../evidence/release-plugin-20261117/implementation.json) records the exact scope. It loads committed manifests, admits explicit release-context/v1 before receipt reads, executes source/artifact Node leaves through one before-production entry, and reuses locally signed owned-input receipts. Runtime validation is a bounded closed v1 interpreter with semantic admission, not a general JSON Schema engine. The existing schema remains a design/reference artifact.
+[JSON Schema](release-plugin-v1.schema.json)与[最小结构示例](release-plugin-v1.example.json)是结构参考。当前解释器执行闭合 v1 语义准入，Schema 未动态加载；能力以标准中的当前支持表为准。
 
-The [producer contract](release-plugin-producer-v1.md) freezes Node result fields, context file, manifest path, metadata baseline semantics and the minimal call. Maven/JVM/Python/Docker/dependency grants, staged candidate adapter, real server switch and removal of old registrations remain C work following producer B. Existing server behavior is unchanged in A. No formal release readiness or production acceptance is claimed. UI/log-tab performance work is a separate user-requested batch.
-
-## 事故与责任
-
-20261117正式流程在validate-game-source-impact失败。目标为c16f104461b5766374562adf3888e4a3171f9a86，43步中11步完成。失败组37个测试中36通过、1失败，临时导出目录中的releaseCandidateCommitGate.test.mjs:315调用findPublisherRoot(process.cwd())，找不到发布器仓库。生产上传、迁移和切换尚未开始。
-
-证据：[失败摘要](../evidence/release-plugin-20261117/incident.json)。相关代码为应用提交c16f10446的scripts/releasePublisherPolicy.mjs、scripts/changeValidationGate.mjs及src/test/js/releaseCandidateCommitGate.test.mjs；发布器提交7712058的server.js、src/changeValidationGit.js、src/changeValidationRunner.js和src/releasePublisherCore.js。
-
-此前独立预检查启动器显式提供RHOSPITAL_RELEASE_PUBLISHER_ROOT。正式server入口调用executePlan(executionRoot, body, process.env)，Source检查将拥有源码导出到另一个临时目录后，测试仍依赖从当前目录找到外部发布器。Source已知道policyRoot，叶子测试却没有得到同一显式上下文。该变量也没有进入environment()的身份字段。正式日志出现CHANGE_CHECK_BEGIN key=game-gate，说明缓存没有覆盖此次执行；具体失配字段未记录，不能断言缓存失配仅由某个PATH值引起。
-
-主Agent承担三项责任：独立预检查补了正式入口没有保证的环境；局部证据与真实执行入口之间的等价性没有得到证明；最终就绪表述超过了证据范围。此次撤回的是正式入口就绪结论，保留已完成的产物摘要、局部测试和原功能视觉验收的实际适用范围。没有依据要求重跑全部游戏测试或重新制作全部美术。
-
-另一个结构性问题有直接源码证据：changeValidationPolicy.js登记图标、皮肤、礼包、菌落账号等业务路径和执行种类；changeValidationGit.js固定导出这些业务模块；currentBehaviorInputs.json、currentBehaviorChecks.json和localCheckPolicy.js共同持有业务检查清单。新增业务会改动发布器策略文件，并可能改变多组回执的执行器身份。20261116奖励页签即因此出现三个发布器提交。仅补一项环境变量不能完成用户要求的结构调整。
-
-## 长期归属
-
-| 归属 | 持有内容 | 变化方式 |
-| --- | --- | --- |
-| 发版方 | 业务规则、检查入口、影响映射、拥有输入、共享检查、业务成功协议、迁移及业务验收声明 | 随应用候选提交输出版本化插件清单及应用自身检查程序 |
-| 发布器核心 | 协议解释、Git候选与产物身份、统一执行上下文、调度去重、回执、状态机、互斥、取消与超时 | 通用协议或执行能力变化时修改 |
-| 受控目标能力 | 本地构建、数据库角色与备份、上传、切换、健康、回滚、凭据引用 | 受控基础设施配置及通用目标适配器维护 |
-
-核心将业务检查ID当作不透明标识。新增图标、奖励、玩法等检查使用已有通用runner时，发布器源码diff必须为空，也不需要重启发布器服务。业务检查名、道具号、Java类名和业务路径不会继续成为核心switch/if分支。
-
-核心安全步骤不能由插件删除、改名绕过或降级。插件不能自行声明productionAction=false获得权限，不能携带凭据、任意SSH目标、内联JavaScript或PowerShell正文。运行权限由核心能力与阶段决定。
-
-## 插件数据与解析
-
-发版方在已提交的release/publisher/<target>.json中提供声明式数据。固定入口由目标配置指向，不通过父目录搜索或扫描任意插件目录发现。发布器读取候选Git对象中的清单，忽略工作区未提交版本。
-
-清单包含apiVersion、pluginId、target、coverage、units和migrations。每个unit声明稳定ID、拥有输入、所需能力、阶段、通用runner及其结果协议。现有业务检查脚本保留在发版方仓库，清单只引用其Git相对路径。协议可使用node-test、maven-test及结构化结果的node-module等通用执行种类，禁止增加catalog-icon等业务执行种类。
-
-coverage使用明确文件及目录前缀映射，引用已定义unit。缺失、重复及未知路径在执行前一次性检查。v1中的unit为独立叶子，共享检查通过相同unit ID复用，不提供检查之间的递归引用或任意依赖图；阶段次序和安全依赖由核心固定。输入路径先归一化，禁止绝对路径、父目录逃逸、符号链接替换和候选之外的文件。结构、大小、超时和能力上限由核心固定。未知协议版本或选中检查所需能力不受支持时，计划阶段失败，不启动测试或构建。
-
-示例及schema仅用于协议讨论，均位于本目录，不是游戏当前完整发版清单，也不会被现有程序自动加载：[schema](release-plugin-v1.schema.json)、[示例](release-plugin-v1.example.json)。迁移到生产清单时必须覆盖真实累计运行差异，不能把这个最小示例直接发布。
-
-源清单不嵌入自身提交SHA，避免自引用。冻结候选后生成独立ReleaseEnvelope，绑定候选提交、清单摘要、解析后的检查及输入摘要、核心协议/执行器摘要、工具链与上下文能力、产物摘要。清单整体摘要用于审计；单项回执使用该unit实际消费的定义和输入摘要，未选中业务的元数据改动不自动废弃其他PASS。
-
-JSON格式校验只证明结构。应用方仍负责输入闭包和业务断言的真实性，代码审查不能由清单替代。插件脚本属于批准仓库的可执行代码；单纯argv和路径校验不构成恶意代码沙箱。生产凭据不进入业务检查worker，远程读写能力经受控接口授予；强隔离worker需要真实文件系统、网络和权限隔离，不作已经具备该能力的承诺。
-
-## 同一执行器与上下文
-
-预检查和正式执行都调用同一个execute(plan, context, boundary)。boundary=before-production时执行同一非生产前缀，到生产动作前停止；dry-run继续只表示计划预览，不写执行PASS。
-
-核心创建版本化ReleaseContext，明确候选根、检查源码根、只读产物根、协议与已授予能力，按阶段提供只读JSON上下文文件。业务脚本不再定位或导入一个实际安装的发布器仓库。发布器自身协议测试使用本仓库fixture，应用测试使用合同fixture，不依赖本机C盘目录布局或发布服务存在。
-
-所需上下文和能力的准入检查发生在回执查找之前，即使存在旧PASS也不能掩盖当前缺少必需上下文。预检查阶段不能私下补一个正式阶段不提供的环境变量。执行器只能使用声明和已绑定的环境，不能从交互终端继承未声明依赖。
-
-回执身份记录实际解析的可执行程序及其摘要、选中工具链、必需语义环境和上下文能力版本。完整PATH可作诊断，不能单独作为所有业务检查的失效依据。必须保留解释后的命中/失配原因，区分源码、命令、工具链、上下文及环境。当前缺失上下文问题通过替换原有fixture及执行上下文传递解决，不追加一套发布回归链。
-
-## 测试负担预算
-
-1. 开发、提交、推送、预检查、正式发布共用检查计划和回执规则。相同拥有输入、工具链、环境语义和上下文的同一unit最多真实执行一次。
-2. 业务新增检查只修改应用清单及应用测试，执行其真实受影响检查。发布器不因此运行自身全套npm测试或重建服务。
-3. 插件解析、路径、能力和证据绑定是原计划准入的一部分。合并现有重复校验，避免新增独立可执行门禁。
-4. 共享检查在计划中展开并去重，检查程序不递归启动其他验收器；源码身份读取为纯函数。失败仅影响其拥有输入和依赖消费者。
-5. 纯文档变更做相关静态检查。未知影响不能被解释为零测试，也不能自动扩大到全产品回归。
-6. 核心协议回归只随核心或协议变化执行。实现迁移时优先替换现有releaseWorktree、changeValidationPolicy、changeValidationRunner及releaseCandidateCommitGate fixture中的相应场景，复用正反例；不为本事故再建立一套重演游戏发布的测试。
-7. 不承诺新增业务本身不需要任何新断言。验收约束是相对该业务必要检查不增加重复运行，不能通过少测业务或弱化生产安全换取计时改善。
-
-性能收益尚未实测。迁移验收记录选中unit数、真实执行次数、编译/构建次数及现有耗时，不增加单独常驻基准或每次运行的对照套件。
-
-## 迁移顺序与删除边界
-
-| 批次 | 交付 | 完成条件 |
-| --- | --- | --- |
-| A 核心合同 | 通用schema、上下文、计划解析与现有执行器的一条真实fixture链 | 同一执行器可在生产动作前停止；缺上下文准入失败；不调用游戏发布 |
-| B 发版方数据 | 应用项目分别输出game/forum清单，将业务检查及输入目录移回应用，薄客户端消费显式合同 | 真实选中集合与现有必要检查等价，新业务只改应用数据；由各应用任务交付 |
-| C 原子切换 | 固定核心版本和配套应用候选后启用插件解释，删除旧业务登记和外部仓库推断 | 所有消费者切换；不保留运行时旧目录搜索、双份注册或长期fallback |
-
-当前生产应用保持原运行状态，以上批次不包含游戏部署。旧发布器实例可以继续保留原版本到受控切换时，但新核心不为缺少插件的目标自动走旧规则。分批保留的是明确版本边界，禁止把两套登记长期维护为兼容功能。
-
-本仓库只实现发布器，应用清单及应用测试修改在应用项目完成。当前规则禁止借发布器任务越界改游戏或发布评估，因此本轮只交付检讨和设计，运行改造尚未实施。A/B依赖确认后才能完成配套切换；设计示例不能代替应用迁移。
-
-## 改造验收条件
-
-| 场景 | 必须满足的结果 |
-| --- | --- |
-| 新增普通业务检查 | 仅应用清单、脚本及业务测试有diff，发布器运行源码零diff、服务无须更新 |
-| 临时目录或正式detached工作树 | 显式合同提供相同上下文；不依赖父目录中存在发布器 |
-| 本次失败fixture | 没有外部发布器目录和隐藏环境变量时可使用自身fixture；真正缺必需上下文时，在重测试前准入失败 |
-| 相同候选跨阶段 | 同一unit不重复执行，回执拥有输入和能力语义匹配；展示复用依据 |
-| 无关业务或文档变化 | 不运行当前无关验收，不让其他历史截图或服务安装目录成为前置 |
-| 伪造成功/不完整协议 | 退出码非零、缺少结果、跳过、TODO、被取消或输入漂移均拒绝PASS |
-| 插件越权或未知规则 | 无法绕过备份、迁移、切换、健康与回滚；未知版本、路径逃逸、能力不足提前拒绝 |
-| 旧机制退出 | currentBehaviorInputs/Checks及专用业务执行模块不再由发布器持有，旧findPublisherRoot式业务依赖删除 |
-
-上述均为后续实现的验收条件，目前没有将它们标成运行PASS。当前发版执行等价性缺口尚未修复，不重试20261117发布。
-
-## 成熟模式依据
-
-元数据描述输入、输出和运行方式的职责分离参考[GitHub Actions自定义Action](https://docs.github.com/en/actions/concepts/workflows-and-actions/custom-actions)。结构约束采用[JSON Schema 2020-12](https://json-schema.org/specification)。源、执行参数和产物摘要的分离参考[SLSA 1.2 provenance](https://slsa.dev/spec/v1.2/provenance)。这些参考用于接口设计，没有宣称当前系统具备相应认证或安全等级。
+历史事故、设计取舍和实现验收保存在[改造任务记录](../tasks/20261117-release-plugin-architecture.md)及[事故证据](../evidence/release-plugin-20261117/incident.json)。这些记录保留原时点和身份，当前标准不再重复迁移阶段待办或过时就绪结论。
