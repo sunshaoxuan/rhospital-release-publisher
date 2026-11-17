@@ -10,8 +10,9 @@
     "geometry": "PASS",
     "visual": "PASS",
     "nativeOwnedInputs": "PASS",
-    "publisherServiceActivation": "PENDING_DELIVERY",
-    "applicationRelease": "NOT_EXECUTED"
+    "publisherServiceActivation": "USER_ACTION_REQUIRED",
+    "applicationRelease": "NOT_EXECUTED",
+    "overallDelivery": "SOURCE_DELIVERED_ACTIVATION_PENDING"
   },
   "performance": {
     "environment": "isolated Windows localhost; same fixture HEAD, request, empty history; three serial samples per view; cold and warm effects not generalized to production",
@@ -320,7 +321,28 @@
     "Native select truncates narrow captions; full title and explicit state remain directly below."
   ],
   "remaining": [
-    "Native document commit, master fast-forward, native push and remote verification",
-    "Publisher-only guarded service activation, state preservation check and task cleanup"
-  ]
+    "User executes the existing publisher updater once in an Administrator PowerShell; verify runtime commit and audit-state preservation afterward. No product tests need rerunning."
+  ],
+  "delivery": {
+    "sourceCommit": "12a82d0b0a30e3650c1657b2162cbb8db827e4b3",
+    "remoteMasterVerified": true,
+    "nativePush": {
+      "paths": 35,
+      "groups": 9,
+      "reused": 9,
+      "executed": 0
+    },
+    "installedCommit": "e194b3c1fb1ce47709cfc078b0f08fe99e28acef",
+    "installedStatus": "UP_TO_DATE",
+    "busy": false,
+    "activationAttempt": {
+      "result": "OS_ADMINISTRATOR_PRIVILEGE_REQUIRED",
+      "failedBeforeServiceStop": true,
+      "updateLockReleased": true,
+      "barrierReleased": true,
+      "unusedPreparedWorktreeRemoved": true,
+      "applicationProductionActions": 0
+    },
+    "command": "& 'C:\\workspace\\rhospital-release-publisher\\scripts\\update-publisher.ps1' -CandidateCommit 12a82d0b0a30e3650c1657b2162cbb8db827e4b3"
+  }
 }
