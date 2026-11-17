@@ -1,13 +1,21 @@
 import http from 'node:http';
 import {spawn} from 'node:child_process';
 import path from 'node:path';
+import {createRequire} from 'node:module';
 import {pathToFileURL} from 'node:url';
 
 import {
   resolveStaticDeliveryPrerequisites,
-  runChromeProbe,
-  summarizeProbe
-} from './verify-game-static-delivery.mjs';
+  runChromeProbe
+} from './release-browser-host.mjs';
+const {loadApplicationPolicy,validateHeartbeat}=createRequire(import.meta.url)('../src/applicationReleasePolicy.js');
+
+export function matchesHeartbeat(spec,status,body){
+  validateHeartbeat(spec);
+  return status===spec.status && body!==null && typeof body==='object' && !Array.isArray(body)
+    && Object.entries(spec.equals).every(([key,value])=>Object.hasOwn(body,key)&&body[key]===value)
+    && (!spec.anyPresent.length||spec.anyPresent.some(key=>Object.hasOwn(body,key)&&body[key]!=null));
+}
 
 function parseArgs(argv) {
   const values = {};
@@ -41,6 +49,9 @@ function required(args, key) {
 }
 
 function runSshProbe(args, token) {
+  const heartbeat=args.applicationBrowser.heartbeat;
+  const heartbeatPath=heartbeat.path+(heartbeat.path.includes('?')?'&':'?')+'version='+encodeURIComponent(required(args,'expected-version'));
+  const predicate=Buffer.from(JSON.stringify(heartbeat)).toString('base64');
   const host = required(args, 'remote-host');
   const user = required(args, 'remote-user');
   const port = required(args, 'remote-port');
@@ -77,8 +88,19 @@ fi
 local_business=FAIL
 local_response=$(mktemp)
 trap 'rm -f "$local_response"' EXIT
-local_status=$(curl -sS --max-time 20 -o "$local_response" -w '%{http_code}' -X POST -H "Authorization: Bearer $auth_token" "http://127.0.0.1:8190/api/task/run?version=$expected_version" || true)
-if [ "$local_status" = 200 ] && grep -q '"versionMismatch":false' "$local_response" && grep -q '"hospitalId"' "$local_response"; then local_business=PASS; fi
+local_status=$(curl -sS --max-time 20 -o "$local_response" -w '%{http_code}' -X ${heartbeat.method} -H "Authorization: Bearer $auth_token" ${shellToken('http://127.0.0.1:8190'+heartbeatPath)} || true)
+if python3 - "$local_response" "$local_status" '${predicate}' <<'HEARTBEAT'
+import base64,json,sys
+try:
+    body=json.load(open(sys.argv[1])); spec=json.loads(base64.b64decode(sys.argv[3]))
+    valid=int(sys.argv[2])==spec['status'] and isinstance(body,dict)
+    valid=valid and all(k in body and type(body[k]) is type(v) and body[k]==v for k,v in spec['equals'].items())
+    valid=valid and (not spec['anyPresent'] or any(body.get(k) is not None for k in spec['anyPresent']))
+    sys.exit(0 if valid else 1)
+except Exception:
+    sys.exit(1)
+HEARTBEAT
+then local_business=PASS; fi
 rm -f "$local_response"
 trap - EXIT
 image_matches=false
@@ -111,13 +133,13 @@ echo "control_plane=$control_plane database_probe=$database_probe local_business
   });
 }
 
-function runOriginHeartbeat({host, port, token, expectedVersion, timeoutMs}) {
+function runOriginHeartbeat({host, port, token, expectedVersion, timeoutMs,spec}) {
   return new Promise(resolve => {
     const request = http.request({
       host,
       port,
-      method: 'POST',
-      path: `/api/task/run?version=${encodeURIComponent(expectedVersion)}`,
+      method: spec.method,
+      path: spec.path+(spec.path.includes('?')?'&':'?')+`version=${encodeURIComponent(expectedVersion)}`,
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Length': '0'
@@ -129,10 +151,7 @@ function runOriginHeartbeat({host, port, token, expectedVersion, timeoutMs}) {
       response.on('end', () => {
         try {
           const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-          const valid = response.statusCode === 200
-            && body && typeof body === 'object'
-            && body.versionMismatch === false
-            && (body.hospitalId != null || body.id != null || body.directorName != null);
+          const valid = matchesHeartbeat(spec,response.statusCode,body);
           resolve({ok: valid, status: response.statusCode || 0, validPayload: valid});
         } catch (error) {
           resolve({ok: false, status: response.statusCode || 0, validPayload: false});
@@ -173,13 +192,14 @@ async function evaluateRound(prerequisites, args, roundNumber) {
         gateway,
         host: prerequisites.gameHost,
         mappedHosts: [prerequisites.gameHost, prerequisites.steamHost],
-        route: '/run/newGame',
+        route: args.applicationBrowser.probe.route,
+        readyExpression: args.readyExpression,
+        cookieName: args.applicationBrowser.probe.cookieName,
         token: prerequisites.token,
         probeKey: `${prerequisites.appTag}-fatal-${roundNumber}-${gateway.name}`,
         timeoutMs: prerequisites.timeoutMs
       });
-      const summary = summarizeProbe(result);
-      gatewayResults.push({gateway: gateway.name, launched: summary.launched});
+      gatewayResults.push({gateway: gateway.name, launched: result.state?.ready===true});
     } catch (error) {
       gatewayResults.push({gateway: gateway.name, launched: false, error: error.message.slice(0, 200)});
     }
@@ -189,6 +209,7 @@ async function evaluateRound(prerequisites, args, roundNumber) {
     port: Number(args['origin-port'] || 8190),
     token: prerequisites.token,
     expectedVersion: prerequisites.appTag,
+    spec:args.applicationBrowser.heartbeat,
     timeoutMs: prerequisites.timeoutMs
   });
   const remote = await runSshProbe(args, prerequisites.token);
@@ -212,6 +233,10 @@ async function main() {
   const roundsRequired = Math.max(3, Number(args.rounds || 3));
   const delayMs = Math.max(0, Number(args['round-delay-ms'] || 5000));
   try {
+    const policy=loadApplicationPolicy(required(args,'application-root'),required(args,'application-candidate'));
+    if(policy.identity.ownedInputHash!==required(args,'application-policy-hash'))throw Error('Application policy identity mismatch');
+    args.applicationBrowser=policy.data.browser;
+    args.readyExpression=policy.read(policy.data.browser.probe.readyExpression);
     const prerequisites = resolveStaticDeliveryPrerequisites(args);
     const rounds = [];
     for (let round = 1; round <= roundsRequired; round += 1) {

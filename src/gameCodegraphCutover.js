@@ -4,11 +4,12 @@ const path = require('node:path');
 const {GAME_DATABASE, gameDatabasePsqlCommand, gameDatabaseContainerResolutionCommands} = require('./gameProductionDatabase');
 const {gameServiceSnapshotCommands} = require('./gameFormalProductionTransition');
 const {stoppedWriterCommands} = require('./gameTechnologyFormatCutover');
-const MIGRATION = 'scripts/migration/20261025_finalize_guild_status.sql';
+const {applicationPolicy,applicationPolicyText,applicationPolicyIdentity}=require('./applicationReleasePolicy');
+const {gameRollbackIdentityCommands}=require('./gameRecoveryIdentity');
 const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
-const binding = migrations => crypto.createHash('sha256').update(JSON.stringify(migrations.map(row => [row.filePath, row.sha256]))).digest('hex');
-const requiresCodegraphCutover = migrations => migrations.some(row => row.filePath === MIGRATION);
-const guard = () => Buffer.from(fs.readFileSync(path.join(__dirname, 'codegraphPrerequisites.py'))).toString('base64');
+const binding = migrations => crypto.createHash('sha256').update(JSON.stringify([applicationPolicyIdentity().ownedInputHash,migrations.map(row => [row.filePath, row.sha256])])).digest('hex');
+const requiresCodegraphCutover = migrations => migrations.some(row => row.filePath === applicationPolicy().scheduler.migration);
+const guard = () => Buffer.from(applicationPolicyText(applicationPolicy().scheduler.guard)).toString('base64');
 function imageCommands(reference, phase) {
   return [
     'image_guard_dir=$(mktemp -d)', 'image_guard_container=',
@@ -22,16 +23,8 @@ function imageCommands(reference, phase) {
   ];
 }
 function schedulerCommands() {
-  const sql = [
-    'BEGIN READ ONLY;',
-    "SELECT json_build_object('database',current_database(),'recovery',pg_is_in_recovery(),",
-    "'jobs',coalesce((SELECT json_agg(to_jsonb(j) ORDER BY j.id) FROM sj_job j WHERE j.executor_info IN ('weeklyRewardResetJob','giftDistributionJob')),'[]'),",
-    "'tasks',coalesce((SELECT json_agg(json_build_object('id',t.id,'job_id',t.job_id,'task_status',t.task_status,'retry_count',t.retry_count)) FROM sj_job_task t JOIN sj_job j ON j.id=t.job_id WHERE j.executor_info IN ('weeklyRewardResetJob','giftDistributionJob')),'[]'),",
-    "'batches',coalesce((SELECT json_agg(json_build_object('id',t.id,'job_id',t.job_id,'task_batch_status',t.task_batch_status)) FROM sj_job_task_batch t JOIN sj_job j ON j.id=t.job_id WHERE j.executor_info IN ('weeklyRewardResetJob','giftDistributionJob')),'[]'),",
-    "'active_workflows',coalesce((SELECT json_agg(to_jsonb(w)) FROM sj_workflow w WHERE w.deleted=0 AND w.workflow_status=1 AND",
-    "(w.flow_info LIKE '%weeklyRewardResetJob%' OR w.flow_info LIKE '%giftDistributionJob%' OR w.wf_context LIKE '%weeklyRewardResetJob%' OR w.wf_context LIKE '%giftDistributionJob%' OR EXISTS",
-    "(SELECT 1 FROM sj_workflow_node n JOIN sj_job j ON j.id=n.job_id WHERE n.workflow_id=w.id AND n.workflow_node_status=1 AND j.executor_info IN ('weeklyRewardResetJob','giftDistributionJob')))),'[]'));", 'ROLLBACK;'
-  ].join('\n');
+  const executors=applicationPolicy().scheduler.executors;
+  const sql=applicationPolicyText(applicationPolicy().scheduler.observationQuery).replaceAll('{{executors}}',executors.map(name=>quote(name)).join(',')).replaceAll('{{workflowPredicate}}',executors.flatMap(name=>['w.flow_info','w.wf_context'].map(field=>field+" LIKE '%"+name+"%'")).join(' OR '));
   return [
     'scheduler_url=$(docker inspect snail-job --format \'{{range .Config.Env}}{{println .}}{{end}}\' | sed -n \'s/^SPRING_DATASOURCE_URL=//p\')',
     'test "$scheduler_url" = jdbc:postgresql://92.113.124.185:35432/snailjob || { echo "ERROR: unrecognized scheduler database"; exit 1; }',
@@ -101,17 +94,16 @@ function offlineCommands(directory, serviceName, imageTag, migrations) {
   ];
 }
 function rollbackCommands() {
-  const sql = "SELECT exists(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='t_guild' AND column_name='status' AND is_nullable='NO')::int";
+  const sql = applicationPolicy().scheduler.floorQuery;
   return [
     ...gameDatabaseContainerResolutionCommands(false),
     'codegraph_floor=$(' + gameDatabasePsqlCommand('-At', false) + ' -c ' + quote(sql) + ')',
     'case "$codegraph_floor" in 0|1) ;; *) echo "ERROR: unknown guild format floor"; exit 1;; esac',
     'if [ -f .codegraph-format-floor-v1 ] || [ "$codegraph_floor" = 1 ]; then',
-    '  rollback_reference=$(docker service inspect "$service_name" --format \'{{if .PreviousSpec}}{{.PreviousSpec.TaskTemplate.ContainerSpec.Image}}{{end}}\')',
-    '  if [ -n "${backup_dir:-}" ] && [ -f "$backup_dir/paused-retry-baseline.json" ]; then rollback_reference=$(jq -r \'.[0].Spec.TaskTemplate.ContainerSpec.Image\' "$backup_dir/service.inspect.json"); fi',
+    ...gameRollbackIdentityCommands().map(row=>'  '+row),
     '  case "$rollback_reference" in *@sha256:*) ;; *) echo "ERROR: immutable A rollback required"; exit 1;; esac',
     ...imageCommands('"$rollback_reference"', 'compatible').map(row => '  ' + row),
     '  echo codegraph_rollback_compatibility=PASS', 'fi'
   ];
 }
-module.exports = {MIGRATION, requiresCodegraphCutover, prerequisiteCommands, schedulerCommands, offlineCommands, receiptCommands, quiescedCommands, rollbackCommands, imageCommands};
+module.exports = {get MIGRATION(){return applicationPolicy().scheduler.migration;}, requiresCodegraphCutover, prerequisiteCommands, schedulerCommands, offlineCommands, receiptCommands, quiescedCommands, rollbackCommands, imageCommands};

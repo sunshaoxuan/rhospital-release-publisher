@@ -347,7 +347,7 @@ node scripts\verify-game-static-delivery.mjs --app-tag 20260803 --check-prerequi
 独立执行命令如下：
 
 ```powershell
-node scripts\verify-relations-release.mjs --app-tag 20260810 --auth-token-file C:\ProgramData\RHospital\secrets\game-smoke-token.txt
+# 关系图验收已由应用策略引用，经 run-application-check.mjs 精确候选入口执行。
 ```
 
 包含管理员交易池的游戏发布还会执行以下门禁：
@@ -620,3 +620,5 @@ npm test
 - 论坛目标 TAG、镜像构建、Secret 运行时校验、生产预检、备份、Compose 发布和回滚命令计划
 - 论坛 dry run 不修改游戏 IDEA Run Configuration
 - 非法 TAG 拦截
+
+业务发布程序已迁入应用；本文件历史验收细节用于说明原约束。当前执行入口、归属和身份以[应用发布策略 v1](docs/design/application-release-policy-v1.md)及[操作手册](docs/release-plugin-handbook.md)为准。

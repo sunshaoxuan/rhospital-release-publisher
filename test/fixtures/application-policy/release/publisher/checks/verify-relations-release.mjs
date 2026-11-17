@@ -1,14 +1,12 @@
 import {pathToFileURL} from 'node:url';
 
-import {
-  chromeCleanupEvidence,
-  evaluate,
-  isBrowserInfrastructureFailure,
-  isIgnoredTelemetryEntry,
-  resolveStaticDeliveryPrerequisites,
-  runBrowserCapabilityProbe,
-  useChromeTarget
-} from './verify-game-static-delivery.mjs';
+let chromeCleanupEvidence,evaluate,isBrowserInfrastructureFailure,isIgnoredTelemetryEntry,resolveStaticDeliveryPrerequisites,runBrowserCapabilityProbe,useChromeTarget;
+export function configureBrowserHost(host) {
+  if(host.RELEASE_BROWSER_HOST_API_VERSION!=='release-browser-host/v1')throw new Error('Browser host API mismatch');
+  ({chromeCleanupEvidence,evaluate,isBrowserInfrastructureFailure,isIgnoredTelemetryEntry,resolveStaticDeliveryPrerequisites,runBrowserCapabilityProbe,useChromeTarget}=host);
+  if([chromeCleanupEvidence,evaluate,isBrowserInfrastructureFailure,isIgnoredTelemetryEntry,resolveStaticDeliveryPrerequisites,runBrowserCapabilityProbe,useChromeTarget].some(value=>typeof value!=='function'))throw new Error('Incomplete browser host API');
+}
+
 
 const RELATIONS_ROUTE = '/relations';
 const DEFAULT_RELATIONS_TIMEOUT_MS = 120000;

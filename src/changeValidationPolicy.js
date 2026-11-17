@@ -55,7 +55,7 @@ const CONSOLE_INPUTS=[
   "test/helpers/ownedFixtures.js",
   "test/releaseConsole.test.js"
 ,
-  "src/codegraphPrerequisites.py"
+
 ];
 const SOURCE_INPUTS=[
   "release-publisher.config.json",
@@ -93,19 +93,23 @@ const SOURCE_INPUTS=[
   "src/tomcatSecurityCheck.js",
   "test/fullGateScope.test.js"
 ,
-  "src/codegraphPrerequisites.py"
+
 ];
+const APPLICATION_POLICY_INPUTS=["src/applicationReleasePolicy.js","src/applicationRuntimeChecks.js","src/applicationNodeCheck.js","scripts/run-application-check.mjs","scripts/release-browser-host.mjs","test/helpers/applicationPolicyFixture.js","test/fixtures/application-policy/release/publisher/checks/verify-emergency-guard-release.mjs","test/fixtures/application-policy/release/publisher/checks/verify-game-static-delivery.mjs","test/fixtures/application-policy/release/publisher/checks/verify-relations-release.mjs","test/fixtures/application-policy/release/publisher/game-policy.json","test/fixtures/application-policy/release/publisher/policy/before-rollback.sql","test/fixtures/application-policy/release/publisher/policy/browser-ready.js","test/fixtures/application-policy/release/publisher/policy/catalog-logs.sh","test/fixtures/application-policy/release/publisher/policy/catalog-post-deploy.sh","test/fixtures/application-policy/release/publisher/policy/catalog-preflight.sql","test/fixtures/application-policy/release/publisher/policy/ReleaseDatabaseAudit.java","test/fixtures/application-policy/release/publisher/policy/runtime-probes.sh","test/fixtures/application-policy/release/publisher/policy/scheduler-guard.py","test/fixtures/application-policy/release/publisher/policy/scheduler-observation.sql","test/fixtures/application-policy/release/publisher/policy/startup-log.sh"];
+CONSOLE_INPUTS.push(...APPLICATION_POLICY_INPUTS);
+SOURCE_INPUTS.push(...APPLICATION_POLICY_INPUTS);
+PUBLISHER_GATE_INPUTS.push(...APPLICATION_POLICY_INPUTS);
 const RECOVERY_INPUTS=[...new Set([...SOURCE_INPUTS.filter(file=>!['test/fullGateScope.test.js','scripts/validate-plugin-candidate.mjs'].includes(file)),
- 'scripts/game-service-recovery.mjs','scripts/game-service-recovery.py','test/gameRecoverySafety.test.js','test/gameTechnologyFormatCutover.test.js'])];
+ 'scripts/game-service-recovery.mjs','scripts/game-service-recovery.py','test/gameRecoverySafety.test.js','test/gameTechnologyFormatCutover.test.js','test/gameCodegraphCutover.test.js','test/bacteriaInventoryBackup.test.js','test/codegraphPrerequisites_test.py','test/fixtures/codegraph/guild-classes.json','src/gameSupplementalVerification.js','scripts/verify-game-supplemental.cjs','test/gameSupplementalVerification.test.js','scripts/evaluate-game-fatal-rollback.mjs','test/fatalRollbackEvaluator.test.js'])];
 const groups=[
  {key:'publisher-policy',tests:['test/changeValidationPolicy.test.js'],inputs:[...POLICY_FILES,'test/changeValidationPolicy.test.js']},
  {key:'publisher-runner',tests:['test/changeValidationRunner.test.js'],inputs:[...POLICY_FILES,...pluginInputs,'src/releasePluginDocuments.js','.gitattributes','test/changeValidationRunner.test.js']},
  {key:'publisher-console',tests:['test/releaseConsole.test.js'],inputs:CONSOLE_INPUTS},
  {key:'publisher-outcome',tests:['test/releaseOutcomeStatus.test.js'],inputs:['src/releaseOutcomeStatus.js','public/release-status.js','scripts/read-game-runtime-status.py','test/releaseOutcomeStatus.test.js']},
- {key:'publisher-recovery',tests:['test/gameRecoverySafety.test.js','test/gameTechnologyFormatCutover.test.js'],inputs:RECOVERY_INPUTS},
+ {key:'publisher-recovery',tests:['test/gameRecoverySafety.test.js','test/gameTechnologyFormatCutover.test.js','test/gameCodegraphCutover.test.js','test/bacteriaInventoryBackup.test.js','test/gameSupplementalVerification.test.js','test/fatalRollbackEvaluator.test.js'],inputs:RECOVERY_INPUTS},
  {key:'publisher-version',tests:['test/publisherVersionScope.test.js'],inputs:['src/publisherVersion.js','src/publisherLegacyBarrier.js','test/publisherVersionScope.test.js']},
  {key:'publisher-plugin',tests:['test/releaseWorktree.test.js'],inputs:pluginInputs},
- {key:'publisher-plan',tests:['test/releasePublisherCore.test.js','test/releasePlanSources.test.js'],inputs:[...PUBLISHER_GATE_INPUTS.filter(file=>file!=='test/fullGateScope.test.js'),'test/releasePlanSources.test.js']},
+ {key:'publisher-plan',tests:['test/releasePublisherCore.test.js','test/releasePlanSources.test.js','test/applicationReleasePolicy.test.js','test/chromeTargetLifecycle.test.js'],inputs:[...PUBLISHER_GATE_INPUTS.filter(file=>file!=='test/fullGateScope.test.js'),'test/releasePlanSources.test.js','test/applicationReleasePolicy.test.js','test/chromeTargetLifecycle.test.js']},
  {key:'publisher-source',tests:['test/fullGateScope.test.js'],inputs:SOURCE_INPUTS}
 ];
 function safePath(file){
@@ -130,10 +134,12 @@ function planChanges(repository,changedPaths){
   else if(['test/changeValidationRunner.test.js','.gitattributes','.githooks/pre-commit','.githooks/pre-push','scripts/validate-local-change.mjs'].includes(file))keys=['publisher-runner'];
   else if(['test/releaseWorktree.test.js','src/releaseWorktree.js'].includes(file))keys=['publisher-plugin'];
   else if(pluginInputs.includes(file))keys=['publisher-plugin','publisher-source'];
-  else if(['test/gameRecoverySafety.test.js','test/gameTechnologyFormatCutover.test.js','scripts/game-service-recovery.mjs','scripts/game-service-recovery.py'].includes(file))keys=['publisher-recovery'];
+  else if(['test/gameCodegraphCutover.test.js','test/bacteriaInventoryBackup.test.js','test/codegraphPrerequisites_test.py','test/gameRecoverySafety.test.js','test/gameTechnologyFormatCutover.test.js','scripts/game-service-recovery.mjs','scripts/game-service-recovery.py'].includes(file))keys=['publisher-recovery'];
   else if(['src/publisherVersion.js','src/publisherLegacyBarrier.js','test/publisherVersionScope.test.js'].includes(file))keys=['publisher-version'];
-  else if(['src/releasePublisherCore.js','src/releasePlanSources.js'].includes(file))keys=['publisher-plan','publisher-source','publisher-console','publisher-recovery'];
-  else if(file==='test/releasePlanSources.test.js')keys=['publisher-plan'];
+  else if(['src/releasePublisherCore.js','src/releasePlanSources.js',...APPLICATION_POLICY_INPUTS].includes(file)||file==='src/codegraphPrerequisites.py')keys=['publisher-plan','publisher-source','publisher-console','publisher-recovery'];
+  else if(['test/releasePlanSources.test.js','test/applicationReleasePolicy.test.js'].includes(file))keys=['publisher-plan'];
+  else if(["scripts/verify-game-static-delivery.mjs","scripts/verify-relations-release.mjs","scripts/verify-emergency-guard-release.mjs","test/gameStaticDeliveryVerifier.test.js","test/relationsReleaseVerifier.test.js","test/emergencyGuardRelease.test.js"].includes(file)||file==='test/chromeTargetLifecycle.test.js')keys=['publisher-plan'];
+  else if(['src/gameSupplementalVerification.js','test/gameSupplementalVerification.test.js','scripts/evaluate-game-fatal-rollback.mjs','test/fatalRollbackEvaluator.test.js'].includes(file))keys=['publisher-recovery'];
   else if(file==='server.js')keys=['publisher-plan','publisher-console'];
   else if(file==='test/fullGateScope.test.js')keys=['publisher-source'];
   else if(['src/releaseOutcomeStatus.js','public/release-status.js'].includes(file))keys=['publisher-console','publisher-outcome'];
@@ -144,7 +150,7 @@ function planChanges(repository,changedPaths){
   for(const key of keys)selected.add(key);
  }
  if(unmapped.length)throw new Error('UNMAPPED_CHANGE: '+unmapped.join(', '));
- const checks=groups.filter(g=>selected.has(g.key)).map(g=>({...g,kind:'node-tests',inputs:[...new Set(g.inputs)],timeoutSeconds:g.key==='publisher-plan'?420:180}));
+ const checks=groups.filter(g=>selected.has(g.key)).map(g=>({...g,kind:'node-tests',inputs:[...new Set(g.inputs)],timeoutSeconds:g.key==='publisher-plan'?420:g.key==='publisher-recovery'?300:180}));
  if(docs.length)checks.unshift({key:'documents',kind:'documents',inputs:docs,timeoutSeconds:30});
  return {schema:1,repository,changedPaths:paths,checks,scope:'local-change',productionActions:false};
 }

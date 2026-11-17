@@ -6,6 +6,7 @@ process.env.RELEASE_PUBLISHER_TEST_MODE='true';
 const sampleXml='';
 function tempProject(){
  const root=temporaryDirectory('release-publisher-console-');
+ require('./helpers/applicationPolicyFixture').seedApplicationPolicy(root);
  fs.writeFileSync(path.join(root,'mvnw.cmd'),'@echo off\n');
  fs.writeFileSync(path.join(root,'docker-compose.yml'),'services:\n  hospital-backend:\n    image: hospital-backend:fixture\n');
  const catalog=path.join(root,'src/main/java/com/zly/hospital/service/catalog');

@@ -171,3 +171,7 @@ SQL 须版本化、幂等、可验证，满足实际引擎、短期切换/回滚
 以后发版必须遵循本标准和操作手册。普通业务变化在应用更新清单、程序、适用评估和日志；协议或通用能力变化同步维护标准与手册并独立验证兼容性。纯文档整理只做相关静态检查，不修改 Schema、清单、执行器、历史回执或生产状态。
 
 静态实现依据：`src/releasePlugin.js`、`releasePluginContext.js`、`releasePluginRunner.js`、`releasePluginCandidate.js`、`releasePublisherCore.js` 和 `scripts/validate-plugin-candidate.mjs`。历史事故及取舍见[改造任务记录](../tasks/20261117-release-plugin-architecture.md)，历史阶段说明不作为当前操作指令。
+
+## 8. 应用业务发布策略
+
+生产业务声明和程序由精确应用候选的 game-policy.json 拥有，闭合契约、归属、输入及结果身份见[应用发布策略 v1](application-release-policy-v1.md)。普通业务使用既有通用能力只改应用；协议新增能力单独升级发布器。准备工具、候选输入、产物等价与现场安全结论分别保留身份。

@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {AsyncLocalStorage} = require('node:async_hooks');
+require('./applicationPolicyFixture').enterFixturePolicy();
 
 // Own only directories allocated by this instance; never discover old fixtures.
 function fixtureLifecycle(nodeTest, {remove = fs.rmSync} = {}) {

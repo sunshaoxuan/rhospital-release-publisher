@@ -3,6 +3,7 @@ const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const {spawnSync,execFileSync}=require('node:child_process');
 const {createPlan,executePlan,runPowerShell,requiresFeatureRuntimeCheck}=require('../src/releasePublisherCore');
 const {resolvePluginContextFile}=require('../src/releasePluginCandidate');
+require('./helpers/applicationPolicyFixture').enterFixturePolicy();
 const env={RELEASE_PUBLISHER_TEST_MODE:'true',RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE:'true',RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE:'true',RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE:'true'};
 function fixture(run){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'gate-scope-')),before=process.env.RELEASE_PUBLISHER_CONFIG;
@@ -20,6 +21,7 @@ function plugin(target){
    run:{kind:'node-test',entrypoints:['leaf.test.mjs'],timeoutSeconds:15,protocol:'tap-v1'}}],migrations:[]};
 }
 function project(root){
+ require('./helpers/applicationPolicyFixture').seedApplicationPolicy(root);
  put(root,'mvnw.cmd','@echo off\n');put(root,'docker-compose.yml','services:\n  hospital-backend:\n    image: hospital-backend:${APP_TAG}\n');
  put(root,'src/main/java/com/zly/hospital/service/catalog/CatalogDatabaseUpgradeService.java','class CatalogDatabaseUpgradeService { private static final int MARKER_VERSION = 20; }');
  for(const target of ['game','forum'])put(root,'release/publisher/'+target+'.json',JSON.stringify(plugin(target)));

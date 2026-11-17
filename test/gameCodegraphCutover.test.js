@@ -1,4 +1,5 @@
 const test = require('node:test');
+require('./helpers/applicationPolicyFixture').enterFixturePolicy();
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -85,6 +86,7 @@ docker() {
 python3() {
   cat >/dev/null
   case "$*" in
+    *verify|*current) test "\${SNAPSHOT_VALID:-1}" = 1 && echo "\${ROLLBACK_REFERENCE:-repo@sha256:abc}|sha256:target";;
     *' image '*A) test "\${IMAGE_A_VALID:-1}" = 1;;
     *' image '*B) test "\${IMAGE_B_VALID:-1}" = 1;;
     *compatible*) test "\${ROLLBACK_VALID:-1}" = 1;;
@@ -176,7 +178,7 @@ test('changed image, migration list, snapshot, floor and dump invalidate readine
 });
 test('rollback requires an immutable compatible image after the guild format floor', () => {
   resetShell();
-  const program = 'service_name=hospital_stack_hospital-backend\n' + cutover.rollbackCommands().join('\n');
+  const program = 'service_name=hospital_stack_hospital-backend\nbackup_dir=backup\n' + cutover.rollbackCommands().join('\n');
   assert.equal(runShell(program).status, 0);
   for (const env of [{ROLLBACK_REFERENCE: 'repo:mutable'}, {ROLLBACK_VALID: '0'}, {GUILD_FLOOR: 'unknown'}])
     assert.notEqual(runShell(program, env).status, 0);

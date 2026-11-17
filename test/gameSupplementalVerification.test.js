@@ -1,9 +1,15 @@
 const assert=require('node:assert/strict');
 const test=require('node:test');
 const fs=require('node:fs');
+const os=require('node:os'),path=require('node:path'),{execFileSync}=require('node:child_process');
+const sourceRoot=fs.mkdtempSync(path.join(os.tmpdir(),'supplemental-policy-'));
+require('./helpers/applicationPolicyFixture').seedApplicationPolicy(sourceRoot);
+const git=(...args)=>execFileSync('git',['-C',sourceRoot,...args],{encoding:'utf8',stdio:['pipe','pipe','pipe'],env:Object.fromEntries(Object.entries(process.env).filter(([key])=>!['GIT_DIR','GIT_WORK_TREE','GIT_COMMON_DIR','GIT_INDEX_FILE'].includes(key)))}).trim();
+git('init');git('add','.');git('-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-m','policy');
+const candidate=git('rev-parse','HEAD');test.after(()=>fs.rmSync(sourceRoot,{recursive:true,force:true}));
 const {supplementalSteps,retainedSupplementalJob}=require('../src/gameSupplementalVerification');
 const contract={version:2,checker:'--check-login-signing-key',sourceHash:'a'.repeat(64)};
-function fixture(){return {status:'RECOVERY_REQUIRED',historyEntryId:'original-history',completedStepKeys:['final-runtime-check','validate-game-startup-contract'],plan:{releaseTarget:'game',dryRun:false,gitCommit:'b'.repeat(40),appTag:'20261027',imageTag:'hospital-backend:20261027',config:{stackName:'hospital_stack',containerName:'hospital-backend',catalogSchemaVersion:5,remoteComposeDir:'/opt/1panel/docker/compose/hospital-stack',remoteImageTarget:{host:'92.113.124.185',user:'root',port:'22',target:'root@92.113.124.185',keyPath:'fixture-key'}},steps:[{key:'game-prd2-runtime-contract',status:'failed',command:'DO NOT EXECUTE PERSISTED COMMAND'},{key:'validate-game-startup-contract',logs:['game_startup_contract=PASS checker=check-login-signing-key image=sha256:'+'c'.repeat(64)]}]}};}
+function fixture(){return {sourceProjectRoot:sourceRoot,status:'RECOVERY_REQUIRED',historyEntryId:'original-history',completedStepKeys:['final-runtime-check','validate-game-startup-contract'],plan:{releaseTarget:'game',dryRun:false,gitCommit:candidate,appTag:'20261027',imageTag:'hospital-backend:20261027',config:{stackName:'hospital_stack',containerName:'hospital-backend',catalogSchemaVersion:5,remoteComposeDir:'/opt/1panel/docker/compose/hospital-stack',remoteImageTarget:{host:'92.113.124.185',user:'root',port:'22',target:'root@92.113.124.185',keyPath:'fixture-key'}},steps:[{key:'game-prd2-runtime-contract',status:'failed',command:'DO NOT EXECUTE PERSISTED COMMAND'},{key:'validate-game-startup-contract',logs:['game_startup_contract=PASS checker=check-login-signing-key image=sha256:'+'c'.repeat(64)]}]}};}
 test('supplemental selection regenerates only safe verification checks and defers container compilation without changing failed history',()=>{
  const j=fixture(),before=JSON.stringify(j),prepared=supplementalSteps(j,contract);
  assert.deepEqual(prepared.steps.map(s=>s.key),['game-prd2-runtime-contract','verify-game-static-delivery','verify-relations-release']);
@@ -22,8 +28,8 @@ test('retained evidence reconstructs verification after publisher reload and sou
    releaseCommit:f.plan.gitCommit,gitCommit:f.plan.gitCommit,releaseTarget:'game',dryRun:false,appTag:f.plan.appTag,imageTag:f.plan.imageTag,catalogSchemaVersion:5,
    stepSummary:[...f.plan.steps.map(s=>({...s,status:s.key==='validate-game-startup-contract'?'done':s.status})),{key:'final-runtime-check',status:'done'}]};
  const before=JSON.stringify(history);
- const j=retainedSupplementalJob([history],runId,settings,'fixture-source');
- assert.equal(j.sourceProjectRoot,'fixture-source');assert.match(j.historyEvidenceHash,/^[a-f0-9]{64}$/);
+ const j=retainedSupplementalJob([history],runId,settings,sourceRoot);
+ assert.equal(j.sourceProjectRoot,sourceRoot);assert.match(j.historyEvidenceHash,/^[a-f0-9]{64}$/);
  assert.equal(supplementalSteps(j,contract).imageId,'sha256:'+'c'.repeat(64));assert.equal(JSON.stringify(history),before);
  for(const mutation of [h=>h.releaseCommit='d'.repeat(40),h=>h.sshTarget='other',h=>h.stepSummary.push(h.stepSummary[0])]){const h=structuredClone(history);mutation(h);assert.throws(()=>retainedSupplementalJob([h],runId,settings,'fixture-source'));}
  assert.throws(()=>retainedSupplementalJob([history,history],runId,settings,'fixture-source'));

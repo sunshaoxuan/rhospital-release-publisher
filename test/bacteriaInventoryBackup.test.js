@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {spawnSync} = require('node:child_process');
 const test = require('node:test');
+require('./helpers/applicationPolicyFixture').enterFixturePolicy();
 const {MIGRATION, bacteriaInventoryBackupCommands: backup,
   verifyBacteriaInventoryBackupCommands: verify} = require('../src/bacteriaInventoryBackup');
 const migrations = [{filePath: MIGRATION}];

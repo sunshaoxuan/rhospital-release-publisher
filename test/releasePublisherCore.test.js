@@ -668,7 +668,7 @@ end $resident_precondition$;`;
   assert.equal(plan.config.databaseMigrations[0].sha256,crypto.createHash('sha256').update(source).digest('hex'));
   assert.deepEqual(residentMigrationPreflight('scripts/migration/other.sql',source),{});
   for(const invalid of [source.replace(block,''),source+block,source.replace('begin\n if','begin\n execute \'select 1\';\n if'),source.replace('current_schema()','public_schema()'),source.replace(block,'/*\n'+block+'\n*/'),source.replace(block,"select '\n"+block+"\n';")]) {
-    assert.throws(()=>residentMigrationPreflight(migrationPath,invalid),/Resident migration/);
+    assert.throws(()=>residentMigrationPreflight(migrationPath,invalid),/Migration precondition|Migration requires/);
   }
 });
 
@@ -3417,6 +3417,8 @@ test('allows a dry-run pre-push plan for a proposed fast-forward commit', () => 
 
 test('blocks diverged game plans before resolving migration blobs missing from the target', () => {
   const root = tempProject(sampleXml);
+  runGit(root,['init']);runGit(root,['add','.']);
+  runGit(root,['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-m','candidate policy']);
   const request = releaseImpactPlanRequest(
     '19199bfacee6e172b95b99d834b0e7ecd8c1f435',
     '72bb8c036248fd0dd4857ae8036cf89a7e94df58',
@@ -3424,6 +3426,7 @@ test('blocks diverged game plans before resolving migration blobs missing from t
     []
   );
   request.changeAnalysis.targets.game.direction = 'diverged';
+  request.gitCommit=runGit(root,['rev-parse','HEAD']).trim();
 
   assert.throws(() => createPlan(root, request), error => {
     assert.match(error.message, /游戏目标提交与当前生产基线分叉/);
@@ -3766,6 +3769,7 @@ function mockedPluginPrefix(cwd,command) {
 
 function tempProject(_xml) {
   const root = temporaryDirectory('release-publisher-');
+  require('./helpers/applicationPolicyFixture').seedApplicationPolicy(root);
   seedPlugin(root,'game');seedPlugin(root,'forum');
   fs.writeFileSync(path.join(root, 'mvnw.cmd'), '@echo off\r\nexit /b 0\r\n', 'utf8');
   fs.writeFileSync(path.join(root, 'docker-compose.yml'), 'services:\n  hospital-backend:\n    image: hospital-backend:${APP_TAG}\n', 'utf8');
@@ -4036,8 +4040,11 @@ test('registers GAME_PRD2 and migration-specific runtime gates', () => {
   assert.equal(details.host, '92.113.124.185');
   assert.match(core, /game-prd2-migration-readiness/);
   assert.match(core, /game-prd2-runtime-contract/);
-  assert.match(core, /stripe_unsigned/);
-  assert.match(core, /paddle_unsigned/);
+  const policy=require('./helpers/applicationPolicyFixture').fixturePolicy();
+  const probes=policy.read(policy.data.shellChecks.runtimeProbes);
+  assert.match(core,/applicationShellCommands\('runtimeProbes'\)/);
+  assert.match(probes, /stripe_unsigned/);
+  assert.match(probes, /paddle_unsigned/);
 });
 
 test('owned publisher configuration and production adapters use current identifiers', () => {

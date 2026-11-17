@@ -8,7 +8,7 @@ import unittest
 import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-spec = importlib.util.spec_from_file_location("guard", ROOT / "src/codegraphPrerequisites.py")
+spec = importlib.util.spec_from_file_location("guard", ROOT / "test/fixtures/application-policy/release/publisher/policy/scheduler-guard.py")
 guard = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(guard)
 CLASSES = json.loads((ROOT / "test/fixtures/codegraph/guild-classes.json").read_text())

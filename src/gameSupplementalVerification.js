@@ -1,5 +1,6 @@
 const core = require('./releasePublisherCore');
 const crypto = require('node:crypto');
+const {withApplicationPolicy}=require('./applicationReleasePolicy');
 
 function retainedSupplementalJob(items, runId, settings, sourceRoot) {
   const matches=items.filter(item=>String(item.projectRoot||'').replace(/\\/g,'/').split('/').at(-1)===runId);
@@ -19,6 +20,10 @@ function retainedSupplementalJob(items, runId, settings, sourceRoot) {
 // A separate verification receipt never changes a release job/history outcome.
 // No persisted command is executed, and no deployment/cleanup/recovery step is selected.
 function supplementalSteps(job, contract, env=process.env) {
+  if(!job?.sourceProjectRoot)throw new Error('Immutable supplemental application source required');
+  return withApplicationPolicy(job.sourceProjectRoot,{gitCommit:job.plan?.gitCommit},()=>boundSupplementalSteps(job,contract,env));
+}
+function boundSupplementalSteps(job, contract, env=process.env) {
   const plan=job?.plan, config=plan?.config, remote=config?.remoteImageTarget;
   if(job?.status!=='RECOVERY_REQUIRED' || !job.historyEntryId || plan?.releaseTarget!=='game' || plan.dryRun!==false
       || !/^[a-f0-9]{40}$/.test(plan.gitCommit) || !/^[A-Za-z0-9_.-]+$/.test(plan.appTag)

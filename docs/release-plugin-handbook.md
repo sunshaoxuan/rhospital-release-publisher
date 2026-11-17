@@ -150,3 +150,7 @@ CLI 还支持 `--commit`、`--remote`、`--workspace`、`--receipts`、`--depend
 源码与相关原生门禁完成并交付后，核对服务空闲，使用现有scripts/update-publisher.ps1和已验收的精确CandidateCommit更新。本机管理员执行和日志管道使用PowerShell7；Windows PowerShell5.1在重定向原生stderr时可能将Git普通进度视作终止错误。此类错误先核对服务是否停止、锁是否释放及候选工作树是否实际生成，不盲目重放更新；仅在确认本次未启用目录干净且未被服务引用时清理它。
 
 更新后核对ACQUIRE/BARRIER/UNBARRIER/RELEASE完整、historyPreserved=true、实际运行提交、UP_TO_DATE和空闲。文档回执提交晚于运行候选，二者分别记录；不为启用相同代码重跑测试。发布器服务更新不能触发游戏重新部署、回滚或改写历史失败。
+
+## 九、业务发布策略与准备工具
+
+应用维护 release/publisher/game-policy.json 及声明源文件。策略缺失、文件未声明或协议不支持均在计划前拒绝。规范见[应用发布策略 v1](design/application-release-policy-v1.md)。通过应用 scripts/validation/release/prepare-plugin.mjs 生成或检查业务叶子；--add-node-tests 接收显式ID、tests、timeoutSeconds、extraInputs、dependencies、tools和coverage，--write yes经SDK校验后安装到应用清单。已有单元用--unit检查，--baseline与--candidate进行精确提交离线比对。动态访问文件必须显式列入extraInputs。该工具不会启动生产链、重跑产品全量或更改历史证据。

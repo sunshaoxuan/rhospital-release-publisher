@@ -1,0 +1,229 @@
+{
+  "apiVersion": "application-release-policy/v1",
+  "target": "game",
+  "sources": {
+    "catalog": "src/main/java/com/zly/hospital/service/catalog/CatalogDatabaseUpgradeService.java",
+    "properties": "src/main/resources/application.properties",
+    "productionProperties": "src/main/resources/application-prod.properties",
+    "token": "src/main/java/com/zly/hospital/service/TokenService.java",
+    "main": "src/main/java/com/zly/hospital/HospitalBackendApplication.java"
+  },
+  "catalog": {
+    "marker": "MARKER_VERSION",
+    "className": "com.zly.hospital.service.catalog.CatalogDatabaseUpgradeService",
+    "imagePaths": [
+      "BOOT-INF/classes/com/zly/hospital/controller/page/AdminTradePoolPageController.class",
+      "BOOT-INF/classes/com/zly/hospital/controller/api/AdminToiletMarketController.class",
+      "BOOT-INF/classes/com/zly/hospital/service/AdminTradePoolService.class",
+      "BOOT-INF/classes/com/zly/hospital/service/catalog/CatalogDatabaseUpgradeService.class",
+      "BOOT-INF/classes/templates/admin_tradepool.html",
+      "BOOT-INF/classes/com/zly/hospital/controller/api/ForumSsoController.class",
+      "BOOT-INF/classes/com/zly/hospital/service/ForumSsoDatabaseUpgradeService.class",
+      "BOOT-INF/classes/com/zly/hospital/service/ForumProvisioningService.class"
+    ],
+    "requiredColumns": [
+      "listing_source",
+      "admin_source_email",
+      "admin_batch_id"
+    ],
+    "requiredIndexes": [
+      "idx_toilet_listing_admin_batch",
+      "idx_toilet_tx_type_id",
+      "idx_toilet_tx_actor_id",
+      "idx_toilet_tx_target_id"
+    ]
+  },
+  "databaseAudit": {
+    "source": "release/publisher/policy/ReleaseDatabaseAudit.java",
+    "className": "ReleaseTradePoolDatabaseAudit"
+  },
+  "migrationRules": {
+    "designRetirement": "scripts/migration/20260926_databaseize_design_image_settings.sql",
+    "inventoryBackup": {
+      "migration": "scripts/migration/20261020_repair_bacteria_opportunity_inventory.sql",
+      "table": "public.t_backpack"
+    },
+    "readonlyQueries": [
+      {
+        "pathPattern": "bacteria.*(catalog|difficult|mechanics)|publish_500_unique_hospital_items",
+        "source": "release/publisher/policy/catalog-preflight.sql"
+      }
+    ],
+    "preconditions": [
+      {
+        "migration": "scripts/migration/20261108_add_resident_reward_ledger.sql",
+        "block": "resident_precondition",
+        "requiredTokens": [
+          "current_setting('server_version_num')",
+          "current_schema()",
+          "core_table.relname='t_hospitals'"
+        ]
+      }
+    ],
+    "finalizations": [
+      {
+        "migration": "scripts/migration/20261025_finalize_guild_status.sql",
+        "statement": "ALTER TABLE t_guild ALTER COLUMN status SET DEFAULT 'ACTIVE', ALTER COLUMN status SET NOT NULL;"
+      }
+    ],
+    "admissions": [
+      {
+        "migration": "scripts/migration/20260913_add_bacteria_level_catalog.sql",
+        "requiredPattern": "\\(payload::jsonb->>'schemaVersion'\\)::integer\\s*>=\\s*1"
+      }
+    ],
+    "controlledDeletes": [
+      {
+        "table": "t_log_right_bottom",
+        "alias": "player_log",
+        "snapshot": "tmp_admin_gift_reclaim_right_bottom_log"
+      },
+      {
+        "table": "t_log_system",
+        "alias": "system_log",
+        "snapshot": "tmp_admin_gift_reclaim_system_log"
+      },
+      {
+        "table": "t_log_yuanbao",
+        "alias": "yuanbao_log",
+        "snapshot": "tmp_admin_gift_reclaim_yuanbao_log"
+      }
+    ]
+  },
+  "formats": [
+    {
+      "id": "technology",
+      "migrations": [
+        "scripts/migration/20261016_bound_supervision_income.sql",
+        "scripts/migration/20261016_technology_catalog.sql"
+      ],
+      "allOrNone": true,
+      "marker": ".technology-format-floor-v1",
+      "floorQuery": "BEGIN READ ONLY; SELECT (to_regclass('public.t_supervision_settlement') IS NOT NULL OR to_regclass('public.t_technology_catalog_publication') IS NOT NULL)::int; ROLLBACK;",
+      "classes": [
+        "com/zly/hospital/service/catalog/TechnologyCatalogService",
+        "com/zly/hospital/service/SupervisionSettlementLedger"
+      ]
+    },
+    {
+      "id": "room",
+      "migrations": [
+        "scripts/migration/20261021_room_catalog.sql"
+      ],
+      "allOrNone": true,
+      "marker": ".room-format-floor-v1",
+      "floorQuery": "BEGIN READ ONLY; SELECT (to_regclass('public.t_room_catalog_publication') IS NOT NULL)::int; ROLLBACK;",
+      "classes": [
+        "com/zly/hospital/service/catalog/TechnologyCatalogService",
+        "com/zly/hospital/service/SupervisionSettlementLedger",
+        "com/zly/hospital/service/catalog/RoomCatalogService"
+      ]
+    }
+  ],
+  "scheduler": {
+    "migration": "scripts/migration/20261025_finalize_guild_status.sql",
+    "guard": "release/publisher/policy/scheduler-guard.py",
+    "executors": [
+      "weeklyRewardResetJob",
+      "giftDistributionJob"
+    ],
+    "floorQuery": "SELECT exists(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='t_guild' AND column_name='status' AND is_nullable='NO')::int",
+    "observationQuery": "release/publisher/policy/scheduler-observation.sql"
+  },
+  "runtimeChecks": [],
+  "beforeRollbackSql": "release/publisher/policy/before-rollback.sql",
+  "inputs": [
+    "release/publisher/checks/verify-emergency-guard-release.mjs",
+    "release/publisher/checks/verify-game-static-delivery.mjs",
+    "release/publisher/checks/verify-relations-release.mjs",
+    "release/publisher/policy/ReleaseDatabaseAudit.java",
+    "release/publisher/policy/before-rollback.sql",
+    "release/publisher/policy/browser-ready.js",
+    "release/publisher/policy/catalog-logs.sh",
+    "release/publisher/policy/catalog-post-deploy.sh",
+    "release/publisher/policy/catalog-preflight.sql",
+    "release/publisher/policy/runtime-probes.sh",
+    "release/publisher/policy/scheduler-guard.py",
+    "release/publisher/policy/scheduler-observation.sql",
+    "release/publisher/policy/startup-log.sh"
+  ],
+  "legacyRuntimeChecks": [
+    {
+      "id": "verify-relations-release",
+      "pathPattern": "^(?:pom\\.xml$|Dockerfile$|entrypoint\\.sh$|docker-compose\\.yml$|src/main/resources/application|src/main/java/com/zly/hospital/(?:config/(?:Security|Web)|security/|service/(?:Token|ForumSso|ForumProvisioning)))|(?:[Rr]elations|HospitalRelationship|[Gg]uild|[Rr]anking|hospital-graph|relations)|^src/main/java/",
+      "nodeCheck": "application.relations"
+    },
+    {
+      "id": "verify-tradepool-release",
+      "pathPattern": "^(?:pom\\.xml$|Dockerfile$|entrypoint\\.sh$|docker-compose\\.yml$|src/main/resources/application|src/main/java/com/zly/hospital/(?:config/(?:Security|Web)|security/|service/(?:Token|ForumSso|ForumProvisioning)))|(?:[Tt]oilet|[Tt]rade[Pp]ool|CatalogDatabaseUpgrade|catalog|migration/)|^src/main/java/",
+      "nodeCheck": null
+    },
+    {
+      "id": "verify-game-emergency-guard-runtime",
+      "pathPattern": "emergency",
+      "nodeCheck": "application.emergency"
+    }
+  ],
+  "nodeChecks": [
+    {
+      "id": "application.relations",
+      "entrypoint": "release/publisher/checks/verify-relations-release.mjs",
+      "completion": {
+        "kind": "marker",
+        "value": "relations_release_validation=PASS"
+      }
+    },
+    {
+      "id": "application.emergency",
+      "entrypoint": "release/publisher/checks/verify-emergency-guard-release.mjs",
+      "completion": {
+        "kind": "json",
+        "protocol": "emergency-hospital-v1"
+      }
+    },
+    {
+      "id": "application.static-delivery",
+      "entrypoint": "release/publisher/checks/verify-game-static-delivery.mjs",
+      "completion": {
+        "kind": "marker",
+        "value": "game_static_delivery_validation=PASS"
+      }
+    },
+    {
+      "id": "application.static-prerequisites",
+      "entrypoint": "release/publisher/checks/verify-game-static-delivery.mjs",
+      "completion": {
+        "kind": "marker",
+        "value": "game_static_delivery_prerequisites=PASS"
+      }
+    }
+  ],
+  "browser": {
+    "delivery": "application.static-delivery",
+    "prerequisites": "application.static-prerequisites",
+    "probe": {
+      "route": "/run/newGame",
+      "cookieName": "token",
+      "readyExpression": "release/publisher/policy/browser-ready.js"
+    },
+    "heartbeat": {
+      "path": "/api/task/run",
+      "method": "POST",
+      "status": 200,
+      "equals": {
+        "versionMismatch": false
+      },
+      "anyPresent": [
+        "hospitalId",
+        "id",
+        "directorName"
+      ]
+    }
+  },
+  "shellChecks": {
+    "catalogLogs": "release/publisher/policy/catalog-logs.sh",
+    "catalogPostDeploy": "release/publisher/policy/catalog-post-deploy.sh",
+    "runtimeProbes": "release/publisher/policy/runtime-probes.sh",
+    "startupLog": "release/publisher/policy/startup-log.sh"
+  }
+}

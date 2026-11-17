@@ -12,7 +12,7 @@ test('plugin modules select their isolated consumer once without application reg
 test('publisher controller owns its public contract and production safety consumers',()=>{
  const check=planChanges('publisher',['src/releasePublisherCore.js','server.js','public/app.js']).checks.find(check=>check.key==='publisher-plan');
  assert.equal(check.key,'publisher-plan');
- assert.deepEqual(check.tests,['test/releasePublisherCore.test.js','test/releasePlanSources.test.js']);
+ assert.deepEqual(check.tests,['test/releasePublisherCore.test.js','test/releasePlanSources.test.js','test/applicationReleasePolicy.test.js','test/chromeTargetLifecycle.test.js']);
  for(const file of ['src/releasePluginCandidate.js','src/releasePlugin.js','src/gameProductionDatabase.js','test/helpers/ownedFixtures.js'])assert(check.inputs.includes(file),file);
  assert(!check.inputs.some(file=>/localCheckPolicy|currentBehavior|CheckInputs/.test(file)));
 });

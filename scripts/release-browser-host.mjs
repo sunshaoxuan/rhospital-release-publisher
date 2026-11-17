@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-
+export const RELEASE_BROWSER_HOST_API_VERSION = 'release-browser-host/v1';
 const DEFAULT_GATEWAYS = [
   { name: 'riven', ip: '45.94.40.77' },
   { name: 'vmiss', ip: '64.83.37.55' }
@@ -17,33 +17,14 @@ const DEFAULT_ORIGIN_BUDGET_BYTES = 240 * 1024 * 1024;
 const MINIMUM_TOKEN_VALIDITY_MS = 2 * 60 * 60 * 1000;
 const IGNORED_TELEMETRY_HOSTS = new Set(['bam.nr-data.net']);
 const BROWSER_INFRASTRUCTURE_ERROR_PATTERN = /(?:Framebuffer (?:Unsupported|Incomplete)|WebGL context|CDP .* timed out|Chrome debugging|DevTools|target closed|session closed|socket closed|browser disconnected|GPU process|renderer process)/i;
-
-export class BrowserInfrastructureError extends Error {
+class BrowserInfrastructureError extends Error {
   constructor(message, code = 'BROWSER_INFRASTRUCTURE_FAILURE') {
     super(message);
     this.name = 'BrowserInfrastructureError';
     this.code = code;
   }
 }
-
-function parseArgs(argv) {
-  const values = {};
-  for (let index = 0; index < argv.length; index += 1) {
-    const value = argv[index];
-    if (!value.startsWith('--')) continue;
-    const key = value.slice(2);
-    const next = argv[index + 1];
-    if (next && !next.startsWith('--')) {
-      values[key] = next;
-      index += 1;
-    } else {
-      values[key] = true;
-    }
-  }
-  return values;
-}
-
-export function resolveProbeHosts(args = {}, env = process.env) {
+function resolveProbeHosts(args = {}, env = process.env) {
   const normalizeHost = (value, label) => {
     const host = String(value || '').trim().toLowerCase();
     if (!host || host.includes('://') || host.includes('/') || host.includes(':')) {
@@ -58,14 +39,12 @@ export function resolveProbeHosts(args = {}, env = process.env) {
       'Steam host')
   };
 }
-
 function requireNode22() {
   const major = Number(process.versions.node.split('.')[0]);
   if (major < 22 || typeof WebSocket !== 'function') {
     throw new Error('Static delivery verification requires Node.js 22 or newer with global WebSocket support');
   }
 }
-
 function resolveChrome(explicitPath, env = process.env) {
   const candidates = [
     explicitPath,
@@ -79,7 +58,6 @@ function resolveChrome(explicitPath, env = process.env) {
   }
   return chrome;
 }
-
 function readToken(tokenFile) {
   if (!tokenFile || !fs.existsSync(tokenFile) || !fs.statSync(tokenFile).isFile()) {
     throw new Error('Authenticated smoke token file is missing; set RHOSPITAL_RELEASE_AUTH_TOKEN_FILE');
@@ -97,7 +75,6 @@ function readToken(tokenFile) {
   }
   return token;
 }
-
 function positiveNumber(value, label, {allowZero = false} = {}) {
   const number = Number(value);
   if (!Number.isFinite(number) || (allowZero ? number < 0 : number <= 0)) {
@@ -105,7 +82,6 @@ function positiveNumber(value, label, {allowZero = false} = {}) {
   }
   return number;
 }
-
 function nonNegativeInteger(value, label) {
   const number = positiveNumber(value, label, {allowZero: true});
   if (!Number.isSafeInteger(number)) {
@@ -113,8 +89,7 @@ function nonNegativeInteger(value, label) {
   }
   return number;
 }
-
-export function resolveStaticDeliveryPrerequisites(args = {}, env = process.env) {
+function resolveStaticDeliveryPrerequisites(args = {}, env = process.env) {
   requireNode22();
   const appTag = String(args['app-tag'] || env.RHOSPITAL_RELEASE_APP_TAG || '').trim();
   if (!appTag) throw new Error('Release app tag is required');
@@ -158,11 +133,9 @@ export function resolveStaticDeliveryPrerequisites(args = {}, env = process.env)
     steamHost
   };
 }
-
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
-
 async function waitForFile(
   filePath,
   timeoutMs = 15000,
@@ -190,7 +163,6 @@ async function waitForFile(
     `Timed out waiting for Chrome debugging file after ${timeoutMs}ms${browserDiagnosticSuffix(browserStderr())}`,
     'CHROME_STARTUP_TIMEOUT');
 }
-
 function requestJson(url, method = 'GET', timeoutMs = DEFAULT_CDP_TIMEOUT_MS) {
   return new Promise((resolve, reject) => {
     const request = http.request(url, { method }, response => {
@@ -221,8 +193,7 @@ function requestJson(url, method = 'GET', timeoutMs = DEFAULT_CDP_TIMEOUT_MS) {
     request.end();
   });
 }
-
-export class CdpClient {
+class CdpClient {
   constructor(webSocketUrl, {requestTimeoutMs = DEFAULT_CDP_TIMEOUT_MS, webSocketFactory} = {}) {
     this.socket = webSocketFactory ? webSocketFactory(webSocketUrl) : new WebSocket(webSocketUrl);
     this.requestTimeoutMs = requestTimeoutMs;
@@ -308,18 +279,15 @@ export class CdpClient {
     this.socket.close();
   }
 }
-
 function normalizedHeaders(headers = {}) {
   return Object.fromEntries(Object.entries(headers).map(([key, value]) => [key.toLowerCase(), String(value)]));
 }
-
 function withProbeQuery(rawUrl, probeKey) {
   const url = new URL(rawUrl);
   url.searchParams.set('releaseProbe', probeKey);
   return url.toString();
 }
-
-export async function evaluate(client, expression) {
+async function evaluate(client, expression) {
   const result = await client.send('Runtime.evaluate', {
     expression,
     awaitPromise: true,
@@ -330,13 +298,11 @@ export async function evaluate(client, expression) {
   }
   return result.result?.value;
 }
-
 function browserDiagnosticSuffix(value) {
   const diagnostic = String(value || '').trim().replace(/\s+/g, ' ').slice(-500);
   return diagnostic ? `, stderr=${diagnostic}` : '';
 }
-
-export function chromeArguments(userDataDir, extraArguments = []) {
+function chromeArguments(userDataDir, extraArguments = []) {
   return [
     '--headless=new',
     '--no-first-run',
@@ -352,7 +318,6 @@ export function chromeArguments(userDataDir, extraArguments = []) {
     'about:blank'
   ];
 }
-
 function observeChromeClose(child) {
   let closed = false;
   const completion = new Promise(resolve => child.once('close', () => {
@@ -375,7 +340,6 @@ function observeChromeClose(child) {
     }
   };
 }
-
 async function stopChrome(child, closed, browserUrl, {createClient, runFile, platform, shutdownTimeoutMs}) {
   if (!child || closed.closed) return;
   let gracefulError;
@@ -413,16 +377,14 @@ async function stopChrome(child, closed, browserUrl, {createClient, runFile, pla
     throw new Error(`Chrome did not close within ${shutdownTimeoutMs}ms`, {cause: gracefulError});
   }
 }
-
-export function chromeCleanupEvidence(error) {
+function chromeCleanupEvidence(error) {
   return (error?.chromeCleanupErrors || []).map(entry => ({
     phase: entry.phase,
     code: entry.error?.code,
     message: String(entry.error?.message || entry.error)
   }));
 }
-
-export async function useChromeTarget(
+async function useChromeTarget(
   {chromePath, extraArguments = [], startupTimeoutMs, cdpTimeoutMs}, action, {
     spawnProcess = spawn,
     runFile = execFile,
@@ -502,8 +464,7 @@ export async function useChromeTarget(
     }
   }
 }
-
-export function assertBrowserCapability(capability) {
+function assertBrowserCapability(capability) {
   if (!capability?.context) {
     throw new BrowserInfrastructureError('WebGL context is unavailable', 'WEBGL_CONTEXT_UNAVAILABLE');
   }
@@ -519,8 +480,7 @@ export function assertBrowserCapability(capability) {
   }
   return capability;
 }
-
-export async function runBrowserCapabilityProbe({chromePath, cdpTimeoutMs = DEFAULT_CDP_TIMEOUT_MS}) {
+async function runBrowserCapabilityProbe({chromePath, cdpTimeoutMs = DEFAULT_CDP_TIMEOUT_MS}) {
   const capability = await useChromeTarget({
     chromePath,
     startupTimeoutMs: cdpTimeoutMs,
@@ -559,8 +519,7 @@ export async function runBrowserCapabilityProbe({chromePath, cdpTimeoutMs = DEFA
   })()`));
   return assertBrowserCapability(capability);
 }
-
-export async function runChromeProbe({
+async function runChromeProbe({
   chromePath,
   gateway,
   host,
@@ -569,8 +528,11 @@ export async function runChromeProbe({
   token,
   probeKey,
   timeoutMs,
-  cdpTimeoutMs = DEFAULT_CDP_TIMEOUT_MS
+  cdpTimeoutMs = DEFAULT_CDP_TIMEOUT_MS,
+  readyExpression,
+  cookieName
 }) {
+  if(typeof readyExpression!=='string'||!readyExpression||!cookieName)throw new Error('Explicit application browser probe required');
   const hostRules = [
     ...new Set([...mappedHosts, 'hero-hospital.icu'])
   ].map(mappedHost => `MAP ${mappedHost} ${gateway.ip}`).concat([
@@ -665,7 +627,7 @@ export async function runChromeProbe({
     ]);
     for (const cookieHost of mappedHosts) {
       await client.send('Network.setCookie', {
-        name: 'token',
+        name: cookieName,
         value: token,
         domain: cookieHost,
         path: '/',
@@ -681,14 +643,9 @@ export async function runChromeProbe({
     let state = null;
     while (Date.now() < deadline) {
       await delay(1000);
-      state = await evaluate(client, `(() => ({
-        href: location.href,
-        title: document.title,
-        loadState: window.__RHOSPITAL_LOAD_STATE__ || null,
-        firstFloor: Boolean(window.game?.scene?.isActive?.('FirstFloor'))
-      }))()`);
-      if (state?.firstFloor || state?.loadState?.phase === 'launched') break;
-      if (state?.loadState?.phase?.endsWith('-error') || state?.loadState?.phase === 'asset-timeout') break;
+      state = await evaluate(client, readyExpression);
+      if(typeof state?.ready!=='boolean'||typeof state?.failed!=='boolean')throw new Error('Invalid application browser readiness result');
+      if(state.ready||state.failed)break;
       if (runtimeErrors.some(entry => !isIgnoredTelemetryEntry(entry)
         && BROWSER_INFRASTRUCTURE_ERROR_PATTERN.test(String(entry?.message || entry)))) break;
     }
@@ -704,8 +661,7 @@ export async function runChromeProbe({
     };
   });
 }
-
-export function summarizeProbe(result) {
+function summarizeProbe(result) {
   const assetResponses = result.responses.filter(entry => {
     try { return new URL(entry.url).pathname.startsWith('/assets/'); } catch { return false; }
   });
@@ -729,7 +685,7 @@ export function summarizeProbe(result) {
     gateway: result.gateway,
     host: result.host,
     route: result.route,
-    launched: Boolean(result.state?.firstFloor || result.state?.loadState?.phase === 'launched'),
+    launched: result.state?.ready===true,
     finalUrl: result.state?.href || '',
     loadState: result.state?.loadState || null,
     assetCount: assetResponses.length,
@@ -744,15 +700,13 @@ export function summarizeProbe(result) {
     ignoredTelemetryRuntimeErrorCount: result.runtimeErrors.length - actionableRuntimeErrors.length
   };
 }
-
-export function isIgnoredTelemetryEntry(entry) {
+function isIgnoredTelemetryEntry(entry) {
   const url = typeof entry === 'string' ? '' : entry?.url || '';
   const message = typeof entry === 'string' ? entry : entry?.message || entry?.errorText || '';
   if (hasIgnoredTelemetryHost(url)) return true;
   const referencedUrls = String(message).match(/https?:\/\/[^\s)'\"]+/g) || [];
   return referencedUrls.some(hasIgnoredTelemetryHost);
 }
-
 function hasIgnoredTelemetryHost(value) {
   try {
     return IGNORED_TELEMETRY_HOSTS.has(new URL(value).hostname.toLowerCase());
@@ -760,55 +714,7 @@ function hasIgnoredTelemetryHost(value) {
     return false;
   }
 }
-
-export function probeFailureEvidence(result, limit = 10) {
-  const responses = Array.isArray(result?.responses) ? result.responses : [];
-  const failures = Array.isArray(result?.failures) ? result.failures : [];
-  const runtimeErrors = Array.isArray(result?.runtimeErrors) ? result.runtimeErrors : [];
-  const failedResponses = responses.filter(entry => Number(entry.status) >= 400);
-  const networkFailures = failures.filter(entry => !entry.canceled);
-  return {
-    gateway: result.gateway,
-    host: result.host,
-    route: result.route,
-    state: result.state,
-    failures: networkFailures.filter(entry => !isIgnoredTelemetryEntry(entry)).slice(0, limit),
-    runtimeErrors: runtimeErrors.filter(entry => !isIgnoredTelemetryEntry(entry)).slice(0, limit),
-    ignoredTelemetryFailures: networkFailures.filter(isIgnoredTelemetryEntry).slice(0, limit),
-    ignoredTelemetryRuntimeErrors: runtimeErrors.filter(isIgnoredTelemetryEntry).slice(0, limit),
-    failedResponses: failedResponses.slice(0, limit).map(entry => ({
-      url: entry.url,
-      status: entry.status,
-      mimeType: entry.mimeType
-    }))
-  };
-}
-
-export function assertProbe(summary, { warm, steam, originBudgetBytes = DEFAULT_ORIGIN_BUDGET_BYTES }) {
-  const errors = [];
-  if (!summary.launched) errors.push(`game did not reach FirstFloor, state=${JSON.stringify(summary.loadState)}`);
-  if (summary.assetCount === 0) errors.push('no /assets/ requests were observed');
-  if (summary.badResponseCount > 0) errors.push(`${summary.badResponseCount} asset responses returned 4xx/5xx`);
-  if (summary.missingCacheHeader > 0) errors.push(`${summary.missingCacheHeader} asset responses missed X-Cache`);
-  if (summary.networkFailureCount > 0) errors.push(`${summary.networkFailureCount} network requests failed`);
-  if (summary.runtimeErrorCount > 0) errors.push(`${summary.runtimeErrorCount} browser runtime errors were captured`);
-  if (summary.missBytes > originBudgetBytes) {
-    errors.push(`origin MISS bytes ${summary.missBytes} exceeded budget ${originBudgetBytes}`);
-  }
-  if (warm && (summary.cacheStatuses.MISS || 0) > 0) {
-    errors.push(`warm pass still had ${summary.cacheStatuses.MISS} cache MISS responses`);
-  }
-  if (steam && summary.jsModuleCount === 0) errors.push('Steam pass observed no ES module responses');
-  if (errors.length > 0) {
-    throw new Error(`${summary.gateway} ${summary.host}${summary.route}: ${errors.join('; ')}`);
-  }
-}
-
-function infrastructureErrorMessage(error) {
-  return String(error?.message || error || 'browser infrastructure failure').replace(/\s+/g, ' ').slice(0, 500);
-}
-
-export function isBrowserInfrastructureFailure({result, error} = {}) {
+function isBrowserInfrastructureFailure({result, error} = {}) {
   if (error?.chromeCleanupErrors?.length) return false;
   if (error instanceof BrowserInfrastructureError || String(error?.code || '').startsWith('CDP_')) return true;
   if (error && BROWSER_INFRASTRUCTURE_ERROR_PATTERN.test(String(error.message || error))) return true;
@@ -820,173 +726,4 @@ export function isBrowserInfrastructureFailure({result, error} = {}) {
   return runtimeErrors.length > 0
     && runtimeErrors.every(entry => BROWSER_INFRASTRUCTURE_ERROR_PATTERN.test(String(entry?.message || entry)));
 }
-
-export async function runValidatedChromeProbe({
-  probeOptions,
-  validationOptions,
-  infrastructureRetries = DEFAULT_BROWSER_INFRASTRUCTURE_RETRIES,
-  rotateProbeKeyOnRetry = true,
-  probeRunner = runChromeProbe,
-  onRetry = () => {}
-}) {
-  const baseProbeKey = probeOptions.probeKey;
-  for (let attempt = 1; attempt <= infrastructureRetries + 1; attempt += 1) {
-    const probeKey = rotateProbeKeyOnRetry && attempt > 1
-      ? `${baseProbeKey}-infra-retry-${attempt - 1}`
-      : baseProbeKey;
-    let result;
-    try {
-      result = await probeRunner({...probeOptions, probeKey});
-      const summary = summarizeProbe(result);
-      assertProbe(summary, validationOptions);
-      return {result, summary, attempts: attempt, probeKey};
-    } catch (error) {
-      const retryable = isBrowserInfrastructureFailure({result, error});
-      if (!retryable || attempt > infrastructureRetries) {
-        if (result) error.probeResult = result;
-        throw error;
-      }
-      await onRetry({attempt, result, error, nextAttempt: attempt + 1});
-    }
-  }
-  throw new Error('Browser infrastructure retry loop ended unexpectedly');
-}
-
-function browserCapabilityReceipt(capability) {
-  return [
-    'game_static_delivery_browser=PASS',
-    `renderer=${JSON.stringify(capability.renderer || 'unknown')}`,
-    `webgl=${JSON.stringify(capability.version || 'unknown')}`,
-    `framebuffer=${capability.statusName || capability.status}`,
-    `viewport=${(capability.viewport || []).join('x')}`,
-    `dpr=${capability.devicePixelRatio}`,
-    `texture=${(capability.texture || []).join('x')}`
-  ].join(' ');
-}
-
-export async function runStaticDelivery(args, {
-  capabilityProbe = runBrowserCapabilityProbe,
-  probeRunner = runChromeProbe,
-  log = console.log,
-  errorLog = console.error
-} = {}) {
-  if (args.help) {
-    log('Usage: node scripts/verify-game-static-delivery.mjs --app-tag TAG --auth-token-file FILE [--check-prerequisites]');
-    return;
-  }
-  const prerequisites = resolveStaticDeliveryPrerequisites(args);
-  const capability = await capabilityProbe({
-    chromePath: prerequisites.chromePath,
-    cdpTimeoutMs: prerequisites.cdpTimeoutMs
-  });
-  log(browserCapabilityReceipt(capability));
-  if (args['check-prerequisites']) {
-    log(`game_static_delivery_prerequisites=PASS token=readable chrome=webgl-ready gateways=${prerequisites.gateways.length} game_host=${prerequisites.gameHost} steam_host=${prerequisites.steamHost}`);
-    return;
-  }
-  const {
-    appTag,
-    token,
-    chromePath,
-    timeoutMs,
-    cdpTimeoutMs,
-    browserInfrastructureRetries,
-    originBudgetBytes,
-    gateways,
-    gameHost,
-    steamHost
-  } = prerequisites;
-  const mappedHosts = [...new Set([gameHost, steamHost])];
-
-  const receipts = [];
-  for (const gateway of gateways) {
-    const probeKey = `${appTag}-${gateway.name}`;
-    const retryLogger = pass => async ({attempt, result, error, nextAttempt}) => {
-      if (result) errorLog(`game_static_delivery_retry_evidence=${JSON.stringify(probeFailureEvidence(result))}`);
-      errorLog(`game_static_delivery_browser_retry=START gateway=${gateway.name} pass=${pass} failed_attempt=${attempt} next_attempt=${nextAttempt} reason=${JSON.stringify(infrastructureErrorMessage(error))}`);
-    };
-    const coldResult = await runValidatedChromeProbe({
-      probeOptions: {
-        chromePath,
-        gateway,
-        host: gameHost,
-        mappedHosts,
-        route: '/run/newGame',
-        token,
-        probeKey,
-        timeoutMs,
-        cdpTimeoutMs
-      },
-      validationOptions: {warm: false, steam: false, originBudgetBytes},
-      infrastructureRetries: browserInfrastructureRetries,
-      rotateProbeKeyOnRetry: true,
-      probeRunner,
-      onRetry: retryLogger('cold')
-    });
-    receipts.push({pass: 'cold', attempts: coldResult.attempts, ...coldResult.summary});
-
-    const warmResult = await runValidatedChromeProbe({
-      probeOptions: {
-        chromePath,
-        gateway,
-        host: gameHost,
-        mappedHosts,
-        route: '/run/newGame',
-        token,
-        probeKey: coldResult.probeKey,
-        timeoutMs,
-        cdpTimeoutMs
-      },
-      validationOptions: {warm: true, steam: false, originBudgetBytes},
-      infrastructureRetries: browserInfrastructureRetries,
-      rotateProbeKeyOnRetry: false,
-      probeRunner,
-      onRetry: retryLogger('warm')
-    });
-    receipts.push({pass: 'warm', attempts: warmResult.attempts, ...warmResult.summary});
-
-    const steamResult = await runValidatedChromeProbe({
-      probeOptions: {
-        chromePath,
-        gateway,
-        host: steamHost,
-        mappedHosts,
-        route: '/run/newGameSteam',
-        token,
-        probeKey: coldResult.probeKey,
-        timeoutMs,
-        cdpTimeoutMs
-      },
-      validationOptions: {warm: true, steam: true, originBudgetBytes},
-      infrastructureRetries: browserInfrastructureRetries,
-      rotateProbeKeyOnRetry: false,
-      probeRunner,
-      onRetry: retryLogger('steam')
-    });
-    receipts.push({pass: 'steam', attempts: steamResult.attempts, ...steamResult.summary});
-  }
-  for (const receipt of receipts) log(JSON.stringify(receipt));
-  log(`game_static_delivery_validation=PASS probes=${receipts.length}`);
-}
-
-export function reportStaticDeliveryFailure(error, {prerequisites = false, errorLog = console.error} = {}) {
-  if (error.chromeDiagnostic) errorLog(`game_static_delivery_browser_diagnostic=${JSON.stringify(error.chromeDiagnostic)}`);
-  if (error.chromeCleanupErrors?.length) {
-    errorLog(`game_static_delivery_cleanup=FAIL evidence=${JSON.stringify(chromeCleanupEvidence(error))}`);
-  }
-  if (error.probeResult) {
-    errorLog(`game_static_delivery_evidence=${JSON.stringify(probeFailureEvidence(error.probeResult))}`);
-  }
-  const label = prerequisites
-    ? 'game_static_delivery_prerequisites'
-    : 'game_static_delivery_validation';
-  errorLog(`${label}=FAIL ${error.stack || error.message}`);
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  const args = parseArgs(process.argv.slice(2));
-  runStaticDelivery(args).catch(error => {
-    reportStaticDeliveryFailure(error, {prerequisites: process.argv.includes('--check-prerequisites')});
-    process.exitCode = 1;
-  });
-}
+export { BROWSER_INFRASTRUCTURE_ERROR_PATTERN, BrowserInfrastructureError, CdpClient, DEFAULT_BROWSER_INFRASTRUCTURE_RETRIES, DEFAULT_CDP_TIMEOUT_MS, DEFAULT_GATEWAYS, DEFAULT_ORIGIN_BUDGET_BYTES, DEFAULT_TIMEOUT_MS, IGNORED_TELEMETRY_HOSTS, MINIMUM_TOKEN_VALIDITY_MS, assertBrowserCapability, browserDiagnosticSuffix, chromeArguments, chromeCleanupEvidence, delay, evaluate, hasIgnoredTelemetryHost, isBrowserInfrastructureFailure, isIgnoredTelemetryEntry, nonNegativeInteger, normalizedHeaders, observeChromeClose, positiveNumber, readToken, requestJson, requireNode22, resolveChrome, resolveProbeHosts, resolveStaticDeliveryPrerequisites, runBrowserCapabilityProbe, runChromeProbe, stopChrome, summarizeProbe, useChromeTarget, waitForFile, withProbeQuery };

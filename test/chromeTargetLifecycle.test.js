@@ -6,7 +6,13 @@ const path = require('node:path');
 const {spawn} = require('node:child_process');
 const {pathToFileURL} = require('node:url');
 
-const verifier = () => import(pathToFileURL(path.resolve(__dirname, '../scripts/verify-game-static-delivery.mjs')).href);
+const verifier = () => import(pathToFileURL(path.resolve(__dirname, '../scripts/release-browser-host.mjs')).href);
+async function applicationVerifier(){
+  const host=await verifier();
+  const application=await import('./fixtures/application-policy/release/publisher/checks/verify-game-static-delivery.mjs');
+  application.configureBrowserHost(host);
+  return application;
+}
 
 async function fixture(t, overrides = {}) {
   const {useChromeTarget} = await verifier();
@@ -255,7 +261,7 @@ for (const phase of ['target', 'connection']) {
 }
 
 test('cleanup EPERM preserves the original error, stack and business evidence and blocks retry', async t => {
-  const {BrowserInfrastructureError, runValidatedChromeProbe, chromeCleanupEvidence} = await verifier();
+  const {BrowserInfrastructureError, runValidatedChromeProbe, chromeCleanupEvidence} = await applicationVerifier();
   const denied = Object.assign(new Error('profile is locked'), {code: 'EPERM'});
   const f = await fixture(t, {removeProfile: async () => { throw denied; }});
   const original = Object.assign(new BrowserInfrastructureError('CDP Runtime.evaluate timed out', 'CDP_REQUEST_TIMEOUT'), {
@@ -278,7 +284,7 @@ test('cleanup EPERM preserves the original error, stack and business evidence an
 });
 
 test('cleanup-only failure cannot return PASS or retry and retains the action result', async t => {
-  const {isBrowserInfrastructureFailure, runValidatedChromeProbe} = await verifier();
+  const {isBrowserInfrastructureFailure, runValidatedChromeProbe} = await applicationVerifier();
   const f = await fixture(t, {removeProfile: async () => { throw new Error('DevTools profile remains locked'); }});
   const result = {partial: true};
   let attempts = 0;

@@ -1,6 +1,8 @@
 const {validatePlugin} = require('./releasePlugin');
 const {resolvePluginContextFile} = require('./releasePluginCandidate');
 const {createPlanSourceReader} = require('./releasePlanSources');
+const {withApplicationPolicy,applicationPolicy,applicationPolicyText,applicationPolicyIdentity,applicationPolicyRoot}=require('./applicationReleasePolicy');
+const {selectedRuntimeChecks,runtimeCheckCommands}=require('./applicationRuntimeChecks');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
@@ -38,7 +40,7 @@ const DEFAULT_FORUM_INIT_SCRIPTS = [
 ];
 const GAME_RUNTIME_PATHS = ['Dockerfile', 'docker-compose.yml', 'entrypoint.sh', 'pom.xml'];
 const GAME_MIGRATION_PREFIX = 'scripts/migration/';
-const DESIGN_IMAGE_SETTINGS_MIGRATION = 'scripts/migration/20260926_databaseize_design_image_settings.sql';
+
 const GAME_RUNTIME_PREFIXES = ['newrelic/', 'src/main/', GAME_MIGRATION_PREFIX];
 const RELEASE_IMPACT_ASSESSMENT_PATH = 'release/release-impact.json';
 const RELEASE_IMPACT_SCHEMA_VERSION = 1;
@@ -92,21 +94,10 @@ const KNOWN_RELEASE_CHECKS = {
 };
 const GAME_DATABASE_NAME = GAME_DATABASE.name;
 const RELEASE_MIGRATION_PATTERN = /^scripts\/migration\/[0-9A-Za-z][0-9A-Za-z._/-]*\.sql$/;
-const CATALOG_UPGRADE_SOURCE_PATH = 'src/main/java/com/zly/hospital/service/catalog/CatalogDatabaseUpgradeService.java';
-const TRADE_POOL_REQUIRED_COLUMNS = ['listing_source', 'admin_source_email', 'admin_batch_id'];
-const TRADE_POOL_REQUIRED_INDEXES = [
-  'idx_toilet_listing_admin_batch',
-  'idx_toilet_tx_type_id',
-  'idx_toilet_tx_actor_id',
-  'idx_toilet_tx_target_id'
-];
-const GAME_TRADE_POOL_IMAGE_PATHS = [
-  'BOOT-INF/classes/com/zly/hospital/controller/page/AdminTradePoolPageController.class',
-  'BOOT-INF/classes/com/zly/hospital/controller/api/AdminToiletMarketController.class',
-  'BOOT-INF/classes/com/zly/hospital/service/AdminTradePoolService.class',
-  'BOOT-INF/classes/com/zly/hospital/service/catalog/CatalogDatabaseUpgradeService.class',
-  'BOOT-INF/classes/templates/admin_tradepool.html'
-];
+
+
+
+
 const FORUM_RUNTIME_PREFIX = 'integrations/flarum/';
 const DEFAULT_FORUM_REMOTE_COMPOSE_DIR = '/opt/1panel/apps/flarum/flarum';
 const DEFAULT_FORUM_CONTAINER_NAME = 'flarum';
@@ -212,6 +203,10 @@ function pluginPrefixReport(output,target,plan) {
   return report;
 }
 function createPlan(projectRoot, request, env = process.env) {
+  if((request.releaseTarget||'game')==='forum') return createBoundPlan(projectRoot,request,env);
+  return withApplicationPolicy(projectRoot,request,()=>createBoundPlan(projectRoot,{...request,gitCommit:applicationPolicyIdentity().candidateCommit},env));
+}
+function createBoundPlan(projectRoot, request, env = process.env) {
   if(request.boundary!==undefined&&request.boundary!=='before-production')throw new Error('Unsupported execution boundary');
   assertNoReleaseTargetOverrides(request);
   if (validateReleaseTarget(request.releaseTarget || 'game') === 'forum') {
@@ -252,24 +247,21 @@ function createPlan(projectRoot, request, env = process.env) {
   const gitBranch = validateGitBranch(request.gitBranch || env.RELEASE_PUBLISHER_GIT_BRANCH || 'origin/master');
   const gitCommit = validateGitCommit(request.gitCommit || 'latest');
   const startupSource = createPlanSourceReader(projectRoot, gitCommit, [
-    CATALOG_UPGRADE_SOURCE_PATH, DEFAULT_COMPOSE_FILE, RELEASE_IMPACT_ASSESSMENT_PATH,
-    'release/publisher/game.json', 'src/main/resources/application.properties',
-    'src/main/resources/application-prod.properties', 'src/main/java/com/zly/hospital/service/TokenService.java',
-    'src/main/java/com/zly/hospital/HospitalBackendApplication.java',
+    applicationPolicy().sources.catalog, DEFAULT_COMPOSE_FILE, RELEASE_IMPACT_ASSESSMENT_PATH,
+    'release/publisher/game.json', ...Object.values(applicationPolicy().sources),
     ...(request.changeAnalysis?.targets?.game?.changedPaths || []).filter(file => RELEASE_MIGRATION_PATTERN.test(file))
   ]);
-  const catalogSchemaVersion = catalogSchemaVersionFromSource(startupSource(CATALOG_UPGRADE_SOURCE_PATH, true));
+  const catalogSchemaVersion = catalogSchemaVersionFromSource(startupSource(applicationPolicy().sources.catalog, true));
   const pluginMetadata=pluginMetadataForPlan(startupSource('release/publisher/game.json'),'game',!dryRun);
   const startupContract = resolveGameStartupContract(
-    startupSource('src/main/resources/application.properties') + '\n' + startupSource('src/main/resources/application-prod.properties'),
-    startupSource('src/main/java/com/zly/hospital/service/TokenService.java'),
-    startupSource('src/main/java/com/zly/hospital/HospitalBackendApplication.java'));
+    startupSource(applicationPolicy().sources.properties) + '\n' + startupSource(applicationPolicy().sources.productionProperties),
+    startupSource(applicationPolicy().sources.token), startupSource(applicationPolicy().sources.main));
   const releaseMigrations = resolveReleaseMigrations(startupSource, request.changeAnalysis);
   const technologyCutover = requiresTechnologyCutover(releaseMigrations);
   const codegraph = codegraphCutover.requiresCodegraphCutover(releaseMigrations);
   const offlineCutover = technologyCutover || codegraph;
   if (codegraph && technologyCutover) throw new Error('Guild B requires an already prepared A predecessor; release technology/room migrations in A first');
-  const requiresDesignImageRetirement = releaseMigrations.some(item => item.filePath === DESIGN_IMAGE_SETTINGS_MIGRATION);
+  const requiresDesignImageRetirement = releaseMigrations.some(item => item.filePath === applicationPolicy().migrationRules.designRetirement);
   assertJpaSchemaMigrationCoverage(projectRoot, gitCommit, request.changeAnalysis, releaseMigrations);
   const releaseImpactAssessment = resolveReleaseImpactAssessment(
     projectRoot,
@@ -277,7 +269,7 @@ function createPlan(projectRoot, request, env = process.env) {
     request.changeAnalysis,
     'game',
     releaseMigrations,
-    pluginMetadata?.units.map(unit=>unit.id)||[],
+    [...(pluginMetadata?.units.map(unit=>unit.id)||[]),...applicationPolicy().runtimeChecks.map(check=>check.id)],
     startupSource
   );
   if (codegraph && (!releaseImpactAssessment || ['verify-codegraph-prerequisites', 'codegraph-offline-cutover'].some(
@@ -408,7 +400,7 @@ function createPlan(projectRoot, request, env = process.env) {
           ...GAME_RUNTIME_PATHS,
           ...GAME_RUNTIME_PREFIXES.map(prefix => prefix.replace(/\/$/, ''))
         ]),
-        `git grep -n -E ${shellToken(`MARKER_VERSION[[:space:]]*=[[:space:]]*${catalogSchemaVersion};`)} HEAD -- ${shellToken(CATALOG_UPGRADE_SOURCE_PATH)}`
+        `git grep -n -E ${shellToken(`${applicationPolicy().catalog.marker}[[:space:]]*=[[:space:]]*${catalogSchemaVersion};`)} HEAD -- ${shellToken(applicationPolicy().sources.catalog)}`
       ]),
       validation: `当前候选必须干净并包含 Catalog v${catalogSchemaVersion} 升级声明`,
       actionType: 'local-check',
@@ -935,10 +927,7 @@ function createPlan(projectRoot, request, env = process.env) {
         key: 'verify-game-emergency-guard-runtime',
         title: '核验生产急救防刷预检协议',
         summary: '使用既有验收凭据执行只读预检，验证目标应用具备前置协议；不调用业务操作',
-        command: `node ${shellToken(path.resolve(__dirname, '../scripts/verify-emergency-guard-release.mjs'))} --mode runtime`
-          + ` --ssh-target ${shellToken(remoteImageTarget.target)} --ssh-key ${shellToken(remoteImageTarget.keyPath)}`
-          + ` --ssh-port ${shellToken(String(remoteImageTarget.port || 22))}`
-          + ` --auth-token-file ${shellToken(resolveGameStaticDeliveryAuthTokenFile(env) || '')}`,
+        command: applicationNodeCheckCommand(applicationPolicy().legacyRuntimeChecks.find(check=>check.id==='verify-game-emergency-guard-runtime')?.nodeCheck,['--mode','runtime','--ssh-target',remoteImageTarget.target,'--ssh-key',remoteImageTarget.keyPath,'--ssh-port',String(remoteImageTarget.port||22),'--auth-token-file',resolveGameStaticDeliveryAuthTokenFile(env)||''],30),
         validation: '认证后的医院预检必须返回已验证的emergency-hospital-v1协议',
         actionType: 'remote-check', executable: true, finalCheck: true, timeoutSeconds: 30
       }));
@@ -1002,6 +991,13 @@ function createPlan(projectRoot, request, env = process.env) {
       )),
       validation: '原文件已备份且目标版本健康独占；文件变动或缺失的备份阻止清理，回滚可从备份恢复',
       actionType: 'production', productionAction: true, executable: true, timeoutSeconds: 120
+    }));
+    const checkBindings={'$appTag':appTag,'$authTokenFile':resolveGameStaticDeliveryAuthTokenFile(env)||'','$browserHost':path.resolve(__dirname,'../scripts/release-browser-host.mjs'),'$sshTarget':remoteImageTarget.target,'$sshKey':remoteImageTarget.keyPath,'$sshPort':String(remoteImageTarget.port||22)};
+    for(const check of selectedRuntimeChecks(applicationPolicy(),request.changeAnalysis,releaseImpactAssessment))steps.push(releaseStep({
+      key:check.id,title:check.id,summary:'应用策略声明的运行检查',
+      command:check.kind==='node-check'?applicationNodeCheckCommand(check.nodeCheck,check.args.map(arg=>arg.startsWith('$')?checkBindings[arg]:arg),check.timeoutSeconds):remoteSshCommand(remoteImageTarget,remoteBashScriptCommand(runtimeCheckCommands(check))),
+      validation:'application_runtime_check=PASS id='+check.id,actionType:'remote-check',executable:true,finalCheck:true,
+      timeoutSeconds:check.timeoutSeconds+15
     }));
     steps.push(releaseStep({
       key: 'cleanup-game-release-containers',
@@ -1130,6 +1126,7 @@ function createPlan(projectRoot, request, env = process.env) {
       dockerCommandTarget: dockerTarget,
       remoteImageTarget,
       catalogSchemaVersion,
+      applicationPolicy: applicationPolicyIdentity(),
       releaseImpactAssessment,
       pluginProtocol:pluginMetadata?{apiVersion:pluginMetadata.apiVersion,pluginId:pluginMetadata.pluginId,target:'game',unitIds:pluginMetadata.units.map(unit=>unit.id)}:null,
       databaseMigrations: releaseMigrations.map(item => ({
@@ -1163,16 +1160,11 @@ function createPlan(projectRoot, request, env = process.env) {
 }
 
 function requiresFeatureRuntimeCheck(key, analysis, assessment) {
-  if(!['verify-relations-release','verify-tradepool-release'].includes(key))throw new Error('Unknown feature runtime check');
-  if (assessment?.requiredChecks.some(item => item.stepKey === key)) return true;
+  const rule=applicationPolicy().legacyRuntimeChecks.find(rule=>rule.id===key);
+  if(!rule){if(assessment?.requiredChecks.some(item=>item.stepKey===key))throw new Error('Unknown application runtime check');return false;}
+  if(assessment?.requiredChecks.some(item=>item.stepKey===key))return true;
   const paths=analysis?.targets?.game?.changedPaths;
-  // A deploy without a frozen impact diff cannot establish unrelatedness.
-  if (!Array.isArray(paths)) return true;
-  const shared=/^(?:pom\.xml$|Dockerfile$|entrypoint\.sh$|docker-compose\.yml$|src\/main\/resources\/application|src\/main\/java\/com\/zly\/hospital\/(?:config\/(?:Security|Web)|security\/|service\/(?:Token|ForumSso|ForumProvisioning)))/;
-  const feature=key==='verify-relations-release'
-    ? /(?:[Rr]elations|HospitalRelationship|[Gg]uild|[Rr]anking|hospital-graph|relations)/
-    : /(?:[Tt]oilet|[Tt]rade[Pp]ool|CatalogDatabaseUpgrade|catalog|migration\/)/;
-  return paths.some(file=>shared.test(file)||feature.test(file)||/^src\/main\/java\//.test(file));
+  return !Array.isArray(paths)||paths.some(file=>new RegExp(rule.pathPattern).test(file));
 }
 
 function gamePrd2RuntimeContractCommands(remoteComposeDir, stackName, containerName, startupContract) {
@@ -1183,7 +1175,7 @@ function gamePrd2RuntimeContractCommands(remoteComposeDir, stackName, containerN
           `runtime_log_file=$(mktemp)`,
           `trap 'rm -f "$runtime_log_file"' EXIT`,
           `timeout 20 docker logs --tail 500 "$runtime_container" > "$runtime_log_file" 2>&1`,
-          `grep -Fq 'FirebaseApp initialized' "$runtime_log_file"`,
+          ...applicationShellCommands('startupLog'),
           `rm -f "$runtime_log_file"; trap - EXIT`,
           `service_env=$(docker service inspect "$service_name" --format '{{range .Spec.TaskTemplate.ContainerSpec.Env}}{{println .}}{{end}}')`,
           `test "$(docker service inspect "$service_name" --format '{{.Spec.UpdateConfig.Order}}')" = start-first`,
@@ -1202,21 +1194,13 @@ function gamePrd2RuntimeContractCommands(remoteComposeDir, stackName, containerN
           `cd ${shellToken(remoteComposeDir)}`,
           ...gameRuntimeSecretCommands(startupContract),
           ...gameStripeAuthenticationCommands(),
-          `stripe_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8190/api/payment/webhook -H 'Content-Type: application/json' --data '{}')`,
-          `paddle_code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:8190/api/paddle/webhook -H 'Content-Type: application/json' --data '{}')`,
-          `echo "$stripe_code" | grep -Eq '^(400|401|403)$'`,
-          `echo "$paddle_code" | grep -Eq '^(400|401|403)$'`,
-          `docker ps --format '{{.Names}}' | grep -Fxq snail-job`,
-          `docker ps --format '{{.Names}}' | grep -Eq 'newrelic|new-relic'`,
-          `echo game_prd2_runtime_contract=PASS stripe_unsigned=$stripe_code paddle_unsigned=$paddle_code`
+          ...applicationShellCommands('runtimeProbes')
   ];
 }
 
 function gameStaticDeliveryCheckCommand(appTag, env = process.env) {
-  const scriptPath = path.resolve(__dirname, '..', 'scripts', 'verify-game-static-delivery.mjs');
   const authTokenFile = resolveGameStaticDeliveryAuthTokenFile(env);
-  const authTokenArgument = authTokenFile ? ` --auth-token-file ${shellToken(authTokenFile)}` : '';
-  return `node ${shellToken(scriptPath)} --app-tag ${shellToken(appTag)}${authTokenArgument}`;
+  return applicationNodeCheckCommand(applicationPolicy().browser.delivery,['--app-tag',appTag,'--host-browser-helper',path.resolve(__dirname,'../scripts/release-browser-host.mjs'),...(authTokenFile?['--auth-token-file',authTokenFile]:[])],2100);
 }
 
 function standbyCandidateCommand(action, settings) {
@@ -1228,14 +1212,20 @@ function standbyCandidateCommand(action, settings) {
 }
 
 function gameStaticDeliveryPrerequisiteCheckCommand(appTag, env = process.env) {
-  return `${gameStaticDeliveryCheckCommand(appTag, env)} --check-prerequisites`;
+  const authTokenFile=resolveGameStaticDeliveryAuthTokenFile(env);
+  return applicationNodeCheckCommand(applicationPolicy().browser.prerequisites,['--app-tag',appTag,'--host-browser-helper',path.resolve(__dirname,'../scripts/release-browser-host.mjs'),'--check-prerequisites',...(authTokenFile?['--auth-token-file',authTokenFile]:[])],120);
 }
 
 function relationsReleaseCheckCommand(appTag, env = process.env) {
-  const scriptPath = path.resolve(__dirname, '..', 'scripts', 'verify-relations-release.mjs');
   const authTokenFile = resolveGameStaticDeliveryAuthTokenFile(env);
-  const authTokenArgument = authTokenFile ? ` --auth-token-file ${shellToken(authTokenFile)}` : '';
-  return `node ${shellToken(scriptPath)} --app-tag ${shellToken(appTag)}${authTokenArgument}`;
+  return applicationNodeCheckCommand(applicationPolicy().legacyRuntimeChecks.find(check=>check.id==='verify-relations-release')?.nodeCheck,['--app-tag',appTag,'--host-browser-helper',path.resolve(__dirname,'../scripts/release-browser-host.mjs'),...(authTokenFile?['--auth-token-file',authTokenFile]:[])],900);
+}
+function applicationNodeCheckCommand(id,args,timeoutSeconds){
+  const check=applicationPolicy().nodeChecks.find(check=>check.id===id);if(!check)throw new Error('Application runtime implementation missing: '+id);
+  return `node ${shellToken(path.resolve(__dirname,'../scripts/run-application-check.mjs'))}`
+    + ` --root ${shellToken(applicationPolicyRoot())} --candidate ${shellToken(applicationPolicyIdentity().candidateCommit)}`
+    + ` --check ${shellToken(id)} --policy-hash ${applicationPolicyIdentity().ownedInputHash} --timeout ${timeoutSeconds}`
+    + ` --entry-hint ${shellToken(check.entrypoint)} -- ${args.map(shellToken).join(' ')}`;
 }
 
 function gameFatalRollbackDecisionCommand(remoteTarget, stackName, containerName, imageTag, appTag, env = process.env) {
@@ -1250,6 +1240,9 @@ function gameFatalRollbackDecisionCommand(remoteTarget, stackName, containerName
   }
   return [
     `node ${shellToken(scriptPath)}`,
+    `--application-root ${shellToken(applicationPolicyRoot())}`,
+    `--application-candidate ${shellToken(applicationPolicyIdentity().candidateCommit)}`,
+    `--application-policy-hash ${shellToken(applicationPolicyIdentity().ownedInputHash)}`,
     `--app-tag ${shellToken(appTag)}`,
     `--auth-token-file ${shellToken(authTokenFile)}`,
     `--timeout-ms 30000`,
@@ -2071,9 +2064,7 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
         recoveryBoundaryEntered
       };
     }
-    const shouldEvaluateRecovery = plan.releaseTarget === 'game'
-      && cutoverStarted
-      && (cutoverCommitted || !completedStepKeys.includes('verify-tradepool-release'));
+    const shouldEvaluateRecovery = plan.releaseTarget === 'game' && cutoverStarted;
     if (shouldEvaluateRecovery) {
       const fatalEvaluation = cutoverCommitted;
       const rollbackDecisionStep = plan.steps.find(step => step.key === (fatalEvaluation
@@ -2583,17 +2574,20 @@ function validateGitCommit(commit) {
 }
 
 function resolveCatalogSchemaVersion(projectRoot, gitCommit = 'latest', gitRunner = spawnSync) {
+  return withApplicationPolicy(projectRoot,{gitCommit},()=>resolveBoundCatalogVersion(projectRoot,gitCommit,gitRunner));
+}
+function resolveBoundCatalogVersion(projectRoot, gitCommit = 'latest', gitRunner = spawnSync) {
   const commit = validateGitCommit(gitCommit);
   const source = commit === 'latest'
-    ? fs.readFileSync(resolveInside(projectRoot, CATALOG_UPGRADE_SOURCE_PATH), 'utf8')
-    : runGit(projectRoot, ['show', `${commit}:${CATALOG_UPGRADE_SOURCE_PATH}`], gitRunner);
+    ? fs.readFileSync(resolveInside(projectRoot, applicationPolicy().sources.catalog), 'utf8')
+    : runGit(projectRoot, ['show', `${commit}:${applicationPolicy().sources.catalog}`], gitRunner);
   return catalogSchemaVersionFromSource(source);
 }
 
 function catalogSchemaVersionFromSource(source) {
-  const matches = [...source.matchAll(/\bMARKER_VERSION\s*=\s*(\d+)\s*;/g)];
+  const matches = [...source.matchAll(new RegExp('\\b'+applicationPolicy().catalog.marker+'\\s*=\\s*(\\d+)\\s*;', 'g'))];
   if (matches.length !== 1) {
-    throw new Error(`目标提交的 ${CATALOG_UPGRADE_SOURCE_PATH} 必须且只能声明一个 MARKER_VERSION`);
+    throw new Error(`目标提交的 ${applicationPolicy().sources.catalog} 必须且只能声明一个 MARKER_VERSION`);
   }
   const version = Number(matches[0][1]);
   if (!Number.isSafeInteger(version) || version <= 0) {
@@ -2744,29 +2738,20 @@ function resolveReleaseMigrations(source, changeAnalysis) {
 }
 
 function residentMigrationPreflight(filePath, sql) {
-  if (filePath !== 'scripts/migration/20261108_add_resident_reward_ledger.sql') return {};
-  const source = String(sql);
-  const blocks = [...source.matchAll(/^do \$resident_precondition\$[\s\S]*?^end \$resident_precondition\$;/gm)];
-  if (blocks.length !== 1 || (source.match(/\$resident_precondition\$/g) || []).length !== 2) {
-    throw new Error('Resident migration requires exactly one readonly precondition block');
-  }
-  const block = blocks[0][0];
-  const preamble = source.slice(0, blocks[0].index).replace(/--[^\n]*/g, '');
+  const rule = applicationPolicy().migrationRules.preconditions.find(rule => rule.migration === filePath);
+  if (!rule) return {};
+  const source = String(sql), tag = escapeRegExp(rule.block);
+  const blocks = [...source.matchAll(new RegExp('^do \\$' + tag + '\\$[\\s\\S]*?^end \\$' + tag + '\\$;', 'gm'))];
+  if (blocks.length !== 1 || (source.match(new RegExp('\\$' + tag + '\\$', 'g')) || []).length !== 2) throw new Error('Migration requires exactly one readonly precondition block');
+  const block = blocks[0][0], preamble = source.slice(0, blocks[0].index).replace(/--[^\n]*/g, '');
   if (source.includes('/*') || source.includes('*/') || preamble.split(/\r?\n/).some(line =>
-    line.trim() && !/^(?:\\set ON_ERROR_STOP on|begin;|set local (?:lock_timeout|statement_timeout)\s*=\s*'[^']+';|select pg_advisory_xact_lock\(\d+\);)$/.test(line.trim()))) {
-    throw new Error('Resident migration precondition has an ambiguous SQL context');
-  }
-  // Candidate bytes are bound to this migration SHA. Run only its reviewed admission block,
-  // never its DDL, transaction wrapper, advisory lock or owner mutation.
+    line.trim() && !/^(?:\\set ON_ERROR_STOP on|begin;|set local (?:lock_timeout|statement_timeout)\s*=\s*'[^']+';|select pg_advisory_xact_lock\(\d+\);)$/.test(line.trim()))) throw new Error('Migration precondition has an ambiguous SQL context');
   const code = block.replace(/--[^\n]*/g, '').replace(/'(?:''|[^'])*'/g, "''");
   if (/\b(?:create|alter|drop|truncate|insert|update|delete|merge|execute|perform|call|copy|grant|revoke|set|lock|nextval|setval|pg_notify|pg_advisory\w*|dblink\w*|lo_\w*)\b/i.test(code)
-      || /\\|\/\*|\*\//.test(code)
-      || !block.includes("current_setting('server_version_num')")
-      || !block.includes('current_schema()') || !block.includes("core_table.relname='t_hospitals'")) {
-    throw new Error('Resident migration precondition must be readonly version/schema/owner admission');
-  }
+      || /\\|\/\*|\*\//.test(code) || rule.requiredTokens.some(token => !block.includes(token))) throw new Error('Migration precondition must be readonly admission');
   return {residentPreflight: block};
 }
+
 
 function migrationReleaseHashConstant(sql, name) {
   const match = String(sql || '').match(new RegExp(`\\b${name}\\s+constant\\s+text\\s*:=\\s*'([0-9a-f]{64})'`, 'i'));
@@ -2806,20 +2791,7 @@ function normalizeReleaseMigrationSql(sql) {
 
 function validateControlledDeleteStatements(filePath, source) {
   const deleteStatements = [...source.matchAll(/\bdelete\s+from\s+([a-z_][a-z0-9_]*)\b[\s\S]*?;/gi)];
-  const controlledLogDeletes = {
-    t_log_right_bottom: {
-      alias: 'player_log',
-      snapshot: 'tmp_admin_gift_reclaim_right_bottom_log'
-    },
-    t_log_system: {
-      alias: 'system_log',
-      snapshot: 'tmp_admin_gift_reclaim_system_log'
-    },
-    t_log_yuanbao: {
-      alias: 'yuanbao_log',
-      snapshot: 'tmp_admin_gift_reclaim_yuanbao_log'
-    }
-  };
+  const controlledLogDeletes = Object.fromEntries(applicationPolicy().migrationRules.controlledDeletes.map(rule=>[rule.table,rule]));
 
   for (const match of deleteStatements) {
     const tableName = match[1].toLowerCase();
@@ -2871,19 +2843,14 @@ function validateReleaseMigration(filePath, sql) {
   if (missing.length > 0) {
     throw new Error(`数据库迁移 ${filePath} 缺少发布安全约束: ${missing.join(', ')}`);
   }
-  const guildFinalization = filePath === codegraphCutover.MIGRATION
-    ? source.replace(/ALTER TABLE t_guild ALTER COLUMN status SET DEFAULT 'ACTIVE', ALTER COLUMN status SET NOT NULL;/g, '')
-    : source;
+  const guildFinalization = applicationPolicy().migrationRules.finalizations.filter(rule=>rule.migration===filePath).reduce((sql,rule)=>sql.replaceAll(rule.statement,''),source);
   const compatibilitySource = stripAdditiveNewColumnFinalization(guildFinalization).replace(
     /\bCREATE\s+TRIGGER\s+[a-z_][a-z0-9_]*\s+BEFORE\s+TRUNCATE\s+ON\s+[a-z_][a-z0-9_]*\s+FOR\s+EACH\s+STATEMENT\s+EXECUTE\s+FUNCTION\s+[a-z_][a-z0-9_]*\s*\(\s*\)\s*;/gi, '');
   const incompatible = compatibilitySource.match(/\b(drop\s+(?:table|column|index|constraint)|truncate\b|rename\s+(?:column|to)\b|alter\s+column\b)/i);
   if (incompatible) {
     throw new Error(`数据库迁移 ${filePath} 包含不兼容旧版本自动恢复的操作: ${incompatible[0]}`);
   }
-  if (filePath.endsWith('20260913_add_bacteria_level_catalog.sql')
-      && !/\(payload::jsonb->>'schemaVersion'\)::integer\s*>=\s*1/i.test(source)) {
-    throw new Error(`数据库迁移 ${filePath} 必须允许完整的更高目录 schema 安全重入`);
-  }
+  for(const rule of applicationPolicy().migrationRules.admissions.filter(rule=>rule.migration===filePath))if(!new RegExp(rule.requiredPattern,'i').test(source))throw new Error('Application migration admission failed: '+filePath);
   validateControlledDeleteStatements(filePath, source);
 }
 
@@ -3673,249 +3640,7 @@ function publishImageCommand(imageTag, target) {
   ].join('; ');
 }
 
-function gameDatabaseAuditJavaSource() {
-  return String.raw`import java.io.BufferedWriter;
-import java.io.OutputStreamWriter;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.ResultSetMetaData;
-import java.sql.Statement;
-import java.util.List;
-import java.util.Properties;
-import java.util.zip.GZIPOutputStream;
-
-public final class ReleaseTradePoolDatabaseAudit {
-    private static final int EXPECTED_VERSION = requiredPositiveInt("RELEASE_EXPECTED_CATALOG_VERSION");
-    private static final List<String> REQUIRED_COLUMNS = List.of(
-            "listing_source", "admin_source_email", "admin_batch_id");
-    private static final List<String> REQUIRED_INDEXES = List.of(
-            "idx_toilet_listing_admin_batch", "idx_toilet_tx_type_id",
-            "idx_toilet_tx_actor_id", "idx_toilet_tx_target_id");
-    private static final List<String> BACKUP_TABLES = List.of(
-            "t_backend_upgrade_markers", "t_toilet_market_listing", "t_toilet_market_transaction");
-
-    private ReleaseTradePoolDatabaseAudit() {
-    }
-
-    public static void main(String[] args) throws Exception {
-        String mode = required("RELEASE_DB_AUDIT_MODE");
-        Class.forName("org.postgresql.Driver");
-        Properties properties = new Properties();
-        properties.setProperty("user", required("DB_USER"));
-        properties.setProperty("password", required("DB_PASSWORD"));
-        properties.setProperty("connectTimeout", "10");
-        properties.setProperty("socketTimeout", "120");
-        try (Connection connection = DriverManager.getConnection(required("DB_URL"), properties)) {
-            boolean mutating = "suspend-admin".equals(mode);
-            connection.setTransactionIsolation(Connection.TRANSACTION_REPEATABLE_READ);
-            connection.setReadOnly(!mutating);
-            connection.setAutoCommit(false);
-            switch (mode) {
-                case "inspect" -> inspect(connection);
-                case "backup" -> backup(connection, Path.of(required("RELEASE_DB_BACKUP_DIR")));
-                case "verify" -> verify(connection);
-                case "suspend-admin" -> suspendAdmin(connection);
-                default -> throw new IllegalArgumentException("Unsupported audit mode: " + mode);
-            }
-            if (mutating) {
-                connection.commit();
-            } else {
-                connection.rollback();
-            }
-        }
-    }
-
-    private static void inspect(Connection connection) throws Exception {
-        SchemaStatus status = schemaStatus(connection);
-        System.out.println(status.asLine("tradepool_schema_preflight"));
-        System.out.println("tradepool_schema_expected=" + EXPECTED_VERSION);
-        if (status.markerVersion() > EXPECTED_VERSION) {
-            throw new IllegalStateException("Catalog downgrade is blocked: database version "
-                    + status.markerVersion() + " is newer than target version " + EXPECTED_VERSION);
-        }
-        if (status.markerVersion() == EXPECTED_VERSION && !"COMPLETED".equals(status.markerStatus())) {
-            throw new IllegalStateException("Catalog marker at target version is not COMPLETED: "
-                    + status.markerStatus());
-        }
-        System.out.println("tradepool_schema_transition=" + status.markerVersion() + "->" + EXPECTED_VERSION);
-    }
-
-    private static void verify(Connection connection) throws Exception {
-        SchemaStatus status = schemaStatus(connection);
-        System.out.println(status.asLine("tradepool_schema_postdeploy"));
-        if (status.markerVersion() != EXPECTED_VERSION || !"COMPLETED".equals(status.markerStatus())) {
-            throw new IllegalStateException("Catalog marker must equal target version " + EXPECTED_VERSION
-                    + " with COMPLETED status");
-        }
-        if (status.columnCount() != REQUIRED_COLUMNS.size()) {
-            throw new IllegalStateException("Required trade-pool columns are missing");
-        }
-        if (status.indexCount() != REQUIRED_INDEXES.size()) {
-            throw new IllegalStateException("Required trade-pool indexes are missing");
-        }
-        System.out.println("tradepool_database_validation=PASS");
-    }
-
-    private static void backup(Connection connection, Path directory) throws Exception {
-        Files.createDirectories(directory);
-        SchemaStatus status = schemaStatus(connection);
-        Files.writeString(directory.resolve("schema-status.txt"),
-                status.asLine("tradepool_schema_backup") + System.lineSeparator(), StandardCharsets.UTF_8);
-        for (String table : BACKUP_TABLES) {
-            if (!tableExists(connection, table)) {
-                Files.writeString(directory.resolve(table + ".missing"), "missing\n", StandardCharsets.UTF_8);
-                continue;
-            }
-            writeQuery(connection, "select * from " + table, directory.resolve(table + ".tsv.gz"));
-        }
-        System.out.println("tradepool_database_backup=" + directory);
-    }
-
-    private static void suspendAdmin(Connection connection) throws Exception {
-        if (!columnExists(connection, "t_toilet_market_listing", "listing_source")) {
-            throw new IllegalStateException("listing_source column is missing; refusing old-code rollback");
-        }
-        try (PreparedStatement statement = connection.prepareStatement("""
-                update t_toilet_market_listing
-                set status = 'SUSPENDED', update_time = now()
-                where listing_source = 'ADMIN' and status = 'ACTIVE'
-                """)) {
-            int updated = statement.executeUpdate();
-            System.out.println("suspended_admin_listings=" + updated);
-        }
-    }
-
-    private static SchemaStatus schemaStatus(Connection connection) throws Exception {
-        int markerVersion = -1;
-        String markerStatus = "MISSING";
-        if (tableExists(connection, "t_backend_upgrade_markers")) {
-            try (PreparedStatement statement = connection.prepareStatement("""
-                    select marker_version, status
-                    from t_backend_upgrade_markers
-                    where marker_key = 'catalog_item_store_v1'
-                    """)) {
-                try (ResultSet result = statement.executeQuery()) {
-                    if (result.next()) {
-                        markerVersion = result.getInt(1);
-                        markerStatus = result.getString(2);
-                    }
-                }
-            }
-        }
-        int columnCount = 0;
-        for (String column : REQUIRED_COLUMNS) {
-            if (columnExists(connection, "t_toilet_market_listing", column)) {
-                columnCount++;
-            }
-        }
-        int indexCount = 0;
-        for (String index : REQUIRED_INDEXES) {
-            if (indexExists(connection, index)) {
-                indexCount++;
-            }
-        }
-        return new SchemaStatus(markerVersion, markerStatus, columnCount, indexCount);
-    }
-
-    private static boolean tableExists(Connection connection, String table) throws Exception {
-        try (PreparedStatement statement = connection.prepareStatement("select to_regclass(?) is not null")) {
-            statement.setString(1, "public." + table);
-            try (ResultSet result = statement.executeQuery()) {
-                return result.next() && result.getBoolean(1);
-            }
-        }
-    }
-
-    private static boolean columnExists(Connection connection, String table, String column) throws Exception {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                select count(*)
-                from information_schema.columns
-                where table_schema = 'public' and table_name = ? and column_name = ?
-                """)) {
-            statement.setString(1, table);
-            statement.setString(2, column);
-            try (ResultSet result = statement.executeQuery()) {
-                return result.next() && result.getInt(1) == 1;
-            }
-        }
-    }
-
-    private static boolean indexExists(Connection connection, String index) throws Exception {
-        try (PreparedStatement statement = connection.prepareStatement("""
-                select count(*) from pg_indexes where schemaname = 'public' and indexname = ?
-                """)) {
-            statement.setString(1, index);
-            try (ResultSet result = statement.executeQuery()) {
-                return result.next() && result.getInt(1) == 1;
-            }
-        }
-    }
-
-    private static void writeQuery(Connection connection, String sql, Path target) throws Exception {
-        try (Statement statement = connection.createStatement()) {
-            statement.setQueryTimeout(120);
-            try (ResultSet result = statement.executeQuery(sql);
-                 GZIPOutputStream gzip = new GZIPOutputStream(Files.newOutputStream(target));
-                 BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(gzip, StandardCharsets.UTF_8))) {
-                ResultSetMetaData metadata = result.getMetaData();
-                for (int column = 1; column <= metadata.getColumnCount(); column++) {
-                    if (column > 1) writer.write('\t');
-                    writer.write(escape(metadata.getColumnLabel(column)));
-                }
-                writer.newLine();
-                while (result.next()) {
-                    for (int column = 1; column <= metadata.getColumnCount(); column++) {
-                        if (column > 1) writer.write('\t');
-                        writer.write(escape(result.getString(column)));
-                    }
-                    writer.newLine();
-                }
-            }
-        }
-    }
-
-    private static String escape(String value) {
-        if (value == null) return "\\N";
-        return value.replace("\\", "\\\\")
-                .replace("\t", "\\t")
-                .replace("\r", "\\r")
-                .replace("\n", "\\n");
-    }
-
-    private static String required(String name) {
-        String value = System.getenv(name);
-        if (value == null || value.isBlank()) {
-            throw new IllegalStateException(name + " is required");
-        }
-        return value;
-    }
-
-    private static int requiredPositiveInt(String name) {
-        String value = required(name);
-        try {
-            int parsed = Integer.parseInt(value);
-            if (parsed <= 0) throw new NumberFormatException("not positive");
-            return parsed;
-        } catch (NumberFormatException error) {
-            throw new IllegalStateException(name + " must be a positive integer", error);
-        }
-    }
-
-    private record SchemaStatus(int markerVersion, String markerStatus, int columnCount, int indexCount) {
-        String asLine(String prefix) {
-            return prefix + " marker=" + markerVersion + "|" + markerStatus
-                    + " columns=" + columnCount + "/" + REQUIRED_COLUMNS.size()
-                    + " indexes=" + indexCount + "/" + REQUIRED_INDEXES.size();
-        }
-    }
-}
-`;
-}
+function gameDatabaseAuditJavaSource() { return applicationPolicyText(applicationPolicy().databaseAudit.source); }
 
 function gameDatabaseAuditContainerScript() {
   const source = Buffer.from(gameDatabaseAuditJavaSource(), 'utf8').toString('base64');
@@ -3942,11 +3667,11 @@ function gameDatabaseAuditContainerScript() {
     '[ -n "$driver_entry" ] || { echo "ERROR: PostgreSQL JDBC driver is missing"; exit 1; }',
     'jar xf /app/app.jar "$driver_entry"',
     'driver_jar="$work_dir/$driver_entry"',
-    `printf %s ${shellToken(source)} | base64 -d > ReleaseTradePoolDatabaseAudit.java`,
-    'javac -encoding UTF-8 -cp "$driver_jar" ReleaseTradePoolDatabaseAudit.java',
+    `printf %s ${shellToken(source)} | base64 -d > {{auditClass}}.java`,
+    'javac -encoding UTF-8 -cp "$driver_jar" {{auditClass}}.java',
     'export DB_URL="$db_url" DB_USER="$db_user" DB_PASSWORD="$db_password"',
-    'java -cp "$driver_jar:$work_dir" ReleaseTradePoolDatabaseAudit'
-  ].join('\n');
+    'java -cp "$driver_jar:$work_dir" {{auditClass}}'
+  ].join('\n').replaceAll('{{auditClass}}', applicationPolicy().databaseAudit.className);
 }
 
 function gameDatabaseAuditExecCommand(containerReference, mode, expectedVersion, backupDirectoryReference = '') {
@@ -3998,7 +3723,7 @@ function gameReleaseBackupCommand(remoteComposeDir, stackName, containerName, ex
   commands.push('if [ -f "$backup_dir/paused-retry-baseline.json" ]; then',
     gameRetryBaselineCommand('verify'), 'fi');
   commands.push(...bacteriaInventoryBackupCommands(releaseMigrations));
-  if (releaseMigrations.some(item => item.filePath === DESIGN_IMAGE_SETTINGS_MIGRATION)) commands.push(
+  if (releaseMigrations.some(item => item.filePath === applicationPolicy().migrationRules.designRetirement)) commands.push(
     'legacy_image_settings="$PWD/data/private/design-image.json"',
     'if [ -f "$legacy_image_settings" ]; then test -s "$legacy_image_settings" && cp "$legacy_image_settings" "$backup_dir/design-image.json"; fi'
   );
@@ -4318,41 +4043,11 @@ function gameDatabaseMigrationCompatibilityCommand(releaseMigrations) {
     migration.expectedReleaseHash,
     migration.targetReleaseHash
   ]).filter(Boolean))].sort();
-  const catalogTouched = releaseMigrations.some(migration =>
-    /bacteria.*(catalog|difficult|mechanics)|publish_500_unique_hospital_items/i.test(migration.filePath));
+
   const allowedHashes = hashes.length > 0
     ? `ARRAY[${hashes.map(hash => `'${hash}'`).join(',')}]::text[]`
     : 'ARRAY[]::text[]';
-  const catalogCheck = catalogTouched ? `
-DO $preflight$
-DECLARE
-  current_payload jsonb;
-  catalog_schema_version integer;
-  catalog_level_count integer;
-  catalog_release_hash text;
-  allowed_hashes constant text[] := ${allowedHashes};
-BEGIN
-  IF to_regclass('public.t_bacteria_level_catalog') IS NULL THEN
-    RAISE NOTICE 'bacteria catalog is absent and will be initialized by the release';
-    RETURN;
-  END IF;
-  SELECT payload::jsonb INTO current_payload FROM t_bacteria_level_catalog WHERE id = 1;
-  IF current_payload IS NULL THEN
-    RAISE EXCEPTION 'Bacteria catalog row 1 is missing';
-  END IF;
-  catalog_schema_version := (current_payload->>'schemaVersion')::integer;
-  catalog_level_count := jsonb_array_length(current_payload->'levels');
-  catalog_release_hash := current_payload->>'releaseHash';
-  IF catalog_schema_version < 1 OR catalog_level_count < 500 THEN
-    RAISE EXCEPTION 'Bacteria catalog is incomplete: schema %, levels %', catalog_schema_version, catalog_level_count;
-  END IF;
-  IF catalog_release_hash IS NOT NULL AND array_length(allowed_hashes, 1) IS NOT NULL
-     AND NOT catalog_release_hash = ANY(allowed_hashes) THEN
-    RAISE EXCEPTION 'Bacteria catalog hash % is outside the declared migration chain', catalog_release_hash;
-  END IF;
-  RAISE NOTICE 'bacteria catalog compatible: schema %, levels %, hash %', catalog_schema_version, catalog_level_count, catalog_release_hash;
-END
-$preflight$;` : '';
+  const catalogCheck = applicationPolicy().migrationRules.readonlyQueries.filter(rule => releaseMigrations.some(m => new RegExp(rule.pathPattern, 'i').test(m.filePath))).map(rule => applicationPolicyText(rule.source).replaceAll('{{allowedHashes}}', allowedHashes)).join('\n');
   const sql = `\\set ON_ERROR_STOP on
 BEGIN READ ONLY;
 SELECT current_database() AS migration_preflight_database;
@@ -4371,28 +4066,7 @@ ROLLBACK;
   ];
 }
 
-function tradePoolPostDeployCheckCommand(remoteComposeDir, stackName, containerName, expectedVersion) {
-  const serviceName = gameServiceName(stackName, containerName);
-  return [
-    `cd ${shellToken(remoteComposeDir)}`,
-    `service_name=${shellToken(serviceName)}`,
-    'container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
-    '[ -n "$container_id" ] || { echo "ERROR: no healthy target container is available for trade-pool verification"; exit 1; }',
-    gameDatabaseAuditExecCommand('"$container_id"', 'verify', expectedVersion),
-    'release_started_at=$(cat .last-game-release-start)',
-    ...tradePoolCatalogLogCheckCommands(),
-    'page_result=$(docker exec "$container_id" curl -sS -o /dev/null -w \'%{http_code}|%{redirect_url}\' http://127.0.0.1:8090/admin/tradepool)',
-    'page_status=${page_result%%|*}',
-    '[ "$page_status" = 302 ] || { echo "ERROR: anonymous trade-pool page did not redirect"; exit 1; }',
-    'printf "%s\\n" "$page_result" | grep -Eq \'/login\\?redirect=(%2F|/)admin(%2F|/)tradepool\' || { echo "ERROR: trade-pool login redirect target is wrong"; exit 1; }',
-    'admin_api_result=$(docker exec "$container_id" curl -sS -o /dev/null -w \'%{http_code}|%{redirect_url}\' http://127.0.0.1:8090/api/admin/toilet-market/pool)',
-    'admin_api_status=${admin_api_result%%|*}',
-    'case "$admin_api_status" in 302|401|403) ;; *) echo "ERROR: anonymous admin API request was not denied"; exit 1;; esac',
-    'if [ "$admin_api_status" = 302 ]; then printf "%s\\n" "$admin_api_result" | grep -q \'/login\' || { echo "ERROR: admin API redirect is not a login redirect"; exit 1; }; fi',
-    'echo "tradepool_page=$page_result admin_api=$admin_api_result"',
-    "echo 'tradepool_release_validation=PASS'"
-  ];
-}
+function tradePoolPostDeployCheckCommand(remoteComposeDir,stackName,containerName,expectedVersion){return applicationShellCommands('catalogPostDeploy',{composeDir:shellToken(remoteComposeDir),serviceName:shellToken(gameServiceName(stackName,containerName)),auditCommand:gameDatabaseAuditExecCommand('"$container_id"','verify',expectedVersion),catalogLogs:tradePoolCatalogLogCheckCommands().join('\n')});}
 
 function gameAutomaticRollbackDecisionCommand(stackName, containerName, expectedImage, expectedVersion) {
   const serviceName = gameServiceName(stackName, containerName);
@@ -4436,28 +4110,11 @@ function gameAutomaticRollbackDecisionCommand(stackName, containerName, expected
   ];
 }
 
-function tradePoolCatalogLogCheckCommands() {
-  return [
-    'migration_logs_file=$(mktemp)',
-    'trap \'rm -f "$migration_logs_file"\' EXIT',
-    'set +e',
-    'timeout 20 docker logs --since "$release_started_at" "$container_id" >"$migration_logs_file" 2>&1',
-    'migration_logs_status=$?',
-    'set -e',
-    'migration_logs_bytes=$(wc -c <"$migration_logs_file")',
-    'echo "catalog_log_collection_exit=$migration_logs_status bytes=$migration_logs_bytes"',
-    'case "$migration_logs_status" in 0) ;; 124) echo "WARNING: container log collection reached 20 seconds; validating captured output" ;; *) echo "ERROR: container log collection failed with exit $migration_logs_status"; exit 1;; esac',
-    'grep -Ei "catalog database upgrade (finished|failed)" "$migration_logs_file" | tail -n 20',
-    'if grep -qi "catalog database upgrade failed" "$migration_logs_file"; then echo "ERROR: catalog database upgrade failure detected"; exit 1; fi',
-    'grep -q "catalog database upgrade finished outcome=" "$migration_logs_file" || { echo "ERROR: catalog upgrade completion log is missing"; exit 1; }',
-    'rm -f "$migration_logs_file"',
-    'trap - EXIT'
-  ];
-}
+function tradePoolCatalogLogCheckCommands(){return applicationPolicyText(applicationPolicy().shellChecks.catalogLogs).trimEnd().split('\n');}
 
 function gameAutomaticRollbackCommand(remoteComposeDir, stackName, containerName) {
   const serviceName = gameServiceName(stackName, containerName);
-  const suspendSql = "do $$ begin if to_regclass('public.t_toilet_market_listing') is not null and exists (select 1 from information_schema.columns where table_schema='public' and table_name='t_toilet_market_listing' and column_name='listing_source') then update t_toilet_market_listing set status='SUSPENDED', update_time=now() where listing_source='ADMIN' and status='ACTIVE'; end if; end $$;";
+  const suspendSql = applicationPolicyText(applicationPolicy().beforeRollbackSql);
   const suspendSqlEncoded = Buffer.from(`${suspendSql}\n`, 'utf8').toString('base64');
   return [
     `cd ${shellToken(remoteComposeDir)}`,
@@ -4601,24 +4258,21 @@ function gameImageValidationCommand(dockerTarget, imageTag, appTag, expectedCata
     'cmp -s /app/migrations/SHA256SUMS "$actual_migration_manifest" || { echo "ERROR: image migration manifest does not exactly cover all SQL files"; exit 1; }',
     'rm -f "$actual_migration_manifest"',
     'trap - EXIT',
-    "jar tf /app/app.jar | grep -q 'BOOT-INF/classes/com/zly/hospital/controller/api/ForumSsoController.class'",
-    "jar tf /app/app.jar | grep -q 'BOOT-INF/classes/com/zly/hospital/service/ForumSsoDatabaseUpgradeService.class'",
-    "jar tf /app/app.jar | grep -q 'BOOT-INF/classes/com/zly/hospital/service/ForumProvisioningService.class'",
-    ...GAME_TRADE_POOL_IMAGE_PATHS.map(imagePath => `jar tf /app/app.jar | grep -qx ${shellToken(imagePath)}`),
+    ...applicationPolicy().catalog.imagePaths.map(imagePath => `jar tf /app/app.jar | grep -qx ${shellToken(imagePath)}`),
     'work_dir=$(mktemp -d)',
     'trap \'rm -rf "$work_dir"\' EXIT',
     'cd "$work_dir"',
     'jar xf /app/app.jar BOOT-INF/classes/application-prod.properties',
     ...gameProductionImageConfigCommands(),
-    "jar xf /app/app.jar BOOT-INF/classes/com/zly/hospital/service/catalog/CatalogDatabaseUpgradeService.class",
-    'catalog_class=com.zly.hospital.service.catalog.CatalogDatabaseUpgradeService',
+    `jar xf /app/app.jar BOOT-INF/classes/${applicationPolicy().catalog.className.replaceAll('.', '/')}.class`,
+    `catalog_class=${shellToken(applicationPolicy().catalog.className)}`,
     'catalog_bytecode="$work_dir/catalog-upgrade.javap"',
     'javap -p -constants -c -classpath "$work_dir/BOOT-INF/classes" "$catalog_class" > "$catalog_bytecode"',
-    `actual_catalog_version=$(sed -n 's/.*MARKER_VERSION = \\([0-9][0-9]*\\).*/\\1/p' "$catalog_bytecode" | head -n 1)`,
+    `actual_catalog_version=$(sed -n 's/.*${applicationPolicy().catalog.marker} = \\([0-9][0-9]*\\).*/\\1/p' "$catalog_bytecode" | head -n 1)`,
     '[ -n "$actual_catalog_version" ] || { echo "ERROR: image Catalog MARKER_VERSION is missing"; exit 1; }',
     '[ "$actual_catalog_version" = "$expected_catalog_version" ] || { echo "ERROR: image Catalog version expected $expected_catalog_version, actual $actual_catalog_version"; exit 1; }',
-    ...TRADE_POOL_REQUIRED_COLUMNS.map(column => `grep -q ${shellToken(column)} "$catalog_bytecode"`),
-    ...TRADE_POOL_REQUIRED_INDEXES.map(index => `grep -q ${shellToken(index)} "$catalog_bytecode"`),
+    ...applicationPolicy().catalog.requiredColumns.map(column => `grep -q ${shellToken(column)} "$catalog_bytecode"`),
+    ...applicationPolicy().catalog.requiredIndexes.map(index => `grep -q ${shellToken(index)} "$catalog_bytecode"`),
     'echo "game_image_catalog_version=$actual_catalog_version"',
     'echo "game_image_migration_bundle=PASS count=$migration_sql_count"',
     "echo 'game_image_tradepool_validation=PASS'"
@@ -5385,6 +5039,7 @@ function escapeRegExp(value) {
 }
 
 module.exports = {
+  classifyRuntimePaths(target,files){if(!['game','forum'].includes(target)||!Array.isArray(files))throw new Error('Invalid runtime classification request');return [...new Set(files)].filter(target==='game'?isGameRuntimePath:isForumRuntimePath).sort();},
   requiresFeatureRuntimeCheck,
   gamePrd2RuntimeContractCommands, gameStaticDeliveryCheckCommand, relationsReleaseCheckCommand, tradePoolPostDeployCheckCommand, remoteSshCommand, remoteBashScriptCommand, runPowerShell,
   DEFAULT_REMOTE_COMPOSE_DIR,
@@ -5435,3 +5090,5 @@ module.exports = {
   runPowerShell,
   remoteSshCommand
 };
+
+function applicationShellCommands(key,bindings={}){const template=applicationPolicyText(applicationPolicy().shellChecks[key]);const rendered=template.replace(/\{\{([A-Za-z]+)\}\}/g,(_,name)=>{if(!Object.hasOwn(bindings,name))throw Error('Unbound application template input');return bindings[name];});return rendered.trimEnd().split('\n');}

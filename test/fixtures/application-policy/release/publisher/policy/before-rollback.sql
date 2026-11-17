@@ -1,0 +1,1 @@
+do $$ begin if to_regclass('public.t_toilet_market_listing') is not null and exists (select 1 from information_schema.columns where table_schema='public' and table_name='t_toilet_market_listing' and column_name='listing_source') then update t_toilet_market_listing set status='SUSPENDED', update_time=now() where listing_source='ADMIN' and status='ACTIVE'; end if; end $$;

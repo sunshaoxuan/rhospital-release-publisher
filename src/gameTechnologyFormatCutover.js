@@ -2,19 +2,21 @@ const crypto = require('node:crypto');
 const {GAME_DATABASE, gameDatabasePsqlCommand, gameDatabaseContainerResolutionCommands} = require('./gameProductionDatabase');
 const {gameServiceSnapshotCommands} = require('./gameFormalProductionTransition');
 const {gameRollbackIdentityCommands} = require('./gameRecoveryIdentity');
-const MIGRATIONS = ['scripts/migration/20261016_bound_supervision_income.sql', 'scripts/migration/20261016_technology_catalog.sql'];
-const ROOM_MIGRATION = 'scripts/migration/20261021_room_catalog.sql';
-const includesRoom = migrations => migrations.some(row => row.filePath === ROOM_MIGRATION);
-const formatFloor = migrations => includesRoom(migrations) ? '.room-format-floor-v1' : '.technology-format-floor-v1';
+const {applicationPolicy,applicationPolicyIdentity}=require('./applicationReleasePolicy');
+const formats=()=>applicationPolicy().formats;
+const selectedFormats=migrations=>formats().filter(format=>format.migrations.some(file=>migrations.some(row=>row.filePath===file)));
+const formatFloor=migrations=>{const selected=selectedFormats(migrations);if(!selected.length)throw new Error('No selected format policy');return selected.at(-1).marker;};
 const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
 
 function requiresTechnologyCutover(migrations) {
-  const count = MIGRATIONS.filter(name => migrations.some(row => row.filePath === name)).length;
-  if (count === 1) throw new Error('Technology format migrations must be released together');
-  return count === 2 || includesRoom(migrations);
+  for(const format of formats()) {
+    const count=format.migrations.filter(file=>migrations.some(row=>row.filePath===file)).length;
+    if(count&&format.allOrNone&&count!==format.migrations.length)throw new Error('Format migrations must be released together');
+  }
+  return selectedFormats(migrations).length>0;
 }
 function binding(migrations) {
-  return crypto.createHash('sha256').update(JSON.stringify(migrations.map(row => [row.filePath, row.sha256]))).digest('hex');
+  return crypto.createHash('sha256').update(JSON.stringify([applicationPolicyIdentity().ownedInputHash,migrations.map(row => [row.filePath, row.sha256])])).digest('hex');
 }
 function stoppedWriterCommands() {
   return [
@@ -32,9 +34,7 @@ function stoppedWriterCommands() {
     '}'
   ];
 }
-function imageCapabilityCommands(room = false) {
-  const classes = ['com/zly/hospital/service/catalog/TechnologyCatalogService', 'com/zly/hospital/service/SupervisionSettlementLedger'];
-  if (room) classes.push('com/zly/hospital/service/catalog/RoomCatalogService');
+function imageCapabilityCommands(classes) {
   return ['docker run --rm --pull never --network none --entrypoint sh "$target_image_id" -ec '
     + quote(classes.map(name => 'jar tf /app/app.jar | grep -qx BOOT-INF/classes/' + name + '.class').join('; '))];
 }
@@ -69,7 +69,7 @@ function technologyOfflineBackupCommands(directory, serviceName, imageTag, migra
     'test ! -e ' + formatFloor(migrations) + ' || { echo "ERROR: technology cutover already entered; explicit recovery is required"; exit 1; }',
     'test "$(docker service inspect "$service_name" --format \'{{.Spec.UpdateConfig.FailureAction}}\')" = pause',
     'target_image_id=$(docker image inspect "$target_image" --format \'{{.Id}}\')',
-    ...imageCapabilityCommands(includesRoom(migrations)),
+    ...imageCapabilityCommands([...new Set(selectedFormats(migrations).flatMap(format=>format.classes))]),
     ...gameDatabaseContainerResolutionCommands(),
     'application_container_id=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service_name" --filter health=healthy | head -n 1)',
     'test -n "$application_container_id"',
@@ -99,25 +99,20 @@ function technologyOfflineBackupCommands(directory, serviceName, imageTag, migra
 }
 function technologyRollbackGuardCommands(identityAction = 'verify') {
   if (!['verify', 'current'].includes(identityAction)) throw new Error('Invalid rollback guard action');
-  const sql = "BEGIN READ ONLY; SELECT (to_regclass('public.t_supervision_settlement') IS NOT NULL OR to_regclass('public.t_technology_catalog_publication') IS NOT NULL)::int; ROLLBACK;";
-  const roomSql = "BEGIN READ ONLY; SELECT (to_regclass('public.t_room_catalog_publication') IS NOT NULL)::int; ROLLBACK;";
   return [
     ...gameRollbackIdentityCommands(identityAction),
     ...gameDatabaseContainerResolutionCommands(false),
-    `technology_database_floor=$(${gameDatabasePsqlCommand('-At', false)} -c ${quote(sql)} | sed '/^BEGIN$/d; /^ROLLBACK$/d')`,
-    'case "$technology_database_floor" in 0|1) ;; *) echo "ERROR: unknown technology database floor"; exit 1;; esac',
-    `room_database_floor=$(${gameDatabasePsqlCommand('-At', false)} -c ${quote(roomSql)} | sed '/^BEGIN$/d; /^ROLLBACK$/d')`,
-    'case "$room_database_floor" in 0|1) ;; *) echo "ERROR: unknown room database floor"; exit 1;; esac',
-    'if [ -f .technology-format-floor-v1 ] || [ "$technology_database_floor" = 1 ] || [ -f .room-format-floor-v1 ] || [ "$room_database_floor" = 1 ]; then',
-    '  case "$rollback_reference" in *@sha256:*) ;; *) echo "ERROR: rollback requires an immutable compatible image"; exit 1;; esac',
-    '  target_image_id=$(docker image inspect "$rollback_reference" --format \'{{.Id}}\')',
-    ...imageCapabilityCommands().map(row => '  ' + row),
-    '  if [ -f .room-format-floor-v1 ] || [ "$room_database_floor" = 1 ]; then',
-    ...imageCapabilityCommands(true).map(row => '    ' + row),
-    '  fi',
-    '  echo technology_rollback_compatibility=PASS',
-    'fi'
+    ...formats().flatMap(format=>[
+      `format_floor=$(${gameDatabasePsqlCommand('-At', false)} -c ${quote(format.floorQuery)} | sed '/^BEGIN$/d; /^ROLLBACK$/d')`,
+      'case "$format_floor" in 0|1) ;; *) echo "ERROR: unknown database format floor"; exit 1;; esac',
+      `if [ -f ${quote(format.marker)} ] || [ "$format_floor" = 1 ]; then`,
+      '  case "$rollback_reference" in *@sha256:*) ;; *) echo "ERROR: rollback requires an immutable compatible image"; exit 1;; esac',
+      '  target_image_id=$(docker image inspect "$rollback_reference" --format \'{{.Id}}\')',
+      ...imageCapabilityCommands(format.classes).map(row=>'  '+row),
+      '  echo technology_rollback_compatibility=PASS',
+      'fi'
+    ])
   ];
 }
-module.exports = {MIGRATIONS, ROOM_MIGRATION, requiresTechnologyCutover, stoppedWriterCommands, technologyOfflineBackupCommands,
+module.exports = {get MIGRATIONS(){return formats()[0].migrations;},get ROOM_MIGRATION(){return formats().at(-1).migrations[0];}, requiresTechnologyCutover, stoppedWriterCommands, technologyOfflineBackupCommands,
   technologyReceiptCommands, technologyQuiescedSnapshotCommands, technologyRollbackGuardCommands};
