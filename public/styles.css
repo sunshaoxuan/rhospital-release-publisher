@@ -1126,6 +1126,7 @@ button.danger {
 .log-actions a { display: inline-flex; align-items: center; min-height: 44px; padding: 8px; color: var(--blue); font-weight: 800; }
 .empty-detail { padding: 24px 0; color: var(--muted); line-height: 1.7; }
 .history-tools { flex-wrap: wrap; gap: 8px; }
+.history-pagination { display: flex; align-items: center; gap: 8px; }
 #history-refresh { min-height: 44px; }
 @media (max-width: 1050px) {
  .overview-grid { grid-template-columns: 310px minmax(0,1fr); }
@@ -1147,6 +1148,8 @@ button.danger {
  .detail-panel .step-title { grid-template-columns: 38px minmax(0,1fr); gap: 10px; }
  .detail-panel .step-meta { grid-column: 2; justify-content: flex-start; }
  .detail-panel .step { padding: 14px; }
- .history-tools { width: 100%; justify-content: flex-start; }
+ .history-tools { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 12px 8px; }
+ .history-pagination { grid-column: 1 / -1; grid-row: 2; justify-content: space-between; }
+ #history-clear { grid-column: 2; grid-row: 1; }
  .history-tools button { min-height: 44px; }
 }
