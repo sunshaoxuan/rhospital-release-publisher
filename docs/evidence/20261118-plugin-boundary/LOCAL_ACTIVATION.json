@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "scope": "publisher-only",
+  "state": "PASS",
+  "checkedAtUtc": "2026-11-18T02:41:18.1045829Z",
+  "runtimeCommit": "3bed315d60dd35707a2a96834f579d553a2bc996",
+  "runtimeVersion": "0.2.0+3bed315d",
+  "versionStatus": "UP_TO_DATE",
+  "busy": false,
+  "hasJob": false,
+  "historyPreserved": true,
+  "guardStages": [
+    "ACQUIRE",
+    "BARRIER",
+    "UNBARRIER",
+    "RELEASE"
+  ],
+  "updaterLogSha256": "610DB2E8C27D75C6740D479D211A6F6818EB54681F527531966FA7E56B992C26",
+  "runnerSha256": "31D30CBAB51F25454E54A7B42C0163128BBF9C7C4BDCE313B749F9417EED8A42",
+  "testsRerun": 0,
+  "gameActions": 0
+}

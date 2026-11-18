@@ -17,4 +17,4 @@
 
 仅执行本地隔离验证及源码交付，无游戏发布、生产探测、数据库操作、Docker构建、Maven或产品全量。历次失败及最小修复记录保留于[主任务](../../tasks/20261118-plugin-boundary-contract.md)。候选和Node程序身份漂移、缺失拥有输入、未完成结果、错误协议、过时基线/迁移及OCI对象混比均有拒绝样例。
 
-本机发布器启用另行记录。Windows返回用户取消，管理员进程未启动。之后实际GET核对服务仍为441b4b3、UP_TO_DATE、busy=false、无job。候选3bed315尚未启用，当前没有新服务运行PASS；重新启用需要新的UAC确认，源码通过不能代替启用结果。
+用户重新授权后，本机发布器已启用3bed315，实际版本为0.2.0+3bed315d、UP_TO_DATE、busy=false且无job。受控脚本确认历史记录保留，ACQUIRE、BARRIER、UNBARRIER、RELEASE完整。启用证据见[本机回执](LOCAL_ACTIVATION.json)。此前UAC取消记录保留于主任务；本次无测试重跑或游戏操作。
