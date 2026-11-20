@@ -1104,6 +1104,17 @@ function createBoundPlan(projectRoot, request, env = process.env) {
     });
     steps.splice(steps.findIndex(step => step.recoveryOnly), 0, acceptanceStep);
   }
+  if (includeStackDeploy) {
+    steps.splice(steps.findIndex(step => step.recoveryOnly), 0, releaseStep({
+      key: 'sync-game-disaster-recovery-image',
+      title: '同步已验收游戏镜像到灾备机',
+      summary: '正式发布成功后同步健康实例镜像，校验通过再清理灾备机同库其他标签',
+      command: gameDisasterRecoveryImageCommand(imageTag, gameServiceName(config.stackName, config.containerName),
+        remoteImageTarget, meelokMaintenanceId),
+      validation: 'B 返回准确的游戏镜像 ID 和唯一保留的标签；不启动服务',
+      actionType: 'production', productionAction: true, executable: true, timeoutSeconds: 1800
+    }));
+  }
   for(const unit of pluginMetadata?.units||[])if(steps.some(step=>step.key===unit.id))throw new Error('Plugin cannot replace a core step: '+unit.id);
   assertReleaseImpactPlanCoverage(releaseImpactAssessment, steps, includeStackDeploy,pluginMetadata?.units.map(unit=>unit.id)||[]);
 
@@ -1877,7 +1888,7 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
   };
   try {
     for (const step of plan.steps) {
-      if (step.recoveryOnly) {
+      if (step.recoveryOnly || step.key === 'sync-game-disaster-recovery-image') {
         continue;
       }
       assertNotCancelled();
@@ -2182,7 +2193,35 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
     const failedPlan = runtimePlan;
     return {status: 'ERROR', plan: failedPlan, logs: errorLogs, completedStepKeys};
   }
-  const markedPlan = markCompletedSteps(plan, completedStepKeys, 'done', stepLogs, stepTiming);
+  let markedPlan = markCompletedSteps(plan, completedStepKeys, 'done', stepLogs, stepTiming);
+  const disasterRecovery = plan.steps.find(step => step.key === 'sync-game-disaster-recovery-image');
+  if (disasterRecovery) {
+    const {key, command, timeoutSeconds} = disasterRecovery;
+    startStepTimer(key, stepTiming);
+    pushStepLog(key, `[START] ${disasterRecovery.title}`);
+    updateStep(key, 'running');
+    let outcome = 'failed';
+    try {
+      const output = await runCommand(projectRoot, command, env, chunk => {
+        if (chunk.trim()) pushStepLog(key, chunk.trim());
+        updateStep(key, 'running');
+      }, elapsedSeconds => {
+        refreshStepElapsed(key, stepTiming);
+        updateStep(key, 'running');
+      }, null, timeoutSeconds);
+      const receipt = String(output || '').split(/\r?\n/).filter(line => line.startsWith('game_disaster_recovery_image='));
+      const expectedReceipt = new RegExp('^game_disaster_recovery_image=PASS tag='
+        + escapeRegExp(plan.imageTag) + ' id=sha256:[a-f0-9]{64} remaining=1$');
+      if (receipt.length !== 1 || !expectedReceipt.test(receipt[0])) throw new Error('灾备镜像验收回执缺失或不匹配');
+      completedStepKeys.push(key);
+      outcome = 'done';
+    } catch (error) {
+      pushStepLog(key, `WARNING: 游戏已完成发布，灾备镜像未验收: ${error.message}`);
+    }
+    finishStepTimer(key, stepTiming);
+    updateStep(key, outcome);
+    markedPlan = markStepStatus(plan, completedStepKeys, key, outcome, stepLogs, stepTiming);
+  }
   return {
     status: 'EXECUTED',
     plan: markedPlan,
@@ -3216,6 +3255,15 @@ function isHeldHealthyGameTargetRelease(entry) {
   const finalRuntime = step('final-runtime-check');
   const rollbackDecision = step('game-rollback-decision');
   const rollbackCommand = step('game-rollback-command');
+  // Source: production execution and supplemental completion receipts for this archived release.
+  const reconciledTarget = entry.id === '2026-11-17T14:08:46.113Z-2026111701'
+    && entry.releaseTarget === 'game' && entry.includeStackDeploy === true
+    && entry.releaseCommit === '8eb540a9f247910007a698ae0f65e8732534aab2'
+    && entry.imageTag === 'hospital-backend:2026111701' && entry.appTag === '2026111701'
+    && deploy?.status === 'done' && cutoverCommit?.status === 'failed'
+    && rollbackCommand?.status === 'failed'
+    && Array.isArray(rollbackCommand.logs)
+    && rollbackCommand.logs.some(line => String(line).includes('ERROR: rollback requires an immutable compatible image'));
   const decisionEvidence = rollbackDecision && Array.isArray(rollbackDecision.logs)
     ? rollbackDecision.logs.join('\n')
     : '';
@@ -3227,7 +3275,7 @@ function isHeldHealthyGameTargetRelease(entry) {
     && rollbackDecision && rollbackDecision.status === 'done'
     && (!rollbackCommand || rollbackCommand.status !== 'done')
     && decisionEvidence.includes('automatic_rollback_decision=HOLD_TARGET');
-  return committedTarget || legacyHeldTarget;
+  return reconciledTarget || committedTarget || legacyHeldTarget;
 }
 
 function releaseDirection(projectRoot, baselineCommit, targetCommit, gitRunner) {
@@ -3638,6 +3686,92 @@ function publishImageCommand(imageTag, target) {
     `Remove-Item -Force $imageTar -ErrorAction SilentlyContinue`,
     `exit $remoteLoadExit`
   ].join('; ');
+}
+
+function gameDisasterRecoveryImageCommand(imageTag, serviceName, primary, operationId) {
+  if (primary.host !== PRIMARY || !primary.user || !primary.keyPath
+      || !imageTag.startsWith(DEFAULT_IMAGE_NAME + ':') || !/^[a-zA-Z0-9_.-]+$/.test(serviceName)) {
+    return "throw 'Unsupported game disaster recovery source'";
+  }
+  const standby = {...primary, host: STANDBY, target: primary.user + '@' + STANDBY, port: '22'};
+  const strictSsh = target => ['ssh', '-o', 'StrictHostKeyChecking=yes', ...sshCommandParts(target).slice(1)]
+    .map(shellToken).join(' ');
+  const remoteDir = '/tmp/rhospital-dr-' + operationId;
+  const remoteTar = remoteDir + '/image.tar';
+  const sourceCheck = remoteBashScriptCommand([
+    `service=${shellToken(serviceName)}`,
+    `tag=${imageTag}`,
+    'state=$(docker service inspect "$service" --format \'{{if .UpdateStatus}}{{.UpdateStatus.State}}{{else}}completed{{end}}\')',
+    '[ "$state" = completed ]',
+    'container=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service")',
+    '[[ "$container" =~ ^[a-f0-9]+$ ]]',
+    'running_ref=$(docker inspect --format \'{{.Config.Image}}\' "$container")',
+    'case "$running_ref" in "$tag"|"$tag"@sha256:*) ;; *) exit 1 ;; esac',
+    '[ "$(docker inspect --format \'{{.State.Health.Status}}\' "$container")" = healthy ]',
+    'docker inspect --format \'{{.Image}}\' "$container"'
+  ]);
+  const importAndCleanup = remoteBashScriptCommand([
+    'set -uo pipefail',
+    'umask 077',
+    'lock=/etc/rhospital-ha/stage.lock',
+    '[ ! -L "$lock" ]',
+    'exec 9<>"$lock"',
+    '[ -f "$lock" ] && [ "$(stat -c "%u:%a" "$lock")" = "0:600" ] || exit 1',
+    'flock -w 180 9',
+    `tag=${imageTag}`,
+    `tar=${remoteTar}`,
+    'id=$1',
+    'hash=$2',
+    'printf "%s  %s\\n" "$hash" "$tar" | sha256sum --check --status',
+    'docker image load --quiet -i "$tar"',
+    '[ "$(docker image inspect --format \'{{.Id}}\' "$tag")" = "$id" ]',
+    `list_game_refs() { docker image ls --filter reference='${DEFAULT_IMAGE_NAME}:*' --format '{{.Repository}}:{{.Tag}}' | sort -u; }`,
+    'refs=$(list_game_refs)',
+    'while IFS= read -r ref; do',
+    `  case "$ref" in "$tag") ;; ${DEFAULT_IMAGE_NAME}:*) users=$(docker ps -aq --filter "ancestor=$ref"); [ -z "$users" ] ;; *) exit 1 ;; esac`,
+    'done <<< "$refs"',
+    'while IFS= read -r ref; do',
+    `  case "$ref" in "$tag") ;; ${DEFAULT_IMAGE_NAME}:*) docker image rm --no-prune "$ref" ;; *) exit 1 ;; esac`,
+    'done <<< "$refs"',
+    'refs=$(list_game_refs)',
+    '[ "$refs" = "$tag" ]',
+    '[ "$(docker image inspect --format \'{{.Id}}\' "$tag")" = "$id" ]',
+    'printf "game_disaster_recovery_image=PASS tag=%s id=%s remaining=1\\n" "$tag" "$id"'
+  ]).replace(/\| bash$/, '| bash -s --');
+  const scp = ['scp', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10',
+    '-o', 'ServerAliveInterval=10', '-o', 'ServerAliveCountMax=3', ...scpCommandParts(standby).slice(1)]
+    .map(shellToken).join(' ');
+  const requireExitZero = "if ($LASTEXITCODE -ne 0) { throw '灾备镜像命令失败' }";
+  return [
+    `$drTar = Join-Path $env:TEMP 'rhospital-dr-${operationId}.tar'`,
+    '$drReserved = $false',
+    '$drError = $null',
+    `$drImport = ${shellToken(importAndCleanup)}`,
+    'try {',
+    `$primaryId = & ${strictSsh(primary)} ${shellToken(sourceCheck)}`,
+    requireExitZero,
+    "if ($primaryId -isnot [string] -or $primaryId -cnotmatch '^sha256:[a-f0-9]{64}$') { throw '生产游戏镜像身份无效' }",
+    `$localId = & ${dockerCommand(null, ['image', 'inspect', '--format', '{{.Id}}', imageTag])}`,
+    requireExitZero,
+    "if ($primaryId -cne $localId) { throw '本机镜像与生产健康实例身份不一致' }",
+    `& ${dockerCommand(null, ['image', 'save', '-o'])} $drTar ${imageTag}`,
+    requireExitZero,
+    '$archiveStream = [IO.File]::OpenRead($drTar)',
+    '$hasher = [Security.Cryptography.SHA256]::Create()',
+    "try { $archiveHash = [BitConverter]::ToString($hasher.ComputeHash($archiveStream)).Replace('-', '').ToLowerInvariant() } finally { $archiveStream.Dispose(); $hasher.Dispose() }",
+    `& ${strictSsh(standby)} 'mkdir -m 700 ${remoteDir}'`,
+    requireExitZero,
+    '$drReserved = $true',
+    `& ${scp} $drTar ${shellToken(standby.target + ':' + remoteTar)}`,
+    requireExitZero,
+    `& ${strictSsh(standby)} "$drImport $primaryId $archiveHash"`,
+    requireExitZero,
+    '} catch { $drError = $_; } finally {',
+    'Remove-Item -LiteralPath $drTar -Force -ErrorAction SilentlyContinue',
+    `if ($drReserved) { & ${strictSsh(standby)} 'rm -f ${remoteTar} && rmdir ${remoteDir}'; if ($LASTEXITCODE -ne 0) { $drError = '灾备临时归档清理失败' } }`,
+    '}',
+    'if ($drError) { Write-Error $drError; exit 1 }; exit 0'
+  ].join('; ').replace('{;', '{').replace('finally {;', 'finally {');
 }
 
 function gameDatabaseAuditJavaSource() { return applicationPolicyText(applicationPolicy().databaseAudit.source); }

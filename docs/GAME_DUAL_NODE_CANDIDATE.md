@@ -4,7 +4,9 @@
 
 Formal game release defaults to the existing A-only pipeline. The normal console
 request does not enable B candidate distribution, verification, helper cutover or
-acceptance. A's existing source, build, database, CheckList and runtime safety gates
+acceptance. After successful formal game release, the publisher synchronizes the
+accepted application image to B under the [operator handbook](release-plugin-handbook.md).
+A's existing source, build, database, CheckList and runtime safety gates
 remain mandatory. B interface/configuration defects do not block this mode, and it
 never marks a new B takeover version as accepted.
 
@@ -44,7 +46,8 @@ not count as the mandatory pre-cutover gate.
 4. Every existing A runtime and business final check remains mandatory.
 5. `accept-game-standby-candidate` runs last, verifies B again and A's actual healthy
    container image ID, then performs an atomic compare-and-swap of B's accepted marker.
-   No subsequent cancellation check or fallible release step can trigger rollback.
+   The separate post-release cold backup runs after acceptance. Its one-image retention
+   supersedes historical image retention on B, and its outcome cannot trigger rollback.
 
 New steps are registered executable assessment checks. They are unconditional for
 explicit dual-node deployment; business assessments cannot opt out. Existing game/forum

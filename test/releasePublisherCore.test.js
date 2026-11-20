@@ -2843,7 +2843,114 @@ test('successful game release cleans exited service containers after every final
   assert.ok(cleanupCommandIndex > tradePoolCommandIndex);
   const history = readReleaseHistory(root, 1, {RELEASE_PUBLISHER_HISTORY_FILE: historyPath})[0];
   assert.equal(history.stepSummary.find(step => step.key === 'cleanup-game-release-containers').status, 'done');
+  const dr = result.plan.steps.find(step => step.key === 'sync-game-disaster-recovery-image');
+  assert.equal(dr.status, 'done');
+  assert.ok(runCommand.commands.indexOf(dr.command) > cleanupCommandIndex);
+  assert.equal(history.stepSummary.find(step => step.key === dr.key).status, 'done');
   assert.equal(history.diagnostics.outcome, 'SUCCESS');
+});
+
+test('disaster recovery failures persist warnings outside game rollback authority', async () => {
+  const root = tempProject(sampleXml);
+  const env = {RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'dr-history.json')};
+  const request = {appTag: 'dr-test', dryRun: false, includeStackDeploy: true};
+  const key = 'sync-game-disaster-recovery-image';
+  for (const failure of ['archive upload refused', 'receipt missing']) {
+    const runner = testCommandRunner();
+    const result = await executePlan(root, request, env, {runCommand: async (...args) => {
+      if (!decodedScriptTree(args[1]).includes('game_disaster_recovery_image=')) return runner(...args);
+      if (failure === 'receipt missing') return 'OK';
+      throw new Error(failure);
+    }});
+    assert.equal(result.status, 'EXECUTED');
+    assert.equal(result.plan.steps.find(step => step.key === key).status, 'failed');
+    assert.equal(result.plan.steps.find(step => step.key === 'game-rollback-command').status, 'pending');
+    assert.ok(!result.completedStepKeys.includes(key));
+    assert.equal(readReleaseHistory(root, 1, env)[0].diagnostics.outcome, 'SUCCESS_WITH_WARNINGS');
+  }
+  const dryRun = await executePlan(root, {...request, dryRun: true}, env, {runCommand: async () => {
+    assert.fail('dry-run must not execute the cold backup');
+  }});
+  assert.equal(dryRun.status, 'DRY_RUN');
+  assert.ok(!createPlan(root, {...request, includeStackDeploy: false}, env).steps.some(step => step.key === key));
+});
+
+test('cold-backup shell verifies the load before removing only old game tags', () => {
+  const root = tempProject(sampleXml);
+  const plan = createPlan(root, {appTag: 'dr-test', includeStackDeploy: true});
+  const command = plan.steps.find(step => step.key === 'sync-game-disaster-recovery-image').command;
+  const script = decodedScriptTree(command);
+  const importScript = decodedRemoteScript(command).replace('/etc/rhospital-ha/stage.lock', './stage.lock');
+  assert.match(command, /StrictHostKeyChecking=yes/);
+  assert.match(script, /docker inspect --format '\{\{\.Image\}\}'/);
+  assert.match(importScript, /flock -w 180/);
+  const imageId = 'sha256:' + 'b'.repeat(64);
+  for (const scenario of ['pass', 'already-synced', 'hash-fail', 'load-fail', 'id-drift', 'busy', 'list-fail', 'foreign-tag']) {
+    const fixture = [
+      'scenario=$1; shift',
+      'stat() { echo 0:600; }',
+      'flock() { return 0; }',
+      'sha256sum() { [ "$scenario" != hash-fail ]; }',
+      'rm -f old-removed',
+      'docker() {',
+      '  case "$*" in',
+      '    "image load "*) [ "$scenario" != load-fail ] ;;',
+      '    "image inspect "*) if [ "$scenario" = id-drift ]; then echo invalid; else echo "$image_id"; fi ;;',
+      '    "image ls --filter reference=hospital-backend:* "*)',
+      '      [ "$scenario" != list-fail ] || return 1',
+      '      echo hospital-backend:dr-test',
+      '      if [ ! -f old-removed ] && [ "$scenario" != already-synced ]; then echo hospital-backend:old; fi',
+      '      if [ "$scenario" = foreign-tag ]; then echo other:old; fi ;;',
+      '    "ps -aq --filter ancestor=hospital-backend:old") if [ "$scenario" = busy ]; then echo existing; fi ;;',
+      '    "image rm --no-prune hospital-backend:old") touch old-removed; echo removed-old ;;',
+      '    *) return 99 ;;',
+      '  esac',
+      '}',
+      'image_id=$1',
+      importScript
+    ].join('\n');
+    const result = spawnSync(testBashExecutable(), ['-c', fixture, 'fixture', scenario, imageId, 'hash'], {cwd: root, encoding: 'utf8'});
+    const success = ['pass', 'already-synced'].includes(scenario);
+    assert.equal(result.status === 0, success, scenario + ': ' + result.stderr);
+    assert.equal(result.stdout.includes('game_disaster_recovery_image=PASS'), success, scenario);
+    assert.equal(result.stdout.includes('removed-old'), scenario === 'pass', scenario);
+  }
+});
+
+test('Windows cold backup passes the exact image identity and archive hash to B', {skip: process.platform !== 'win32'}, () => {
+  const root = tempProject(sampleXml);
+  const plan = createPlan(root, {appTag: 'dr-test', includeStackDeploy: true});
+  const command = plan.steps.find(step => step.key === 'sync-game-disaster-recovery-image').command;
+  const imageId = 'sha256:' + 'c'.repeat(64);
+  const archiveHash = crypto.createHash('sha256').update('local test archive').digest('hex');
+  const shell = [
+    `$expectedId = '${imageId}'`,
+    'function docker {',
+    '  $global:LASTEXITCODE = 0',
+    "  if ($args[1] -ceq 'inspect') { $expectedId; return }",
+    "  if ($args[1] -ceq 'save' -and $args[2] -ceq '-o') { [IO.File]::WriteAllText($args[3], 'local test archive'); return }",
+    '  $global:LASTEXITCODE = 1',
+    '}',
+    'function scp { $global:LASTEXITCODE = if (Test-Path -LiteralPath $args[-2]) { 0 } else { 1 } }',
+    'function ssh {',
+    '  $global:LASTEXITCODE = 0',
+    "  if ($args[-2] -clike '*@92.113.124.185') { $expectedId; return }",
+    "  if ($args[-2] -cnotlike '*@185.184.223.41') { $global:LASTEXITCODE = 1; return }",
+    "  if ($args[-1] -clike 'mkdir *' -or $args[-1] -clike 'rm -f *') { return }",
+    `  if ($args[-1] -cmatch '\\| bash -s -- ${imageId} ${archiveHash}$') {`,
+    "    'game_disaster_recovery_image=PASS tag=hospital-backend:dr-test id=' + $expectedId + ' remaining=1'; return",
+    '  }',
+    '  $global:LASTEXITCODE = 1',
+    '}'
+  ].join('\n');
+  const file = path.join(root, 'dr-powershell-fixture.ps1');
+  fs.writeFileSync(file, '\uFEFF' + shell + '\n' + command + '\n');
+  const result = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', file], {
+    cwd: root, env: {...process.env, TEMP: root}, encoding: 'utf8'
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /game_disaster_recovery_image=PASS/);
+  assert.ok(!fs.readdirSync(root).some(file => file.endsWith('.tar')));
 });
 
 test('terminal evidence is persisted before semantic diagnosis and model failure preserves success with warnings', async () => {
@@ -3031,7 +3138,7 @@ test('explicit dual-node gate is mandatory, precedes Compose mutation and accept
   const keys = plan.steps.filter(step => !step.recoveryOnly).map(step => step.key);
   assert.ok(keys.indexOf('publish-image') < keys.indexOf('verify-game-standby-candidate'));
   assert.ok(keys.indexOf('verify-game-standby-candidate') < keys.indexOf('update-remote-compose'));
-  assert.equal(keys.at(-1), 'accept-game-standby-candidate');
+  assert.deepEqual(keys.slice(-2), ['accept-game-standby-candidate', 'sync-game-disaster-recovery-image']);
   assert.ok(keys.indexOf('final-runtime-check') < keys.indexOf('accept-game-standby-candidate'));
   const commands = plan.steps.filter(step => step.command.includes('game-standby-candidate.cjs'));
   const candidateIds = commands.map(step => {
@@ -3339,6 +3446,42 @@ test('detects deployable target changes and blocks unchanged or rollback release
   assert.equal(rollback.targets.game.direction, 'rollback');
   assert.throws(() => assertReleaseTargetChanged(rollback, 'game', 'build'), /已阻止降级发布/);
   assert.equal(assertReleaseTargetChanged(rollback, 'forum', 'reuse'), true);
+});
+
+test('reconciles only the archived healthy game release and retains later successful baselines', () => {
+  const root = tempGitProject();
+  const previous = '1aa70d92350f8dacbd4fd2895fcd251a4bb893a9';
+  const recovered = '8eb540a9f247910007a698ae0f65e8732534aab2';
+  const candidate = '85b50f028' + 'f'.repeat(31);
+  const skippedPath = 'src/main/resources/bacteria-level-validator.js';
+  const reconciled = {
+    id: '2026-11-17T14:08:46.113Z-2026111701', appTag: '2026111701',
+    imageTag: 'hospital-backend:2026111701', releaseCommit: recovered,
+    includeStackDeploy: true, releaseTarget: 'game', status: 'RECOVERY_REQUIRED',
+    stepSummary: [
+      {key: 'deploy-stack', status: 'done'},
+      {key: 'commit-game-cutover', status: 'failed'},
+      {key: 'game-rollback-command', status: 'failed', logs: ['ERROR: rollback requires an immutable compatible image']}
+    ]
+  };
+  const successful = {status: 'EXECUTED', releaseTarget: 'game', releaseCommit: previous, includeStackDeploy: true};
+  const git = (_bin, args) => ({status: 0, stdout: args[0] === 'rev-parse'
+    ? candidate : args[0] === 'diff' && args.at(-1).startsWith(previous) ? skippedPath : ''});
+  const scenarios = [
+    {entries: [reconciled, successful], baseline: recovered, paths: []},
+    {entries: [{...reconciled, releaseCommit: candidate}, successful], baseline: previous, paths: [skippedPath]},
+    {entries: [{...reconciled, stepSummary: reconciled.stepSummary.slice(0, 2)}, successful], baseline: previous, paths: [skippedPath]},
+    {entries: [{...successful, releaseCommit: candidate}, reconciled], baseline: candidate, paths: []}
+  ];
+  for (const [index, scenario] of scenarios.entries()) {
+    const file = path.join(root, 'reconciliation-' + index + '.json');
+    const history = JSON.stringify(scenario.entries);
+    fs.writeFileSync(file, history);
+    const analysis = analyzeReleaseChanges(root, {}, {RELEASE_PUBLISHER_HISTORY_FILE: file}, git);
+    assert.equal(analysis.targets.game.baselineCommit, scenario.baseline);
+    assert.deepEqual(analysis.targets.game.changedPaths, scenario.paths);
+    assert.equal(fs.readFileSync(file, 'utf8'), history);
+  }
 });
 
 test('allows a dry-run pre-push plan for a proposed fast-forward commit', () => {
@@ -3807,6 +3950,12 @@ function testCommandRunner(options = {}) {
       throw new Error('simulated preflight failure');
     }
     const script=decodedScriptTree(command);
+    if (script.includes('game_disaster_recovery_image=')) {
+      const tag = script.match(/^tag=(hospital-backend:[\w.-]+)$/m)[1];
+      const output = 'game_disaster_recovery_image=PASS tag=' + tag + ' id=sha256:' + 'a'.repeat(64) + ' remaining=1\n';
+      onChunk?.(output);
+      return output;
+    }
     if(script.includes('python3 - attempt --root'))attempted=true;
     if(script.includes('python3 - compensate --root')){
       const id=script.match(/--transaction '([a-f0-9-]{36})'/)[1];

@@ -499,6 +499,9 @@
       { key: 'standby', title: '备用接管版本验收', members: [
         'accept-game-standby-candidate'
       ] },
+      { key: 'disaster-recovery', title: '灾备镜像', members: [
+        'sync-game-disaster-recovery-image'
+      ] },
       { key: 'recovery', title: '致命故障恢复', members: [
         'game-config-compensation', 'game-rollback-decision', 'game-fatal-rollback-decision', 'game-rollback-command',
         'forum-rollback-command'

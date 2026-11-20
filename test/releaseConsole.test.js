@@ -65,6 +65,7 @@ test('pipeline phases follow execution order when game build starts', () => {
   assert.doesNotMatch(dataMembers[1], /game-database-preflight|forum-preflight/);
   assert.match(observeMembers[1], /final-runtime-check[\s\S]*game-prd2-runtime-contract[\s\S]*verify-game-static-delivery/);
   assert.match(app, /key: 'cleanup'[\s\S]*cleanup-game-release-containers[\s\S]*key: 'recovery'/);
+  assert.match(app, /key: 'standby'[\s\S]*key: 'disaster-recovery'[\s\S]*sync-game-disaster-recovery-image[\s\S]*key: 'recovery'/);
 
   const phaseBlock = app.match(/const phaseDefinitions = \[([\s\S]*?)\n    \];/);
   assert.ok(phaseBlock);
