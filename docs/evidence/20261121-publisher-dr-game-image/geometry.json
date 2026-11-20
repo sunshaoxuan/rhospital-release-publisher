@@ -1,0 +1,248 @@
+{
+  "desktop": {
+    "width": 1440,
+    "height": 900,
+    "overview": {
+      "layout": {
+        "x": 903.5,
+        "y": 1028.8125,
+        "width": 475.5,
+        "height": 136
+      },
+      "action": {
+        "x": 1111.9375,
+        "y": 1097.75,
+        "width": 117,
+        "height": 44
+      },
+      "title": {
+        "x": 975.5,
+        "y": 1044.8125,
+        "width": 387.5,
+        "height": 18.75
+      },
+      "bodyWidth": 1425,
+      "viewport": 1440,
+      "height": 1783
+    },
+    "step": {
+      "layout": {
+        "x": 44,
+        "y": 528.0625,
+        "width": 1337,
+        "height": 353.78125
+      },
+      "action": {
+        "x": 60,
+        "y": 692.046875,
+        "width": 1305,
+        "height": 44
+      },
+      "title": {
+        "x": 116,
+        "y": 544.0625,
+        "width": 1007.90625,
+        "height": 20
+      },
+      "bodyWidth": 1425,
+      "viewport": 1440,
+      "height": 976
+    },
+    "buttonPixels": {
+      "borderBox": [
+        209,
+        70,
+        117,
+        44
+      ],
+      "usableBox": [
+        217,
+        78,
+        318,
+        106
+      ],
+      "glyphBox": [
+        221,
+        86,
+        313,
+        98
+      ],
+      "padding": [
+        4,
+        8,
+        5,
+        8
+      ],
+      "centerOffset": [
+        -0.5,
+        0.0
+      ],
+      "tolerance": 1.2,
+      "pass": true
+    }
+  },
+  "mobile": {
+    "width": 390,
+    "height": 844,
+    "overview": {
+      "layout": {
+        "x": 34,
+        "y": 3365.640625,
+        "width": 307,
+        "height": 161.9375
+      },
+      "action": {
+        "x": 106,
+        "y": 3467.578125,
+        "width": 117,
+        "height": 44
+      },
+      "title": {
+        "x": 106,
+        "y": 3381.640625,
+        "width": 219,
+        "height": 18.75
+      },
+      "bodyWidth": 375,
+      "viewport": 390,
+      "height": 4182
+    },
+    "step": {
+      "layout": {
+        "x": 34,
+        "y": 724.234375,
+        "width": 307,
+        "height": 463.15625
+      },
+      "action": {
+        "x": 50,
+        "y": 997.59375,
+        "width": 275,
+        "height": 44
+      },
+      "title": {
+        "x": 98,
+        "y": 740.234375,
+        "width": 227,
+        "height": 20
+      },
+      "bodyWidth": 375,
+      "viewport": 390,
+      "height": 1271
+    },
+    "buttonPixels": {
+      "borderBox": [
+        72,
+        103,
+        117,
+        44
+      ],
+      "usableBox": [
+        80,
+        111,
+        181,
+        139
+      ],
+      "glyphBox": [
+        84,
+        119,
+        176,
+        131
+      ],
+      "padding": [
+        4,
+        8,
+        5,
+        8
+      ],
+      "centerOffset": [
+        -0.5,
+        0.0
+      ],
+      "tolerance": 1.2,
+      "pass": true
+    }
+  },
+  "narrow": {
+    "width": 320,
+    "height": 800,
+    "overview": {
+      "layout": {
+        "x": 34,
+        "y": 3685.96875,
+        "width": 237,
+        "height": 178.125
+      },
+      "action": {
+        "x": 106,
+        "y": 3804.09375,
+        "width": 117,
+        "height": 44
+      },
+      "title": {
+        "x": 106,
+        "y": 3701.96875,
+        "width": 149,
+        "height": 18.75
+      },
+      "bodyWidth": 305,
+      "viewport": 320,
+      "height": 4538
+    },
+    "step": {
+      "layout": {
+        "x": 34,
+        "y": 801.375,
+        "width": 237,
+        "height": 522.140625
+      },
+      "action": {
+        "x": 50,
+        "y": 1133.71875,
+        "width": 205,
+        "height": 44
+      },
+      "title": {
+        "x": 98,
+        "y": 817.375,
+        "width": 157,
+        "height": 40
+      },
+      "bodyWidth": 305,
+      "viewport": 320,
+      "height": 1408
+    },
+    "buttonPixels": {
+      "borderBox": [
+        72,
+        119,
+        117,
+        44
+      ],
+      "usableBox": [
+        80,
+        127,
+        181,
+        155
+      ],
+      "glyphBox": [
+        84,
+        135,
+        176,
+        147
+      ],
+      "padding": [
+        4,
+        8,
+        5,
+        8
+      ],
+      "centerOffset": [
+        -0.5,
+        0.0
+      ],
+      "tolerance": 1.2,
+      "pass": true
+    }
+  }
+}

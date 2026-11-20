@@ -1,0 +1,15 @@
+{
+  "checkedAtUtc": "2026-11-20T17:32:24.6405448Z",
+  "scope": "publisher-only",
+  "state": "BLOCKED_ADMINISTRATOR_LAUNCH_CANCELLED",
+  "candidateCommit": "778906f1bba77b2ae4476e1a92c667d6e8a28b6a",
+  "runtimeCommit": "3bed315d60dd35707a2a96834f579d553a2bc996",
+  "runtimeVersion": "0.2.0+3bed315d",
+  "versionStatus": "UP_TO_DATE",
+  "busy": false,
+  "candidateWorktreeExists": false,
+  "updaterStarted": false,
+  "productionPlanReadback": "PENDING_PUBLISHER_ACTIVATION",
+  "disasterRecoveryExecution": "DEFERRED_TO_NEXT_GAME_RELEASE",
+  "applicationJobsCreated": 0
+}

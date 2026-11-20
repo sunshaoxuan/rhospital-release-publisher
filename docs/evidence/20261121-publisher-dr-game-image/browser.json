@@ -1,0 +1,355 @@
+{
+  "metrics": {
+    "desktop": {
+      "width": 1440,
+      "height": 900,
+      "overview": {
+        "layout": {
+          "x": 903.5,
+          "y": 1028.8125,
+          "width": 475.5,
+          "height": 136
+        },
+        "action": {
+          "x": 1111.9375,
+          "y": 1097.75,
+          "width": 117,
+          "height": 44
+        },
+        "title": {
+          "x": 975.5,
+          "y": 1044.8125,
+          "width": 387.5,
+          "height": 18.75
+        },
+        "bodyWidth": 1425,
+        "viewport": 1440,
+        "height": 1783
+      },
+      "step": {
+        "layout": {
+          "x": 44,
+          "y": 528.0625,
+          "width": 1337,
+          "height": 353.78125
+        },
+        "action": {
+          "x": 60,
+          "y": 692.046875,
+          "width": 1305,
+          "height": 44
+        },
+        "title": {
+          "x": 116,
+          "y": 544.0625,
+          "width": 1007.90625,
+          "height": 20
+        },
+        "bodyWidth": 1425,
+        "viewport": 1440,
+        "height": 976
+      }
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "overview": {
+        "layout": {
+          "x": 34,
+          "y": 3365.640625,
+          "width": 307,
+          "height": 161.9375
+        },
+        "action": {
+          "x": 106,
+          "y": 3467.578125,
+          "width": 117,
+          "height": 44
+        },
+        "title": {
+          "x": 106,
+          "y": 3381.640625,
+          "width": 219,
+          "height": 18.75
+        },
+        "bodyWidth": 375,
+        "viewport": 390,
+        "height": 4182
+      },
+      "step": {
+        "layout": {
+          "x": 34,
+          "y": 724.234375,
+          "width": 307,
+          "height": 463.15625
+        },
+        "action": {
+          "x": 50,
+          "y": 997.59375,
+          "width": 275,
+          "height": 44
+        },
+        "title": {
+          "x": 98,
+          "y": 740.234375,
+          "width": 227,
+          "height": 20
+        },
+        "bodyWidth": 375,
+        "viewport": 390,
+        "height": 1271
+      }
+    },
+    "narrow": {
+      "width": 320,
+      "height": 800,
+      "overview": {
+        "layout": {
+          "x": 34,
+          "y": 3685.96875,
+          "width": 237,
+          "height": 178.125
+        },
+        "action": {
+          "x": 106,
+          "y": 3804.09375,
+          "width": 117,
+          "height": 44
+        },
+        "title": {
+          "x": 106,
+          "y": 3701.96875,
+          "width": 149,
+          "height": 18.75
+        },
+        "bodyWidth": 305,
+        "viewport": 320,
+        "height": 4538
+      },
+      "step": {
+        "layout": {
+          "x": 34,
+          "y": 801.375,
+          "width": 237,
+          "height": 522.140625
+        },
+        "action": {
+          "x": 50,
+          "y": 1133.71875,
+          "width": 205,
+          "height": 44
+        },
+        "title": {
+          "x": 98,
+          "y": 817.375,
+          "width": 157,
+          "height": 40
+        },
+        "bodyWidth": 305,
+        "viewport": 320,
+        "height": 1408
+      }
+    }
+  },
+  "network": [
+    {
+      "path": "/",
+      "status": 200
+    },
+    {
+      "path": "/static/styles.css",
+      "status": 200
+    },
+    {
+      "path": "/static/release-status.js",
+      "status": 200
+    },
+    {
+      "path": "/static/app.js",
+      "status": 200
+    },
+    {
+      "path": "/api/release-status",
+      "status": 200
+    },
+    {
+      "path": "/api/version",
+      "status": 200
+    },
+    {
+      "path": "/api/config",
+      "status": 200
+    },
+    {
+      "path": "/favicon.ico",
+      "status": 404
+    },
+    {
+      "path": "/api/git/branches",
+      "status": 200
+    },
+    {
+      "path": "/api/git/commits",
+      "status": 200
+    },
+    {
+      "path": "/api/changes",
+      "status": 200
+    },
+    {
+      "path": "/api/plan",
+      "status": 200
+    },
+    {
+      "path": "/api/remote-tag",
+      "status": 200
+    },
+    {
+      "path": "/api/plan",
+      "status": 200
+    },
+    {
+      "path": "/api/version",
+      "status": 200
+    },
+    {
+      "path": "/api/jobs/active",
+      "status": 200
+    },
+    {
+      "path": "/api/previews/31f19beb-90d6-4b99-bc73-61b9b2d1f4c0/steps/sync-game-disaster-recovery-image",
+      "status": 200
+    },
+    {
+      "path": "/",
+      "status": 200
+    },
+    {
+      "path": "/static/styles.css",
+      "status": 200
+    },
+    {
+      "path": "/static/release-status.js",
+      "status": 200
+    },
+    {
+      "path": "/static/app.js",
+      "status": 200
+    },
+    {
+      "path": "/api/release-status",
+      "status": 200
+    },
+    {
+      "path": "/api/version",
+      "status": 200
+    },
+    {
+      "path": "/api/config",
+      "status": 200
+    },
+    {
+      "path": "/api/git/branches",
+      "status": 200
+    },
+    {
+      "path": "/api/git/commits",
+      "status": 200
+    },
+    {
+      "path": "/api/changes",
+      "status": 200
+    },
+    {
+      "path": "/api/plan",
+      "status": 200
+    },
+    {
+      "path": "/api/remote-tag",
+      "status": 200
+    },
+    {
+      "path": "/api/plan",
+      "status": 200
+    },
+    {
+      "path": "/api/jobs/active",
+      "status": 200
+    },
+    {
+      "path": "/api/previews/4f97496e-e0b7-4f08-a58d-ada2787be095/steps/sync-game-disaster-recovery-image",
+      "status": 200
+    },
+    {
+      "path": "/api/version",
+      "status": 200
+    },
+    {
+      "path": "/",
+      "status": 200
+    },
+    {
+      "path": "/static/styles.css",
+      "status": 200
+    },
+    {
+      "path": "/static/release-status.js",
+      "status": 200
+    },
+    {
+      "path": "/static/app.js",
+      "status": 200
+    },
+    {
+      "path": "/api/release-status",
+      "status": 200
+    },
+    {
+      "path": "/api/version",
+      "status": 200
+    },
+    {
+      "path": "/api/config",
+      "status": 200
+    },
+    {
+      "path": "/api/git/branches",
+      "status": 200
+    },
+    {
+      "path": "/api/git/commits",
+      "status": 200
+    },
+    {
+      "path": "/api/changes",
+      "status": 200
+    },
+    {
+      "path": "/api/plan",
+      "status": 200
+    },
+    {
+      "path": "/api/remote-tag",
+      "status": 200
+    },
+    {
+      "path": "/api/plan",
+      "status": 200
+    },
+    {
+      "path": "/api/jobs/active",
+      "status": 200
+    },
+    {
+      "path": "/api/previews/c8077db3-be0c-4be3-8d46-6a57941cea65/steps/sync-game-disaster-recovery-image",
+      "status": 200
+    },
+    {
+      "path": "/api/version",
+      "status": 200
+    }
+  ],
+  "errors": [
+    "Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ]
+}
