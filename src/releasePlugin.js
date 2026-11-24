@@ -8,6 +8,14 @@ const CONTEXT_VERSION = 'release-context/v1';
 const PHASES = ['source', 'artifact', 'pre-deploy', 'post-deploy'];
 const CAPABILITIES = ['engine-context@1', 'node-test@1', 'node-module@1', 'local-tools@1', 'node-dependencies@1'];
 const ID = /^[a-z0-9][a-z0-9.-]{0,99}$/;
+const ENVIRONMENT_OPERATION_IDS = new Set([
+  'cleanup-game-release-containers',
+  'sync-game-disaster-recovery-image',
+  'game-meelok-readiness',
+  'pause-meelok-services',
+  'restore-meelok-services',
+]);
+const isEnvironmentOperationId = id => ENVIRONMENT_OPERATION_IDS.has(id);
 const ENVIRONMENT = new Set(['SystemRoot', 'TEMP', 'TMP', 'TZ', 'LANG', 'NODE_ENV', 'MAVEN_OPTS', 'MAVEN_ARGS', 'MAVEN_SKIP_RC']);
 const isDocument=file=>/^(?:AGENTS|README|CHANGELOG)\.md$/.test(file)||/^(?:docs|release\/evidence)\/.+\.(?:md|json)$/.test(file)||/^docs\/evidence\/.+\.(?:png|jpg|jpeg)$/.test(file)||file==='release/release-impact.json';
 function fail(code, detail = '') { throw new Error(code + (detail ? ': ' + detail : '')); }
@@ -38,6 +46,7 @@ function validatePlugin(data) {
   const ids = new Set();
   for (const unit of data.units) {
     shape(unit, ['id', 'phase', 'requires', 'inputs', 'run', ...['dependencies','images','tools'].filter(k=>Object.hasOwn(unit,k))]); id(unit.id);
+    if (data.target === 'game' && isEnvironmentOperationId(unit.id)) fail('GAME_ENVIRONMENT_OPERATION_FORBIDDEN', unit.id);
     if (ids.has(unit.id)) fail('DUPLICATE_UNIT_ID', unit.id); ids.add(unit.id);
     if (!PHASES.includes(unit.phase)) fail('UNKNOWN_PHASE');
     list(unit.requires, c => { if (typeof c !== 'string' || !/^[a-z][a-z0-9-]*@[1-9][0-9]*$/.test(c)) fail('INVALID_CAPABILITY'); }, 1, 32);
@@ -195,4 +204,4 @@ function loadReleasePlugin({repositoryRoot, candidateCommit, baselineCommit, man
       close:() => fs.rmSync(root, {recursive:true, force:true})});
   } catch (error) { fs.rmSync(root, {recursive:true, force:true}); throw error; }
 }
-module.exports = {VERSION, CONTEXT_VERSION, PHASES, CAPABILITIES, validatePlugin, loadReleasePlugin, createReleaseContext, regular, fail,isDocument,pluginPath};
+module.exports = {VERSION, CONTEXT_VERSION, PHASES, CAPABILITIES, validatePlugin, loadReleasePlugin, createReleaseContext, regular, fail,isDocument,pluginPath,isEnvironmentOperationId};

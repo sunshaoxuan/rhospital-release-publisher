@@ -1,4 +1,4 @@
-const {validatePlugin} = require('./releasePlugin');
+const {validatePlugin, isEnvironmentOperationId} = require('./releasePlugin');
 const {resolvePluginContextFile} = require('./releasePluginCandidate');
 const {createPlanSourceReader} = require('./releasePlanSources');
 const {withApplicationPolicy,applicationPolicy,applicationPolicyText,applicationPolicyIdentity,applicationPolicyRoot}=require('./applicationReleasePolicy');
@@ -12,7 +12,6 @@ const {buildReleaseDiagnostics, addSemanticDiagnosis} = require('./releaseDiagno
 const {GAME_DATABASE, gameDatabasePsqlCommand, gameDatabaseContainerResolutionCommands} = require('./gameProductionDatabase');
 const {bacteriaInventoryBackupCommands, verifyBacteriaInventoryBackupCommands} = require('./bacteriaInventoryBackup');
 const {gameFormalComposeCommands, gameServiceSnapshotCommands} = require('./gameFormalProductionTransition');
-const {gameMeelokStatusCommands, gameMeelokPauseCommands, gameMeelokRestoreCommands} = require('./gameMeelokMaintenance');
 const {expectedTomcatVersion, tomcatJarCheckScript} = require('./tomcatSecurityCheck');
 const {gameProductionConfigGuardCommands, gameStripeAuthenticationCommands, gameProductionImageConfigCommands} = require('./gameProductionConfigGuard');
 const {resolveGameStartupContract, gameStartupContractCommands} = require('./gameStartupContract');
@@ -81,10 +80,6 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-tomcat-runtime',
     'verify-tradepool-release',
     'verify-relations-release',
-    'cleanup-game-release-containers',
-    'sync-game-disaster-recovery-image',
-    'game-meelok-readiness',
-    'pause-meelok-services',
     'game-prd2-migration-readiness',
     'game-prd2-runtime-contract',
     'game-fatal-rollback-decision'
@@ -230,7 +225,7 @@ function createBoundPlan(projectRoot, request, env = process.env) {
   const dockerTarget = resolveDockerCommandTarget(dockerContext, dockerContextResolution);
   const remoteImageTarget = resolveRemoteImageTarget(remoteSshTarget, ideaDockerServerResolution);
   const includeStackDeploy = Boolean(request.includeStackDeploy);
-  const meelokMaintenanceId = includeStackDeploy ? crypto.randomUUID() : '';
+  const deploymentTransactionId = includeStackDeploy ? crypto.randomUUID() : '';
   if (request.requireStandbyCandidate !== undefined && typeof request.requireStandbyCandidate !== 'boolean') {
     throw new Error('requireStandbyCandidate必须是布尔值');
   }
@@ -277,7 +272,6 @@ function createBoundPlan(projectRoot, request, env = process.env) {
     startupSource
   );
   const requiredChecks = new Set(releaseImpactAssessment?.requiredChecks.map(check => check.stepKey));
-  const allowMeelokPause = requiredChecks.has('pause-meelok-services');
   if (codegraph && (!releaseImpactAssessment || ['verify-codegraph-prerequisites', 'codegraph-offline-cutover'].some(
     key => !releaseImpactAssessment.requiredChecks.some(item => item.stepKey === key)))) {
     throw new Error('Guild B requires CodeGraph prerequisites and offline cutover checks');
@@ -346,28 +340,15 @@ function createBoundPlan(projectRoot, request, env = process.env) {
       actionType: 'local-check',
       executable: true
     }),
-    ...(includeStackDeploy && requiredChecks.has('game-meelok-readiness') ? [releaseStep({
-      key: 'game-meelok-readiness',
-      title: '通知 Meelok 启动与重启状态',
-      summary: '只读记录五项服务的运行、健康、启动时间和容器重启次数；异常仅作通知',
-      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-        gameMeelokStatusCommands(remoteComposeDir)
-      )),
-      validation: 'Meelok 状态、遗留标记和采集失败均只记录通知，不影响游戏发版结果',
-      actionType: 'remote-check', executable: true, timeoutSeconds: 60
-    })] : []),
     ...(includeStackDeploy&&!offlineCutover ? [releaseStep({
       key:'validate-game-release-resources',title:'校验游戏切换资源准入',
-      summary: allowMeelokPause ? '耗时构建前只读确认可用内存或已声明维护动作的安全条件' : '耗时构建前只读确认现有可用内存达到2GiB',
-      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(allowMeelokPause ? [
-        `cd ${shellToken(remoteComposeDir)}`,
-        deploymentTransaction.transactionCommand('resource', remoteComposeDir, gameServiceName(config.stackName, config.containerName), imageTag, meelokMaintenanceId)
-      ] : [
+      summary: '耗时构建前只读确认现有可用内存达到2GiB',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
         `available_kb=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)`,
         '[ "$available_kb" -ge 2097152 ] || { echo "ERROR: insufficient game cutover memory: ${available_kb}kB"; exit 1; }',
         'echo "game_release_resources=PASS availableKiB=$available_kb"'
       ])),
-      validation:'必须输出 game_release_resources=PASS；最终切换仍再次核2GiB，容量不足且无法安全释放时提前阻断',
+      validation:'必须输出 game_release_resources=PASS；最终切换仍再次核2GiB，容量不足时提前阻断',
       actionType:'remote-check',executable:true,timeoutSeconds:60
     })] : []),
     releaseStep({
@@ -775,7 +756,7 @@ function createBoundPlan(projectRoot, request, env = process.env) {
         ...(codegraph ? codegraphCutover.quiescedCommands() : technologyCutover ? technologyQuiescedSnapshotCommands() : gameServiceSnapshotCommands()),
         ...gameFormalComposeCommands(formalComposeSource, imageTag, appTag),
         ...gameComposeSsoContractCommands(config.stackName, config.containerName, '$compose_candidate', true),
-        ...(!offlineCutover?[deploymentTransaction.transactionCommand('prepare',remoteComposeDir,gameServiceName(config.stackName,config.containerName),imageTag,meelokMaintenanceId)]:['cp "$compose_candidate" docker-compose.yml']),
+        ...(!offlineCutover?[deploymentTransaction.transactionCommand('prepare',remoteComposeDir,gameServiceName(config.stackName,config.containerName),imageTag,deploymentTransactionId)]:['cp "$compose_candidate" docker-compose.yml']),
         'rm -f "$compose_candidate"',
         `docker stack config -c docker-compose.yml >/dev/null`
 
@@ -798,16 +779,6 @@ function createBoundPlan(projectRoot, request, env = process.env) {
       productionAction: true,
       executable: true
     }));
-    if (allowMeelokPause) steps.push(releaseStep({
-      key: 'pause-meelok-services',
-      title: '尝试暂停同机 Meelok 服务并通知',
-      summary: '保存五个服务的原始副本和镜像，逐项停机并核验游戏滚动所需内存余量',
-      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-        gameMeelokPauseCommands(remoteComposeDir, meelokMaintenanceId)
-      )),
-      validation: '仅在状态与快照安全时暂停；异常记录通知，游戏切换独立核验真实内存余量',
-      actionType: 'production', productionAction: true, executable: true, timeoutSeconds: 1200
-    }));
     steps.push(releaseStep({
       key: 'deploy-stack',
       title: '执行 Docker Stack 热发布',
@@ -825,7 +796,7 @@ function createBoundPlan(projectRoot, request, env = process.env) {
         ]),
         'available_kb=$(awk "/^MemAvailable:/ {print \\$2}" /proc/meminfo)',
         '[ "$available_kb" -ge 2097152 ] || { echo "ERROR: memory headroom changed before game cutover: ${available_kb}kB"; exit 1; }',
-        ...(!offlineCutover?[deploymentTransaction.transactionCommand('attempt',remoteComposeDir,gameServiceName(config.stackName,config.containerName),imageTag,meelokMaintenanceId)]:[]),
+        ...(!offlineCutover?[deploymentTransaction.transactionCommand('attempt',remoteComposeDir,gameServiceName(config.stackName,config.containerName),imageTag,deploymentTransactionId)]:[]),
         'if [ -f "$backup_dir/paused-retry-baseline.json" ]; then',
         `target_image=${shellToken(imageTag)}`,
         'candidate_startup_compose=$(mktemp)',
@@ -1012,19 +983,6 @@ function createBoundPlan(projectRoot, request, env = process.env) {
       validation:'application_runtime_check=PASS id='+check.id,actionType:'remote-check',executable:true,finalCheck:true,
       timeoutSeconds:check.timeoutSeconds+15
     }));
-    if (requiredChecks.has('cleanup-game-release-containers')) steps.push(releaseStep({
-      key: 'cleanup-game-release-containers',
-      title: '清理游戏发布历史容器',
-      summary: '定向删除当前游戏 Swarm 服务产生的 Exited 容器，保留镜像与其他服务容器，并复核目标版本健康副本',
-      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-        gamePostReleaseCleanupCommand(config.stackName, config.containerName, imageTag)
-      )),
-      validation: `只允许删除 ${config.stackName}_${config.containerName} 的 Exited 容器；单个删除失败记录 WARNING，${imageTag} 健康副本复核失败时停止`,
-      actionType: 'production',
-      productionAction: true,
-      executable: true,
-      timeoutSeconds: 120
-    }));
     steps.push(releaseStep({
       key:'game-config-compensation',title:'复核提交边界并补偿候选编排',
       summary:'仅在本次事务证明未尝试服务提交且服务、健康旧容器和文件CAS一致时恢复编排；未知结果禁止推断未提交',
@@ -1032,7 +990,7 @@ function createBoundPlan(projectRoot, request, env = process.env) {
         `cd ${shellToken(remoteComposeDir)}`,
         ...deploymentTransaction.lockCommands(),
         'backup_dir=$(cat .last-game-release-backup)',
-        deploymentTransaction.transactionCommand('compensate',remoteComposeDir,gameServiceName(config.stackName,config.containerName),imageTag,meelokMaintenanceId)
+        deploymentTransaction.transactionCommand('compensate',remoteComposeDir,gameServiceName(config.stackName,config.containerName),imageTag,deploymentTransactionId)
       ])),
       validation:'NOT_SUBMITTED_RESTORED才证明配置已补偿；ATTEMPTED保留原服务恢复门禁；UNKNOWN保留现场，不改服务或数据库',
       actionType:'production',productionAction:true,executable:true,recoveryOnly:true,timeoutSeconds:60
@@ -1082,18 +1040,6 @@ function createBoundPlan(projectRoot, request, env = process.env) {
     steps.push(publishImageStep);
   }
 
-  if (steps.some(step => step.key === 'pause-meelok-services')) {
-    steps.splice(steps.findIndex(step => step.recoveryOnly), 0, releaseStep({
-      key: 'restore-meelok-services',
-      title: '尝试恢复同机 Meelok 服务并通知',
-      summary: '游戏滚动与最终验收结束后，按原副本和镜像逐项恢复五个 Meelok 服务',
-      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
-        gameMeelokRestoreCommands(remoteComposeDir, gameServiceName(config.stackName, config.containerName), meelokMaintenanceId)
-      )),
-      validation: '按本次快照安全恢复并通知启动结果；恢复异常保留现场并记录 WARNING，游戏结果保持不变',
-      actionType: 'production', productionAction: true, executable: true, timeoutSeconds: 2400
-    }));
-  }
   if (standbyCandidate) {
     const updateIndex = steps.findIndex(step => step.key === 'update-remote-compose');
     steps.splice(updateIndex, 0, releaseStep({
@@ -1117,17 +1063,6 @@ function createBoundPlan(projectRoot, request, env = process.env) {
     });
     steps.splice(steps.findIndex(step => step.recoveryOnly), 0, acceptanceStep);
   }
-  if (includeStackDeploy && requiredChecks.has('sync-game-disaster-recovery-image')) {
-    steps.splice(steps.findIndex(step => step.recoveryOnly), 0, releaseStep({
-      key: 'sync-game-disaster-recovery-image',
-      title: '同步已验收游戏镜像到灾备机',
-      summary: '正式发布成功后同步健康实例镜像，校验通过再清理灾备机同库其他标签',
-      command: gameDisasterRecoveryImageCommand(imageTag, gameServiceName(config.stackName, config.containerName),
-        remoteImageTarget, meelokMaintenanceId),
-      validation: 'B 返回准确的游戏镜像 ID 和唯一保留的标签；不启动服务',
-      actionType: 'production', productionAction: true, executable: true, timeoutSeconds: 1800
-    }));
-  }
   for(const unit of pluginMetadata?.units||[])if(steps.some(step=>step.key===unit.id))throw new Error('Plugin cannot replace a core step: '+unit.id);
   assertReleaseImpactPlanCoverage(releaseImpactAssessment, steps, includeStackDeploy,pluginMetadata?.units.map(unit=>unit.id)||[]);
 
@@ -1141,9 +1076,7 @@ function createBoundPlan(projectRoot, request, env = process.env) {
       dockerContext,
       remoteSshTarget,
       remoteComposeDir,
-      meelokMaintenanceId,
-      meelokRecoveryProtocol: 1,
-      deploymentTransactionId:includeStackDeploy&&!offlineCutover?meelokMaintenanceId:'',
+      deploymentTransactionId: includeStackDeploy && !offlineCutover ? deploymentTransactionId : '',
       sshResolution,
       dockerContextResolution,
       ideaDockerServerResolution,
@@ -1901,7 +1834,7 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
   };
   try {
     for (const step of plan.steps) {
-      if (step.recoveryOnly || step.key === 'sync-game-disaster-recovery-image') {
+      if (step.recoveryOnly) {
         continue;
       }
       assertNotCancelled();
@@ -2206,38 +2139,9 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
     const failedPlan = runtimePlan;
     return {status: 'ERROR', plan: failedPlan, logs: errorLogs, completedStepKeys};
   }
-  let markedPlan = markCompletedSteps(plan, completedStepKeys, 'done', stepLogs, stepTiming);
-  const disasterRecovery = plan.steps.find(step => step.key === 'sync-game-disaster-recovery-image');
-  if (disasterRecovery) {
-    const {key, command, timeoutSeconds} = disasterRecovery;
-    startStepTimer(key, stepTiming);
-    pushStepLog(key, `[START] ${disasterRecovery.title}`);
-    updateStep(key, 'running');
-    let outcome = 'failed';
-    try {
-      const output = await runCommand(projectRoot, command, env, chunk => {
-        if (chunk.trim()) pushStepLog(key, chunk.trim());
-        updateStep(key, 'running');
-      }, elapsedSeconds => {
-        refreshStepElapsed(key, stepTiming);
-        updateStep(key, 'running');
-      }, null, timeoutSeconds);
-      const receipt = String(output || '').split(/\r?\n/).filter(line => line.startsWith('game_disaster_recovery_image='));
-      const expectedReceipt = new RegExp('^game_disaster_recovery_image=PASS tag='
-        + escapeRegExp(plan.imageTag) + ' id=sha256:[a-f0-9]{64} remaining=1$');
-      if (receipt.length !== 1 || !expectedReceipt.test(receipt[0])) throw new Error('灾备镜像验收回执缺失或不匹配');
-      completedStepKeys.push(key);
-      outcome = 'done';
-    } catch (error) {
-      pushStepLog(key, `WARNING: 游戏已完成发布，灾备镜像未验收: ${error.message}`);
-    }
-    finishStepTimer(key, stepTiming);
-    updateStep(key, outcome);
-    markedPlan = markStepStatus(plan, completedStepKeys, key, outcome, stepLogs, stepTiming);
-  }
   return {
     status: 'EXECUTED',
-    plan: markedPlan,
+    plan: markCompletedSteps(plan, completedStepKeys, 'done', stepLogs, stepTiming),
     logs,
     completedStepKeys,
     cutoverCommitted,
@@ -3079,6 +2983,9 @@ function normalizeRequiredChecks(target, requiredChecks,pluginUnitIds=[]) {
     }
     const stepKey = String(item.stepKey || '').trim();
     const reason = String(item.reason || '').trim();
+    if (target === 'game' && isEnvironmentOperationId(stepKey)) {
+      throw new Error(`游戏发版资材不能声明环境运维动作: ${stepKey}`);
+    }
     if (!KNOWN_RELEASE_CHECKS[target].has(stepKey)&&!pluginUnitIds.includes(stepKey)) {
       throw new Error(`targets.${target}.requiredChecks 引用了发布器未注册的检查步骤: ${stepKey || '(empty)'}`);
     }
@@ -3699,92 +3606,6 @@ function publishImageCommand(imageTag, target) {
     `Remove-Item -Force $imageTar -ErrorAction SilentlyContinue`,
     `exit $remoteLoadExit`
   ].join('; ');
-}
-
-function gameDisasterRecoveryImageCommand(imageTag, serviceName, primary, operationId) {
-  if (primary.host !== PRIMARY || !primary.user || !primary.keyPath
-      || !imageTag.startsWith(DEFAULT_IMAGE_NAME + ':') || !/^[a-zA-Z0-9_.-]+$/.test(serviceName)) {
-    return "throw 'Unsupported game disaster recovery source'";
-  }
-  const standby = {...primary, host: STANDBY, target: primary.user + '@' + STANDBY, port: '22'};
-  const strictSsh = target => ['ssh', '-o', 'StrictHostKeyChecking=yes', ...sshCommandParts(target).slice(1)]
-    .map(shellToken).join(' ');
-  const remoteDir = '/tmp/rhospital-dr-' + operationId;
-  const remoteTar = remoteDir + '/image.tar';
-  const sourceCheck = remoteBashScriptCommand([
-    `service=${shellToken(serviceName)}`,
-    `tag=${imageTag}`,
-    'state=$(docker service inspect "$service" --format \'{{if .UpdateStatus}}{{.UpdateStatus.State}}{{else}}completed{{end}}\')',
-    '[ "$state" = completed ]',
-    'container=$(docker ps -q --filter "label=com.docker.swarm.service.name=$service")',
-    '[[ "$container" =~ ^[a-f0-9]+$ ]]',
-    'running_ref=$(docker inspect --format \'{{.Config.Image}}\' "$container")',
-    'case "$running_ref" in "$tag"|"$tag"@sha256:*) ;; *) exit 1 ;; esac',
-    '[ "$(docker inspect --format \'{{.State.Health.Status}}\' "$container")" = healthy ]',
-    'docker inspect --format \'{{.Image}}\' "$container"'
-  ]);
-  const importAndCleanup = remoteBashScriptCommand([
-    'set -uo pipefail',
-    'umask 077',
-    'lock=/etc/rhospital-ha/stage.lock',
-    '[ ! -L "$lock" ]',
-    'exec 9<>"$lock"',
-    '[ -f "$lock" ] && [ "$(stat -c "%u:%a" "$lock")" = "0:600" ] || exit 1',
-    'flock -w 180 9',
-    `tag=${imageTag}`,
-    `tar=${remoteTar}`,
-    'id=$1',
-    'hash=$2',
-    'printf "%s  %s\\n" "$hash" "$tar" | sha256sum --check --status',
-    'docker image load --quiet -i "$tar"',
-    '[ "$(docker image inspect --format \'{{.Id}}\' "$tag")" = "$id" ]',
-    `list_game_refs() { docker image ls --filter reference='${DEFAULT_IMAGE_NAME}:*' --format '{{.Repository}}:{{.Tag}}' | sort -u; }`,
-    'refs=$(list_game_refs)',
-    'while IFS= read -r ref; do',
-    `  case "$ref" in "$tag") ;; ${DEFAULT_IMAGE_NAME}:*) users=$(docker ps -aq --filter "ancestor=$ref"); [ -z "$users" ] ;; *) exit 1 ;; esac`,
-    'done <<< "$refs"',
-    'while IFS= read -r ref; do',
-    `  case "$ref" in "$tag") ;; ${DEFAULT_IMAGE_NAME}:*) docker image rm --no-prune "$ref" ;; *) exit 1 ;; esac`,
-    'done <<< "$refs"',
-    'refs=$(list_game_refs)',
-    '[ "$refs" = "$tag" ]',
-    '[ "$(docker image inspect --format \'{{.Id}}\' "$tag")" = "$id" ]',
-    'printf "game_disaster_recovery_image=PASS tag=%s id=%s remaining=1\\n" "$tag" "$id"'
-  ]).replace(/\| bash$/, '| bash -s --');
-  const scp = ['scp', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=yes', '-o', 'ConnectTimeout=10',
-    '-o', 'ServerAliveInterval=10', '-o', 'ServerAliveCountMax=3', ...scpCommandParts(standby).slice(1)]
-    .map(shellToken).join(' ');
-  const requireExitZero = "if ($LASTEXITCODE -ne 0) { throw '灾备镜像命令失败' }";
-  return [
-    `$drTar = Join-Path $env:TEMP 'rhospital-dr-${operationId}.tar'`,
-    '$drReserved = $false',
-    '$drError = $null',
-    `$drImport = ${shellToken(importAndCleanup)}`,
-    'try {',
-    `$primaryId = & ${strictSsh(primary)} ${shellToken(sourceCheck)}`,
-    requireExitZero,
-    "if ($primaryId -isnot [string] -or $primaryId -cnotmatch '^sha256:[a-f0-9]{64}$') { throw '生产游戏镜像身份无效' }",
-    `$localId = & ${dockerCommand(null, ['image', 'inspect', '--format', '{{.Id}}', imageTag])}`,
-    requireExitZero,
-    "if ($primaryId -cne $localId) { throw '本机镜像与生产健康实例身份不一致' }",
-    `& ${dockerCommand(null, ['image', 'save', '-o'])} $drTar ${imageTag}`,
-    requireExitZero,
-    '$archiveStream = [IO.File]::OpenRead($drTar)',
-    '$hasher = [Security.Cryptography.SHA256]::Create()',
-    "try { $archiveHash = [BitConverter]::ToString($hasher.ComputeHash($archiveStream)).Replace('-', '').ToLowerInvariant() } finally { $archiveStream.Dispose(); $hasher.Dispose() }",
-    `& ${strictSsh(standby)} 'mkdir -m 700 ${remoteDir}'`,
-    requireExitZero,
-    '$drReserved = $true',
-    `& ${scp} $drTar ${shellToken(standby.target + ':' + remoteTar)}`,
-    requireExitZero,
-    `& ${strictSsh(standby)} "$drImport $primaryId $archiveHash"`,
-    requireExitZero,
-    '} catch { $drError = $_; } finally {',
-    'Remove-Item -LiteralPath $drTar -Force -ErrorAction SilentlyContinue',
-    `if ($drReserved) { & ${strictSsh(standby)} 'rm -f ${remoteTar} && rmdir ${remoteDir}'; if ($LASTEXITCODE -ne 0) { $drError = '灾备临时归档清理失败' } }`,
-    '}',
-    'if ($drError) { Write-Error $drError; exit 1 }; exit 0'
-  ].join('; ').replace('{;', '{').replace('finally {;', 'finally {');
 }
 
 function gameDatabaseAuditJavaSource() { return applicationPolicyText(applicationPolicy().databaseAudit.source); }
@@ -4511,53 +4332,6 @@ function finalRuntimeCheckCommand(stackName, containerName, imageTag, appTag, op
   ];
 }
 
-function gamePostReleaseCleanupCommand(stackName, containerName, imageTag) {
-  const serviceName = gameServiceName(stackName, containerName);
-  return [
-    `service_name=${shellToken(serviceName)}`,
-    `expected_image=${shellToken(imageTag)}`,
-    'cleanup_candidates=$(docker ps -aq --filter "status=exited" --filter "label=com.docker.swarm.service.name=$service_name")',
-    'deleted_count=0',
-    'warning_count=0',
-    'for container_id in $cleanup_candidates; do',
-    "  container_image=$(docker inspect --format '{{.Config.Image}}' \"$container_id\" 2>/dev/null || printf unknown)",
-    '  if docker rm "$container_id" >/dev/null 2>&1; then',
-    '    deleted_count=$((deleted_count + 1))',
-    '    echo "cleanup_deleted_container=$container_id image=$container_image"',
-    '  else',
-    '    warning_count=$((warning_count + 1))',
-    '    echo "WARNING: cleanup_failed_container=$container_id image=$container_image"',
-    '  fi',
-    'done',
-    'remaining_exited_count=$(docker ps -aq --filter "status=exited" --filter "label=com.docker.swarm.service.name=$service_name" | wc -l | tr -d " ")',
-    "service_image=$(docker service inspect \"$service_name\" --format '{{.Spec.TaskTemplate.ContainerSpec.Image}}')",
-    "update_state=$(docker service inspect \"$service_name\" --format '{{if .UpdateStatus}}{{.UpdateStatus.State}}{{else}}completed{{end}}')",
-    "expected_replicas=$(docker service inspect \"$service_name\" --format '{{if .Spec.Mode.Replicated}}{{.Spec.Mode.Replicated.Replicas}}{{else}}1{{end}}')",
-    'running_count=0',
-    'healthy_target_count=0',
-    'for container_id in $(docker ps -q --filter "status=running" --filter "label=com.docker.swarm.service.name=$service_name"); do',
-    "  container_image=$(docker inspect --format '{{.Config.Image}}' \"$container_id\")",
-    "  container_health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \"$container_id\")",
-    '  running_count=$((running_count + 1))',
-    '  case "$container_image" in',
-    '    "$expected_image"|"$expected_image"@*) if [ "$container_health" = healthy ]; then healthy_target_count=$((healthy_target_count + 1)); fi ;;',
-    '  esac',
-    'done',
-    'image_matches=false',
-    'case "$service_image" in "$expected_image"|"$expected_image"@*) image_matches=true ;; esac',
-    'echo "post_release_cleanup_health image=$service_image update=$update_state expected_replicas=$expected_replicas running=$running_count healthy_target=$healthy_target_count"',
-    'if [ "$image_matches" != true ] || [ "$update_state" != completed ] || [ "$running_count" -ne "$expected_replicas" ] || [ "$healthy_target_count" -ne "$expected_replicas" ]; then',
-    '  echo "ERROR: target service health changed during post-release cleanup"',
-    '  exit 1',
-    'fi',
-    'if [ "$warning_count" -gt 0 ]; then',
-    '  echo "post_release_container_cleanup=WARNING deleted=$deleted_count warnings=$warning_count remaining_exited=$remaining_exited_count"',
-    'else',
-    '  echo "post_release_container_cleanup=PASS deleted=$deleted_count warnings=0 remaining_exited=$remaining_exited_count"',
-    'fi'
-  ];
-}
-
 function forumImageValidationCommand(dockerTarget, imageTag) {
   const script = [
     'set -eu',
@@ -5230,7 +5004,6 @@ module.exports = {
   resolveCatalogSchemaVersion,
   residentMigrationPreflight,
   tradePoolCatalogLogCheckCommands,
-  gamePostReleaseCleanupCommand,
   gameSteamPartnerProbeCommands,
   gameComposeSsoContractCommands,
   runPowerShell,

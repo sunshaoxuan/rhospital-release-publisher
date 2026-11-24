@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const {AsyncLocalStorage} = require('node:async_hooks');
+const {setTimeout: wait} = require('node:timers/promises');
 require('./applicationPolicyFixture').enterFixturePolicy();
 
 // Own only directories allocated by this instance; never discover old fixtures.
@@ -29,6 +30,21 @@ function fixtureLifecycle(nodeTest, {remove = fs.rmSync} = {}) {
     owned.delete(root);
   }
 
+  async function retryCleanup(root, initialError) {
+    let failure = initialError;
+    for (const delay of [300, 900, 1800]) {
+      await wait(delay);
+      try {
+        cleanup(root);
+        return;
+      } catch (error) {
+        if (!['EPERM', 'EBUSY'].includes(error.code)) throw error;
+        failure = error;
+      }
+    }
+    throw failure;
+  }
+
   function temporaryDirectory(prefix) {
     const scope = context.getStore();
     if (!scope || scope.finished) throw new Error('Fixture must be created inside its owning test');
@@ -36,7 +52,14 @@ function fixtureLifecycle(nodeTest, {remove = fs.rmSync} = {}) {
     const root = fs.mkdtempSync(path.join(base, prefix));
     owned.set(root, {scope, leases: 0, identity: identity(fs.lstatSync(root, {bigint: true}))});
     // Register before populating files or initializing Git (both can throw).
-    scope.test.after(() => cleanup(root));
+    scope.test.after(() => {
+      try {
+        cleanup(root);
+      } catch (error) {
+        if (!['EPERM', 'EBUSY'].includes(error.code)) throw error;
+        return retryCleanup(root, error);
+      }
+    });
     return root;
   }
 
