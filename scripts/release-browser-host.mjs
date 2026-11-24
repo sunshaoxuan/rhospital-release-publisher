@@ -6,10 +6,6 @@ import path from 'node:path';
 import { spawn, execFile } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 export const RELEASE_BROWSER_HOST_API_VERSION = 'release-browser-host/v1';
-const DEFAULT_GATEWAYS = [
-  { name: 'riven', ip: '45.94.40.77' },
-  { name: 'vmiss', ip: '64.83.37.55' }
-];
 const DEFAULT_TIMEOUT_MS = 300000;
 const DEFAULT_CDP_TIMEOUT_MS = 15000;
 const DEFAULT_BROWSER_INFRASTRUCTURE_RETRIES = 1;
@@ -89,6 +85,20 @@ function nonNegativeInteger(value, label) {
   }
   return number;
 }
+function readBrowserGateways(configPath) {
+  if (!configPath) throw new Error('Publisher gateway config is required');
+  const { schemaVersion, gateways } = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  if (schemaVersion !== 1) throw new Error('Unsupported publisher gateway config version');
+  if (!Array.isArray(gateways) || gateways.length !== 2 || gateways.some(gateway =>
+    typeof gateway?.id !== 'string' || !/^[0-9A-Za-z._-]+$/.test(gateway.id)
+    || typeof gateway.host !== 'string' || net.isIP(gateway.host) !== 4
+  ) || new Set(gateways.map(gateway => gateway.id)).size !== 2
+    || new Set(gateways.map(gateway => gateway.host)).size !== 2) {
+    throw new Error('Publisher gateway config must declare two distinct gateway IDs and IPv4 addresses');
+  }
+  return gateways.map(({id, host}) => ({ name: id, ip: host }));
+}
+
 function resolveStaticDeliveryPrerequisites(args = {}, env = process.env) {
   requireNode22();
   const appTag = String(args['app-tag'] || env.RHOSPITAL_RELEASE_APP_TAG || '').trim();
@@ -110,15 +120,7 @@ function resolveStaticDeliveryPrerequisites(args = {}, env = process.env) {
     args['origin-budget-bytes'] || env.RHOSPITAL_RELEASE_ORIGIN_BUDGET_BYTES || DEFAULT_ORIGIN_BUDGET_BYTES,
     'Origin byte budget',
     {allowZero: true});
-  const gateways = DEFAULT_GATEWAYS.map(gateway => ({
-    ...gateway,
-    ip: String(args[`${gateway.name}-ip`]
-      || env[`RHOSPITAL_RELEASE_${gateway.name.toUpperCase()}_IP`]
-      || gateway.ip).trim()
-  }));
-  for (const gateway of gateways) {
-    if (net.isIP(gateway.ip) === 0) throw new Error(`${gateway.name} gateway must be an IP address`);
-  }
+  const gateways = readBrowserGateways(args['gateway-config'] || env.RELEASE_PUBLISHER_GATEWAY_STATIC_CONFIG);
   const {gameHost, steamHost} = resolveProbeHosts(args, env);
   return {
     appTag,
@@ -726,4 +728,4 @@ function isBrowserInfrastructureFailure({result, error} = {}) {
   return runtimeErrors.length > 0
     && runtimeErrors.every(entry => BROWSER_INFRASTRUCTURE_ERROR_PATTERN.test(String(entry?.message || entry)));
 }
-export { BROWSER_INFRASTRUCTURE_ERROR_PATTERN, BrowserInfrastructureError, CdpClient, DEFAULT_BROWSER_INFRASTRUCTURE_RETRIES, DEFAULT_CDP_TIMEOUT_MS, DEFAULT_GATEWAYS, DEFAULT_ORIGIN_BUDGET_BYTES, DEFAULT_TIMEOUT_MS, IGNORED_TELEMETRY_HOSTS, MINIMUM_TOKEN_VALIDITY_MS, assertBrowserCapability, browserDiagnosticSuffix, chromeArguments, chromeCleanupEvidence, delay, evaluate, hasIgnoredTelemetryHost, isBrowserInfrastructureFailure, isIgnoredTelemetryEntry, nonNegativeInteger, normalizedHeaders, observeChromeClose, positiveNumber, readToken, requestJson, requireNode22, resolveChrome, resolveProbeHosts, resolveStaticDeliveryPrerequisites, runBrowserCapabilityProbe, runChromeProbe, stopChrome, summarizeProbe, useChromeTarget, waitForFile, withProbeQuery };
+export { BROWSER_INFRASTRUCTURE_ERROR_PATTERN, BrowserInfrastructureError, CdpClient, DEFAULT_BROWSER_INFRASTRUCTURE_RETRIES, DEFAULT_CDP_TIMEOUT_MS, DEFAULT_ORIGIN_BUDGET_BYTES, DEFAULT_TIMEOUT_MS, IGNORED_TELEMETRY_HOSTS, MINIMUM_TOKEN_VALIDITY_MS, assertBrowserCapability, browserDiagnosticSuffix, chromeArguments, chromeCleanupEvidence, delay, evaluate, hasIgnoredTelemetryHost, isBrowserInfrastructureFailure, isIgnoredTelemetryEntry, nonNegativeInteger, normalizedHeaders, observeChromeClose, positiveNumber, readBrowserGateways, readToken, requestJson, requireNode22, resolveChrome, resolveProbeHosts, resolveStaticDeliveryPrerequisites, runBrowserCapabilityProbe, runChromeProbe, stopChrome, summarizeProbe, useChromeTarget, waitForFile, withProbeQuery };

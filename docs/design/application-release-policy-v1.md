@@ -19,7 +19,7 @@
 
 应用 Node 检查从同一候选导出 profile 和声明输入到私有目录，清除发布器认证环境；argv 由受控绑定给出。退出码、终态 marker 或 `check-result` JSON、超时及输入字节完整性共同决定结果。进程成功且缺少协议仍失败。命令显式携带候选、策略闭包摘要、检查ID和入口提示。输出只交付已核验摘要，不转发可能包含凭据的原始业务日志。
 
-`runtimeChecks` 可声明 `http-get` 或 `node-check`，ID 使用 `application.*` 命名空间。路径和前缀决定选择，requiredChecks 可以显式要求执行。Node 检查引用 nodeChecks，并通过受支持的字面参数或 `$appTag`、`$authTokenFile`、`$browserHost`、`$sshTarget`、`$sshKey`、`$sshPort` 参数绑定使用既有能力。固定 final-runtime-check 先执行，清理在业务检查之后。未知检查不按成功处理。
+`runtimeChecks` 可声明 `http-get` 或 `node-check`，ID 使用 `application.*` 命名空间。路径和前缀供应用准备资材时描述影响，正式计划只选择发版影响评估 `requiredChecks` 显式列出的业务运行检查。Node 检查引用 nodeChecks，并通过受支持的字面参数或 `$appTag`、`$authTokenFile`、`$browserHost`、`$sshTarget`、`$sshKey`、`$sshPort` 参数绑定使用既有能力。浏览器检查由发布器传入与静态分发一致的环境清单。固定 final-runtime-check 先执行，声明的清理在业务检查之后。未知检查拒绝进入计划。
 
 历史三项业务步骤ID保留为外部资材公开契约，具体实现与影响映射均由应用声明。普通新业务直接使用 runtimeChecks，无须增加历史ID。历史失败回执保留原身份；补充核验要求原候选拥有可解析策略，缺少时保持缺证据，不能拿当前策略替换旧候选。
 

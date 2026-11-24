@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const {spawnSync,execFileSync}=require('node:child_process');
-const {createPlan,executePlan,runPowerShell,requiresFeatureRuntimeCheck}=require('../src/releasePublisherCore');
+const {createPlan,executePlan,runPowerShell}=require('../src/releasePublisherCore');
 const {resolvePluginContextFile}=require('../src/releasePluginCandidate');
 require('./helpers/applicationPolicyFixture').enterFixturePolicy();
 const env={RELEASE_PUBLISHER_TEST_MODE:'true',RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE:'true',RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE:'true',RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE:'true'};
@@ -101,18 +101,6 @@ test('manifest admissions reject missing malformed target and fixed-key collisio
   put(root,file,JSON.stringify(plugin(target)));
  }
 }));
-
-test('runtime scope follows affected feature and shared authentication; unknown scope remains conservative',()=>{
- const analysis=paths=>({targets:{game:{changedPaths:paths}}});
- for(const key of ['verify-relations-release','verify-tradepool-release']) {
-  assert.equal(requiresFeatureRuntimeCheck(key,analysis(['src/main/resources/static/js/design/Paint.mjs'])),false);
-  assert.equal(requiresFeatureRuntimeCheck(key,analysis(['src/main/java/com/zly/hospital/service/TokenService.java'])),true);
-  assert.equal(requiresFeatureRuntimeCheck(key,undefined),true);
-  assert.equal(requiresFeatureRuntimeCheck(key,analysis([]),{requiredChecks:[{stepKey:key}]}),true);
- }
- assert(requiresFeatureRuntimeCheck('verify-relations-release',analysis(['src/main/resources/templates/relations.html'])));
- assert(requiresFeatureRuntimeCheck('verify-tradepool-release',analysis(['src/main/java/com/zly/hospital/service/ToiletMarketService.java'])));
-});
 
 test('actual forum reuse plan retains database admission backup and runtime safety',()=>fixture(root=>{
  project(root);const plan=createPlan(root,{releaseTarget:'forum',forumImageMode:'reuse',appTag:'20261112',dryRun:true,includeStackDeploy:true},{...env,RELEASE_PUBLISHER_CONFIG:process.env.RELEASE_PUBLISHER_CONFIG});

@@ -279,6 +279,7 @@ test('reads Catalog schema version from the selected release source', () => {
 test('creates dry run command plan without production execution enabled', () => {
   const root = tempProject(sampleXml);
   const plan = createPlan(root, {
+    ...selectGameChecks(root, 'verify-relations-release', 'verify-tradepool-release', 'cleanup-game-release-containers'),
     appTag: '2026070702',
     dryRun: true,
     includeStackDeploy: true
@@ -474,7 +475,7 @@ test('creates dry run command plan without production execution enabled', () => 
     && step.validation.includes('实际场景关系对象均清零')
     && step.summary.includes('医院 ID 唯一')
     && step.summary.includes('真实场景对象全量一致')
-    && step.summary.includes('Riven 与 VMISS')));
+    && step.summary.includes('发布环境清单')));
   assert.ok(plan.steps.some(step => step.key === 'validate-game-static-delivery-prerequisites'
     && step.command.includes('verify-game-static-delivery.mjs')
     && step.command.includes('--app-tag 2026070702')
@@ -1135,7 +1136,7 @@ test('AI settings migration backs up the old file and retires it after final run
   ].join('\n'));
   const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy',
     'apply-database-migrations', 'pre-deploy-checklist', 'final-runtime-check',
-    'verify-game-static-delivery', 'retire-design-image-settings-file'];
+    'verify-game-static-delivery', 'retire-design-image-settings-file', 'cleanup-game-release-containers'];
   writeReleaseImpact(root, {assessmentId:'20260926-ai-database', coveredRuntimePaths:[migrationPath],
     checklistDecision:'checklist-updated', databaseImpact:'schema-change', requiredChecks});
   runGit(root, ['add', '.']);
@@ -2488,7 +2489,8 @@ test('game guards are repeated at deployment and Stripe authentication is a fina
 
 test('formal game plan keeps Meelok advisory and game cutover safety independent', () => {
   const root = tempProject(sampleXml);
-  const plan = createPlan(root, {appTag: '2026101101', dryRun: true, includeStackDeploy: true}, {
+  const plan = createPlan(root, {...selectGameChecks(root, 'game-meelok-readiness', 'pause-meelok-services', 'cleanup-game-release-containers'),
+    appTag: '2026101101', dryRun: true, includeStackDeploy: true}, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'
@@ -2538,7 +2540,8 @@ test('formal game plan keeps Meelok advisory and game cutover safety independent
 test('Meelok status transport failure is a retained warning and game release continues', async () => {
   const root = tempProject(sampleXml);
   const runner = testCommandRunner({failOnIncludes: 'meelok_status=OBSERVED'});
-  const result = await executePlan(root, {appTag: '2026101601', dryRun: false, includeStackDeploy: true}, {
+  const result = await executePlan(root, {...selectGameChecks(root, 'game-meelok-readiness', 'pause-meelok-services'),
+    appTag: '2026101601', dryRun: false, includeStackDeploy: true}, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-preflight-fail.json')
   }, {runCommand: runner});
@@ -2558,8 +2561,9 @@ test('Meelok lifecycle guards apply only to game cutover plans and use a unique 
   const root = tempProject(sampleXml);
   const env = {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'};
-  const first = createPlan(root, {appTag: '2026101601', dryRun: true, includeStackDeploy: true}, env);
-  const next = createPlan(root, {appTag: '2026101601', dryRun: true, includeStackDeploy: true}, env);
+  const request = {...selectGameChecks(root, 'pause-meelok-services'), appTag: '2026101601', dryRun: true, includeStackDeploy: true};
+  const first = createPlan(root, request, env);
+  const next = createPlan(root, request, env);
   assert.notEqual(first.config.meelokMaintenanceId, next.config.meelokMaintenanceId);
   const persisted = JSON.parse(JSON.stringify(first));
   assert.equal(persisted.config.meelokMaintenanceId, first.config.meelokMaintenanceId);
@@ -2574,7 +2578,7 @@ test('Meelok pause failure is a warning and does not block game deploy', async (
   const root = tempProject(sampleXml);
   const runner = testCommandRunner({failOnIncludes: 'meelok_pause=PASS'});
   const progress = [];
-  const result = await executePlan(root, {appTag: '2026101101', dryRun: false, includeStackDeploy: true}, {
+  const result = await executePlan(root, {...selectGameChecks(root, 'pause-meelok-services'), appTag: '2026101101', dryRun: false, includeStackDeploy: true}, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-pause-fail.json')
   }, {runCommand: runner, onProgress: update => progress.push(update)});
@@ -2590,7 +2594,7 @@ test('Meelok pause failure is a warning and does not block game deploy', async (
 test('successful game release restores Meelok once after final acceptance', async () => {
   const root = tempProject(sampleXml);
   const runner = testCommandRunner();
-  const result = await executePlan(root, {appTag: '2026101101', dryRun: false, includeStackDeploy: true}, {
+  const result = await executePlan(root, {...selectGameChecks(root, 'pause-meelok-services'), appTag: '2026101101', dryRun: false, includeStackDeploy: true}, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-success.json')
   }, {runCommand: runner});
@@ -2620,7 +2624,7 @@ test('cancellation after Meelok pause restores it without deploying the game', a
     if (onChunk) onChunk('test_command=PASS\n');
     return 'test_command=PASS\n';
   };
-  const result = await executePlan(root, {appTag: '2026101101', dryRun: false, includeStackDeploy: true}, {
+  const result = await executePlan(root, {...selectGameChecks(root, 'pause-meelok-services'), appTag: '2026101101', dryRun: false, includeStackDeploy: true}, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-cancel.json')
   }, {runCommand: runner, signal: controller.signal});
@@ -2648,7 +2652,7 @@ test('cutover read-only transport retry preserves deployment and unknown-state h
       onChunk?.('test_command=PASS\n');
       return 'test_command=PASS\n';
     };
-    const result = await executePlan(root, {appTag: '2026111701', dryRun: false, includeStackDeploy: true}, {
+    const result = await executePlan(root, {...selectGameChecks(root, 'pause-meelok-services'), appTag: '2026111701', dryRun: false, includeStackDeploy: true}, {
       RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
       RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'transport.json')
     }, {runCommand: runner});
@@ -2665,7 +2669,7 @@ test('cutover read-only transport retry preserves deployment and unknown-state h
 test('failed game cutover rolls back before restoring Meelok', async () => {
   const root = tempProject(sampleXml);
   const runner = recoveryDecisionTestRunner('ROLLBACK_CONFIRMED', {failAt: 'cutover'});
-  const result = await executePlan(root, {appTag: '2026101101', dryRun: false, includeStackDeploy: true}, {
+  const result = await executePlan(root, {...selectGameChecks(root, 'pause-meelok-services'), appTag: '2026101101', dryRun: false, includeStackDeploy: true}, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-rollback.json')
   }, {runCommand: runner});
@@ -2688,7 +2692,7 @@ test('Meelok restoration failure preserves successful game outcome and warns onc
     if (onChunk) onChunk('test_command=PASS\n');
     return 'test_command=PASS\n';
   };
-  const result = await executePlan(root, {appTag: '2026101101', dryRun: false, includeStackDeploy: true}, {
+  const result = await executePlan(root, {...selectGameChecks(root, 'pause-meelok-services'), appTag: '2026101101', dryRun: false, includeStackDeploy: true}, {
     RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'meelok-restore-fail.json')
   }, {runCommand: runner});
@@ -2823,6 +2827,7 @@ test('successful game release cleans exited service containers after every final
   const historyPath = path.join(root, 'cleanup-success-history.json');
   const runCommand = testCommandRunner();
   const result = await executePlan(root, {
+    ...selectGameChecks(root, 'verify-tradepool-release', 'cleanup-game-release-containers', 'sync-game-disaster-recovery-image'),
     appTag: '2026070702',
     dryRun: false,
     includeStackDeploy: true
@@ -2853,7 +2858,8 @@ test('successful game release cleans exited service containers after every final
 test('disaster recovery failures persist warnings outside game rollback authority', async () => {
   const root = tempProject(sampleXml);
   const env = {RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'dr-history.json')};
-  const request = {appTag: 'dr-test', dryRun: false, includeStackDeploy: true};
+  const request = {...selectGameChecks(root, 'sync-game-disaster-recovery-image'),
+    appTag: 'dr-test', dryRun: false, includeStackDeploy: true};
   const key = 'sync-game-disaster-recovery-image';
   for (const failure of ['archive upload refused', 'receipt missing']) {
     const runner = testCommandRunner();
@@ -2877,7 +2883,8 @@ test('disaster recovery failures persist warnings outside game rollback authorit
 
 test('cold-backup shell verifies the load before removing only old game tags', () => {
   const root = tempProject(sampleXml);
-  const plan = createPlan(root, {appTag: 'dr-test', includeStackDeploy: true});
+  const plan = createPlan(root, {...selectGameChecks(root, 'sync-game-disaster-recovery-image'),
+    appTag: 'dr-test', includeStackDeploy: true});
   const command = plan.steps.find(step => step.key === 'sync-game-disaster-recovery-image').command;
   const script = decodedScriptTree(command);
   const importScript = decodedRemoteScript(command).replace('/etc/rhospital-ha/stage.lock', './stage.lock');
@@ -2919,7 +2926,8 @@ test('cold-backup shell verifies the load before removing only old game tags', (
 
 test('Windows cold backup passes the exact image identity and archive hash to B', {skip: process.platform !== 'win32'}, () => {
   const root = tempProject(sampleXml);
-  const plan = createPlan(root, {appTag: 'dr-test', includeStackDeploy: true});
+  const plan = createPlan(root, {...selectGameChecks(root, 'sync-game-disaster-recovery-image'),
+    appTag: 'dr-test', includeStackDeploy: true});
   const command = plan.steps.find(step => step.key === 'sync-game-disaster-recovery-image').command;
   const imageId = 'sha256:' + 'c'.repeat(64);
   const archiveHash = crypto.createHash('sha256').update('local test archive').digest('hex');
@@ -2963,7 +2971,8 @@ test('terminal evidence is persisted before semantic diagnosis and model failure
   };
   const runner = testCommandRunner();
   let requests = 0;
-  const result = await executePlan(root, {appTag: '2026070702', dryRun: false, includeStackDeploy: true}, env, {
+  const result = await executePlan(root, {...selectGameChecks(root, 'cleanup-game-release-containers'),
+    appTag: '2026070702', dryRun: false, includeStackDeploy: true}, env, {
     runCommand: async (...args) => {
       const output = await runner(...args);
       if (decodedScriptTree(args[1]).includes('post_release_container_cleanup=PASS')) {
@@ -3009,6 +3018,7 @@ test('observing target holds when the fatal full-chain threshold is not met', as
   const historyPath = path.join(root, 'history.json');
   const runCommand = recoveryDecisionTestRunner('HOLD_TARGET');
   const result = await executePlan(root, {
+    ...selectGameChecks(root, 'verify-tradepool-release', 'cleanup-game-release-containers'),
     appTag: '2026070702',
     dryRun: false,
     includeStackDeploy: true
@@ -3042,6 +3052,7 @@ test('three-round fatal full-chain evidence after cutover permits automatic roll
   const historyPath = path.join(root, 'history.json');
   const runCommand = recoveryDecisionTestRunner('ROLLBACK_CONFIRMED');
   const result = await executePlan(root, {
+    ...selectGameChecks(root, 'verify-tradepool-release'),
     appTag: '2026070702',
     dryRun: false,
     includeStackDeploy: true,
@@ -3107,7 +3118,8 @@ test('default A-only formal release succeeds without any B helper and keeps core
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
     RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'history.json')};
   const runner = testCommandRunner();
-  const result = await executePlan(root, {appTag: 'primary-only', dryRun: false, includeStackDeploy: true}, env, {
+  const result = await executePlan(root, {...selectGameChecks(root),
+    appTag: 'primary-only', dryRun: false, includeStackDeploy: true}, env, {
     runCommand: async (...args) => {
       assert.equal(args[1].includes('game-standby-candidate.cjs'), false);
       return runner(...args);
@@ -3117,8 +3129,12 @@ test('default A-only formal release succeeds without any B helper and keeps core
   assert.equal(result.plan.config.standbyCandidate, null);
   for (const key of ['test-game-backend', 'verify-game-static-assets-predeploy',
     'pre-deploy-checklist', 'publish-image', 'deploy-stack', 'final-runtime-check',
-    'verify-game-static-delivery', 'cleanup-game-release-containers']) {
+    'verify-game-static-delivery']) {
     assert.ok(result.completedStepKeys.includes(key), key);
+  }
+  for (const key of ['verify-tradepool-release', 'verify-relations-release', 'game-meelok-readiness',
+    'pause-meelok-services', 'restore-meelok-services', 'cleanup-game-release-containers', 'sync-game-disaster-recovery-image']) {
+    assert.equal(result.plan.steps.some(step => step.key === key), false, key);
   }
   assert.equal(result.plan.steps.some(step => /standby-candidate/.test(step.key)), false);
   assert.equal(result.plan.steps.find(step => step.key === 'build-image').command.includes('--iidfile'), false);
@@ -3138,7 +3154,7 @@ test('explicit dual-node gate is mandatory, precedes Compose mutation and accept
   const keys = plan.steps.filter(step => !step.recoveryOnly).map(step => step.key);
   assert.ok(keys.indexOf('publish-image') < keys.indexOf('verify-game-standby-candidate'));
   assert.ok(keys.indexOf('verify-game-standby-candidate') < keys.indexOf('update-remote-compose'));
-  assert.deepEqual(keys.slice(-2), ['accept-game-standby-candidate', 'sync-game-disaster-recovery-image']);
+  assert.equal(keys.at(-1), 'accept-game-standby-candidate');
   assert.ok(keys.indexOf('final-runtime-check') < keys.indexOf('accept-game-standby-candidate'));
   const commands = plan.steps.filter(step => step.command.includes('game-standby-candidate.cjs'));
   const candidateIds = commands.map(step => {
@@ -3855,6 +3871,10 @@ test('resource admission precedes expensive work and preserves final cutover saf
   const index=plan.steps.findIndex(s=>s.key==='validate-game-release-resources');
   assert.ok(index>=0&&index<plan.steps.findIndex(s=>s.key==='git-fetch'));
   const step=plan.steps[index];assert.equal(step.notificationOnly,false);assert.equal(step.productionAction,false);
+  const readOnlyResourceCheck=decodedScriptTree(step.command);
+  assert.match(readOnlyResourceCheck,/MemAvailable/);
+  assert.match(readOnlyResourceCheck,/game_release_resources=PASS/);
+  assert.doesNotMatch(readOnlyResourceCheck,/meelok|docker|python3/);
   const deploy=decodedScriptTree(plan.steps.find(s=>s.key==='deploy-stack').command);
   assert.match(deploy,/memory headroom changed before game cutover/);
   assert.ok(deploy.indexOf('python3 - attempt --root')<deploy.indexOf('docker stack deploy'));
@@ -4056,6 +4076,17 @@ function releaseImpactPlanRequest(target, baseline, changedPaths, ignoredPaths) 
       }
     }
   };
+}
+
+function selectGameChecks(root, ...keys) {
+  // A matching legacy path alone must never select the trade-pool check.
+  const changedPaths = ['src/main/resources/templates/admin_tradepool.html'];
+  const requiredChecks = ['test-game-backend', 'verify-game-static-assets-predeploy',
+    'pre-deploy-checklist', 'final-runtime-check', 'verify-game-static-delivery', ...keys];
+  writeReleaseImpact(root, {assessmentId: 'fixture-explicit-checks', coveredRuntimePaths: changedPaths,
+    checklistDecision: 'checklist-updated', requiredChecks});
+  const {changeAnalysis} = releaseImpactPlanRequest('latest', '', changedPaths, ['release/release-impact.json']);
+  return {changeAnalysis};
 }
 
 function writeReleaseImpact(root, options) {

@@ -1,7 +1,5 @@
-function selectedRuntimeChecks(policy,analysis,assessment) {
-  const changed=analysis?.targets?.game?.changedPaths;
-  const required=new Set((assessment?.requiredChecks||[]).map(check=>check.stepKey));
-  return policy.runtimeChecks.filter(check=>required.has(check.id)||!Array.isArray(changed)||changed.some(file=>check.paths.includes(file)||check.prefixes.some(prefix=>file.startsWith(prefix))));
+function selectedRuntimeChecks(policy, requiredChecks) {
+  return policy.runtimeChecks.filter(check => requiredChecks.has(check.id));
 }
 function runtimeCheckCommands(check) {
   if(check.kind!=='http-get')throw new Error('Unsupported application runtime check');

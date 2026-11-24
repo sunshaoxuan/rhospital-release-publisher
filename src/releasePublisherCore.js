@@ -81,6 +81,10 @@ const KNOWN_RELEASE_CHECKS = {
     'verify-game-tomcat-runtime',
     'verify-tradepool-release',
     'verify-relations-release',
+    'cleanup-game-release-containers',
+    'sync-game-disaster-recovery-image',
+    'game-meelok-readiness',
+    'pause-meelok-services',
     'game-prd2-migration-readiness',
     'game-prd2-runtime-contract',
     'game-fatal-rollback-decision'
@@ -272,6 +276,8 @@ function createBoundPlan(projectRoot, request, env = process.env) {
     [...(pluginMetadata?.units.map(unit=>unit.id)||[]),...applicationPolicy().runtimeChecks.map(check=>check.id)],
     startupSource
   );
+  const requiredChecks = new Set(releaseImpactAssessment?.requiredChecks.map(check => check.stepKey));
+  const allowMeelokPause = requiredChecks.has('pause-meelok-services');
   if (codegraph && (!releaseImpactAssessment || ['verify-codegraph-prerequisites', 'codegraph-offline-cutover'].some(
     key => !releaseImpactAssessment.requiredChecks.some(item => item.stepKey === key)))) {
     throw new Error('Guild B requires CodeGraph prerequisites and offline cutover checks');
@@ -340,7 +346,7 @@ function createBoundPlan(projectRoot, request, env = process.env) {
       actionType: 'local-check',
       executable: true
     }),
-    ...(includeStackDeploy ? [releaseStep({
+    ...(includeStackDeploy && requiredChecks.has('game-meelok-readiness') ? [releaseStep({
       key: 'game-meelok-readiness',
       title: '通知 Meelok 启动与重启状态',
       summary: '只读记录五项服务的运行、健康、启动时间和容器重启次数；异常仅作通知',
@@ -352,10 +358,14 @@ function createBoundPlan(projectRoot, request, env = process.env) {
     })] : []),
     ...(includeStackDeploy&&!offlineCutover ? [releaseStep({
       key:'validate-game-release-resources',title:'校验游戏切换资源准入',
-      summary:'耗时构建前只读确认2GiB可用内存，或确认后续可安全申请本次维护；不暂停服务、不接管遗留标记',
-      command:remoteSshCommand(remoteImageTarget,remoteBashScriptCommand([
+      summary: allowMeelokPause ? '耗时构建前只读确认可用内存或已声明维护动作的安全条件' : '耗时构建前只读确认现有可用内存达到2GiB',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(allowMeelokPause ? [
         `cd ${shellToken(remoteComposeDir)}`,
-        deploymentTransaction.transactionCommand('resource',remoteComposeDir,gameServiceName(config.stackName,config.containerName),imageTag,meelokMaintenanceId)
+        deploymentTransaction.transactionCommand('resource', remoteComposeDir, gameServiceName(config.stackName, config.containerName), imageTag, meelokMaintenanceId)
+      ] : [
+        `available_kb=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)`,
+        '[ "$available_kb" -ge 2097152 ] || { echo "ERROR: insufficient game cutover memory: ${available_kb}kB"; exit 1; }',
+        'echo "game_release_resources=PASS availableKiB=$available_kb"'
       ])),
       validation:'必须输出 game_release_resources=PASS；最终切换仍再次核2GiB，容量不足且无法安全释放时提前阻断',
       actionType:'remote-check',executable:true,timeoutSeconds:60
@@ -658,7 +668,7 @@ function createBoundPlan(projectRoot, request, env = process.env) {
     steps.push(releaseStep({
       key: 'stage-game-static-assets',
       title: '预置双前置不可变静态资源',
-      summary: '在应用切换前向 Riven 与 VMISS 增量写入目标提交的内容寻址资源，并逐文件复算 SHA-256',
+      summary: '在应用切换前向发布环境清单中的两个网关增量写入目标提交的内容寻址资源，并逐文件复算 SHA-256',
       command: gameStaticAssetArtifactCommand('stage', imageTag, appTag, gatewayStaticConfigPath(env), dockerTarget),
       validation: '两台前置必须输出 gateway_static_stage=PASS，现有旧 HASH 对象保持可用',
       actionType: 'production',
@@ -788,7 +798,7 @@ function createBoundPlan(projectRoot, request, env = process.env) {
       productionAction: true,
       executable: true
     }));
-    steps.push(releaseStep({
+    if (allowMeelokPause) steps.push(releaseStep({
       key: 'pause-meelok-services',
       title: '尝试暂停同机 Meelok 服务并通知',
       summary: '保存五个服务的原始副本和镜像，逐项停机并核验游戏滚动所需内存余量',
@@ -950,7 +960,7 @@ function createBoundPlan(projectRoot, request, env = process.env) {
     steps.push(releaseStep({
       key: 'verify-game-static-delivery',
       title: '验证双前置游戏静态资源交付',
-      summary: '使用安全令牌启动真实 Chrome，分别直连 Riven 与 VMISS，执行冷缓存、热缓存和 Steam 登录后完整加载验收；浏览器基础设施异常使用全新 profile 隔离复测一次',
+      summary: '使用安全令牌启动真实 Chrome，直连发布环境清单中的两个网关，执行冷缓存、热缓存和 Steam 登录后完整加载验收；浏览器基础设施异常使用全新 profile 隔离复测一次',
       command: gameStaticDeliveryCheckCommand(appTag, env),
       validation: '两台前置均须加载到 FirstFloor，全部 /assets/ 和 Steam ES 模块零 4xx/5xx、零应用错误、响应包含 X-Cache，热缓存无 MISS，单节点冷缓存源站字节不超过预算；重复浏览器基础设施异常继续失败关闭',
       actionType: 'remote-check',
@@ -958,10 +968,10 @@ function createBoundPlan(projectRoot, request, env = process.env) {
       finalCheck: true,
       timeoutSeconds: 2100
     }));
-    if (requiresFeatureRuntimeCheck('verify-relations-release', request.changeAnalysis, releaseImpactAssessment)) steps.push(releaseStep({
+    if (requiredChecks.has('verify-relations-release')) steps.push(releaseStep({
       key: 'verify-relations-release',
       title: '验证管理员关系图发布结果',
-      summary: '使用受控管理员登录令牌和真实 Chrome 分别直连 Riven 与 VMISS，验证医院 ID 唯一、API 与真实场景对象全量一致、三字段查询、显式选择及筛选刷新场景清理',
+      summary: '使用受控管理员登录令牌和真实 Chrome 直连发布环境清单中的两个网关，验证医院 ID 唯一、API 与真实场景对象全量一致、三字段查询、显式选择及筛选刷新场景清理',
       command: relationsReleaseCheckCommand(appTag, env),
       validation: '两台前置均须打开 /relations，医院节点按 hospitalId 唯一且仅含医院与公会，页面首次关系 API 响应的节点与连线总数必须等于实际渲染及概览几何总数；邮箱、医院名和院长名查询均返回同一家至少有一条明确关系的医院，查询提交不得自动选择，关系图接口不含邮箱；搜索在加载和刷新期间禁用，刷新 dataset 快照必须发生在成功响应之后，显式选择的医院作为唯一原点主节点，精细连线、箭头和详情计数一致，关闭关系、隐藏孤立节点与刷新后的实际场景关系对象均清零且主节点保持；网络、控制台和运行时错误必须为零',
       actionType: 'remote-check',
@@ -969,7 +979,7 @@ function createBoundPlan(projectRoot, request, env = process.env) {
       finalCheck: true,
       timeoutSeconds: 900
     }));
-    if (requiresFeatureRuntimeCheck('verify-tradepool-release', request.changeAnalysis, releaseImpactAssessment)) steps.push(releaseStep({
+    if (requiredChecks.has('verify-tradepool-release')) steps.push(releaseStep({
       key: 'verify-tradepool-release',
       title: '验证管理员交易池发布结果',
       summary: `核对 Catalog v${catalogSchemaVersion} 标记、字段、索引、迁移日志、匿名页面跳转和管理员 API 拒绝未登录请求`,
@@ -993,13 +1003,16 @@ function createBoundPlan(projectRoot, request, env = process.env) {
       actionType: 'production', productionAction: true, executable: true, timeoutSeconds: 120
     }));
     const checkBindings={'$appTag':appTag,'$authTokenFile':resolveGameStaticDeliveryAuthTokenFile(env)||'','$browserHost':path.resolve(__dirname,'../scripts/release-browser-host.mjs'),'$sshTarget':remoteImageTarget.target,'$sshKey':remoteImageTarget.keyPath,'$sshPort':String(remoteImageTarget.port||22)};
-    for(const check of selectedRuntimeChecks(applicationPolicy(),request.changeAnalysis,releaseImpactAssessment))steps.push(releaseStep({
+    for(const check of selectedRuntimeChecks(applicationPolicy(),requiredChecks))steps.push(releaseStep({
       key:check.id,title:check.id,summary:'应用策略声明的运行检查',
-      command:check.kind==='node-check'?applicationNodeCheckCommand(check.nodeCheck,check.args.map(arg=>arg.startsWith('$')?checkBindings[arg]:arg),check.timeoutSeconds):remoteSshCommand(remoteImageTarget,remoteBashScriptCommand(runtimeCheckCommands(check))),
+      command:check.kind==='node-check'?applicationNodeCheckCommand(check.nodeCheck,[
+        ...check.args.map(arg=>arg.startsWith('$')?checkBindings[arg]:arg),
+        ...(check.args.includes('$browserHost') ? ['--gateway-config', gatewayStaticConfigPath(env)] : [])
+      ],check.timeoutSeconds):remoteSshCommand(remoteImageTarget,remoteBashScriptCommand(runtimeCheckCommands(check))),
       validation:'application_runtime_check=PASS id='+check.id,actionType:'remote-check',executable:true,finalCheck:true,
       timeoutSeconds:check.timeoutSeconds+15
     }));
-    steps.push(releaseStep({
+    if (requiredChecks.has('cleanup-game-release-containers')) steps.push(releaseStep({
       key: 'cleanup-game-release-containers',
       title: '清理游戏发布历史容器',
       summary: '定向删除当前游戏 Swarm 服务产生的 Exited 容器，保留镜像与其他服务容器，并复核目标版本健康副本',
@@ -1104,7 +1117,7 @@ function createBoundPlan(projectRoot, request, env = process.env) {
     });
     steps.splice(steps.findIndex(step => step.recoveryOnly), 0, acceptanceStep);
   }
-  if (includeStackDeploy) {
+  if (includeStackDeploy && requiredChecks.has('sync-game-disaster-recovery-image')) {
     steps.splice(steps.findIndex(step => step.recoveryOnly), 0, releaseStep({
       key: 'sync-game-disaster-recovery-image',
       title: '同步已验收游戏镜像到灾备机',
@@ -1170,14 +1183,6 @@ function createBoundPlan(projectRoot, request, env = process.env) {
   };
 }
 
-function requiresFeatureRuntimeCheck(key, analysis, assessment) {
-  const rule=applicationPolicy().legacyRuntimeChecks.find(rule=>rule.id===key);
-  if(!rule){if(assessment?.requiredChecks.some(item=>item.stepKey===key))throw new Error('Unknown application runtime check');return false;}
-  if(assessment?.requiredChecks.some(item=>item.stepKey===key))return true;
-  const paths=analysis?.targets?.game?.changedPaths;
-  return !Array.isArray(paths)||paths.some(file=>new RegExp(rule.pathPattern).test(file));
-}
-
 function gamePrd2RuntimeContractCommands(remoteComposeDir, stackName, containerName, startupContract) {
   return [
           `service_name=${shellToken(`${stackName}_${containerName}`)}`,
@@ -1209,9 +1214,16 @@ function gamePrd2RuntimeContractCommands(remoteComposeDir, stackName, containerN
   ];
 }
 
-function gameStaticDeliveryCheckCommand(appTag, env = process.env) {
+function gameBrowserCheckArguments(appTag, env) {
   const authTokenFile = resolveGameStaticDeliveryAuthTokenFile(env);
-  return applicationNodeCheckCommand(applicationPolicy().browser.delivery,['--app-tag',appTag,'--host-browser-helper',path.resolve(__dirname,'../scripts/release-browser-host.mjs'),...(authTokenFile?['--auth-token-file',authTokenFile]:[])],2100);
+  return ['--app-tag', appTag,
+    '--host-browser-helper', path.resolve(__dirname, '../scripts/release-browser-host.mjs'),
+    '--gateway-config', gatewayStaticConfigPath(env),
+    ...(authTokenFile ? ['--auth-token-file', authTokenFile] : [])];
+}
+
+function gameStaticDeliveryCheckCommand(appTag, env = process.env) {
+  return applicationNodeCheckCommand(applicationPolicy().browser.delivery, gameBrowserCheckArguments(appTag, env), 2100);
 }
 
 function standbyCandidateCommand(action, settings) {
@@ -1223,13 +1235,13 @@ function standbyCandidateCommand(action, settings) {
 }
 
 function gameStaticDeliveryPrerequisiteCheckCommand(appTag, env = process.env) {
-  const authTokenFile=resolveGameStaticDeliveryAuthTokenFile(env);
-  return applicationNodeCheckCommand(applicationPolicy().browser.prerequisites,['--app-tag',appTag,'--host-browser-helper',path.resolve(__dirname,'../scripts/release-browser-host.mjs'),'--check-prerequisites',...(authTokenFile?['--auth-token-file',authTokenFile]:[])],120);
+  return applicationNodeCheckCommand(applicationPolicy().browser.prerequisites,
+    [...gameBrowserCheckArguments(appTag, env), '--check-prerequisites'], 120);
 }
 
 function relationsReleaseCheckCommand(appTag, env = process.env) {
-  const authTokenFile = resolveGameStaticDeliveryAuthTokenFile(env);
-  return applicationNodeCheckCommand(applicationPolicy().legacyRuntimeChecks.find(check=>check.id==='verify-relations-release')?.nodeCheck,['--app-tag',appTag,'--host-browser-helper',path.resolve(__dirname,'../scripts/release-browser-host.mjs'),...(authTokenFile?['--auth-token-file',authTokenFile]:[])],900);
+  return applicationNodeCheckCommand(applicationPolicy().legacyRuntimeChecks.find(check => check.id === 'verify-relations-release')?.nodeCheck,
+    gameBrowserCheckArguments(appTag, env), 900);
 }
 function applicationNodeCheckCommand(id,args,timeoutSeconds){
   const check=applicationPolicy().nodeChecks.find(check=>check.id===id);if(!check)throw new Error('Application runtime implementation missing: '+id);
@@ -1256,6 +1268,7 @@ function gameFatalRollbackDecisionCommand(remoteTarget, stackName, containerName
     `--application-policy-hash ${shellToken(applicationPolicyIdentity().ownedInputHash)}`,
     `--app-tag ${shellToken(appTag)}`,
     `--auth-token-file ${shellToken(authTokenFile)}`,
+    `--gateway-config ${shellToken(gatewayStaticConfigPath(env))}`,
     `--timeout-ms 30000`,
     `--rounds 3`,
     `--round-delay-ms 5000`,
@@ -5174,7 +5187,6 @@ function escapeRegExp(value) {
 
 module.exports = {
   classifyRuntimePaths(target,files){if(!['game','forum'].includes(target)||!Array.isArray(files))throw new Error('Invalid runtime classification request');return [...new Set(files)].filter(target==='game'?isGameRuntimePath:isForumRuntimePath).sort();},
-  requiresFeatureRuntimeCheck,
   gamePrd2RuntimeContractCommands, gameStaticDeliveryCheckCommand, relationsReleaseCheckCommand, tradePoolPostDeployCheckCommand, remoteSshCommand, remoteBashScriptCommand, runPowerShell,
   DEFAULT_REMOTE_COMPOSE_DIR,
   DEFAULT_FORUM_REMOTE_COMPOSE_DIR,
