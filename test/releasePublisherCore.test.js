@@ -2443,7 +2443,7 @@ test('cutover read-only transport retry preserves deployment and unknown-state h
 });
 
 test('Meelok controlled-exit warning preserves every authoritative game outcome', async () => {
-  for (const status of ['ERROR', 'CANCELLED', 'INTERRUPTED', 'ROLLED_BACK', 'RECOVERY_REQUIRED', 'EXECUTED']) {
+  for (const status of ['ERROR', 'CANCELLED', 'INTERRUPTED', 'ROLLED_BACK', 'EXECUTED']) {
     const result = {status, logs: [], completedStepKeys: [], plan: {releaseTarget: 'game', config:{meelokRecoveryProtocol:1}, steps: [
       {key: 'pause-meelok-services', status: 'done'},
       {key: 'restore-meelok-services', status: 'pending', command: 'restore fixture', timeoutSeconds: 60}
@@ -2482,7 +2482,7 @@ test('game safety checks remain blocking with game-only materials', async () => 
       RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true', RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'safety.json')
     }, {runCommand: async (...args) => {
       const script = decodedScriptTree(args[1]);
-      assert.doesNotMatch(script, /meelok_status=OBSERVED|meelok_pause=PASS/);
+      assert.doesNotMatch(script, /meelok_status=OBSERVED/);
       if (script.includes(failure)) throw new Error(`game safety fixture: ${failure}`);
       return base(...args);
     }});
@@ -2707,7 +2707,7 @@ test('rollback decision check failure before cutover commit preserves the target
   assert.equal(runCommand.decisionRuns, 1);
 });
 
-test('default A-only formal release succeeds without any B helper and keeps core safety checks', async () => {
+test('default A-only formal release pauses Meelok before game cutover and restores it after final checks', async () => {
   const root = tempProject(sampleXml);
   const env = {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
@@ -2724,13 +2724,22 @@ test('default A-only formal release succeeds without any B helper and keeps core
   assert.equal(result.plan.config.standbyCandidate, null);
   for (const key of ['test-game-backend', 'verify-game-static-assets-predeploy',
     'pre-deploy-checklist', 'publish-image', 'deploy-stack', 'final-runtime-check',
-    'verify-game-static-delivery']) {
+    'verify-game-static-delivery', 'game-meelok-readiness', 'pause-meelok-services', 'restore-meelok-services']) {
     assert.ok(result.completedStepKeys.includes(key), key);
   }
-  for (const key of ['verify-tradepool-release', 'verify-relations-release', 'game-meelok-readiness',
-    'pause-meelok-services', 'restore-meelok-services', 'cleanup-game-release-containers', 'sync-game-disaster-recovery-image']) {
+  for (const key of ['verify-tradepool-release', 'verify-relations-release',
+    'cleanup-game-release-containers', 'sync-game-disaster-recovery-image']) {
     assert.equal(result.plan.steps.some(step => step.key === key), false, key);
   }
+  const order = (...keys) => keys.map(key => result.completedStepKeys.indexOf(key));
+  const executionOrder = order('game-meelok-readiness', 'backup-game-release', 'pause-meelok-services',
+    'update-remote-compose', 'deploy-stack', 'commit-game-cutover', 'final-runtime-check',
+    'verify-game-static-delivery', 'restore-meelok-services');
+  assert.deepEqual(executionOrder, executionOrder.toSorted((a, b) => a - b));
+  assertStepType(result.plan, 'pause-meelok-services', 'production', true);
+  assertStepType(result.plan, 'restore-meelok-services', 'production', true);
+  const preview = createPlan(root, {appTag: 'primary-only', includeStackDeploy: false}, env);
+  assert.equal(preview.steps.some(step => step.key.includes('meelok')), false);
   assert.equal(result.plan.steps.some(step => /standby-candidate/.test(step.key)), false);
   assert.equal(result.plan.steps.find(step => step.key === 'build-image').command.includes('--iidfile'), false);
   assert.match(decodedRemoteScript(result.plan.steps.find(step => step.key === 'deploy-stack').command), /docker stack deploy/);
@@ -2739,6 +2748,50 @@ test('default A-only formal release succeeds without any B helper and keeps core
     requireStandbyCandidate: false}, env).config.standbyCandidate, null);
   assert.throws(() => createPlan(root, {appTag: 'primary-only', includeStackDeploy: true,
     requireStandbyCandidate: 'false'}, env), /requireStandbyCandidate/);
+});
+
+test('Meelok pause failure blocks game cutover and restores only through controlled recovery', async () => {
+  const root = tempProject(sampleXml);
+  const env = {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'history.json')};
+  const runner = testCommandRunner({failOnIncludes: 'meelok_pause=PASS'});
+  const result = await executePlan(root, {...selectGameChecks(root), appTag: 'pause-failure', dryRun: false,
+    includeStackDeploy: true}, env, {runCommand: runner});
+  assert.equal(result.status, 'ERROR');
+  assert.equal(result.plan.steps.find(step => step.key === 'pause-meelok-services').status, 'failed');
+  assert.equal(result.plan.steps.find(step => step.key === 'deploy-stack').status, 'pending');
+  assert.ok(result.completedStepKeys.includes('restore-meelok-services'));
+});
+
+test('unknown game cutover and interrupted Meelok restore preserve maintenance for reconciliation', async () => {
+  for (const [status, options] of [['RECOVERY_REQUIRED', {}], ['INTERRUPTED', {interrupted: true}]]) {
+    const result = {status, logs: [], completedStepKeys: ['pause-meelok-services'], plan: {
+      releaseTarget: 'game', config: {meelokRecoveryProtocol: 1}, steps: [
+        {key: 'pause-meelok-services', status: 'done'},
+        {key: 'restore-meelok-services', status: 'pending'}
+      ]
+    }};
+    await restoreMeelokAfterControlledExit('', result, {}, {...options, runCommand: () => assert.fail('unexpected restore')});
+    assert.equal(result.meelokRecoveryRequired, true);
+    assert.equal(result.plan.steps[1].recoveryOutcome, 'UNKNOWN');
+  }
+});
+
+test('Meelok restore failure preserves the accepted game and is not replayed', async () => {
+  const root = tempProject(sampleXml);
+  const env = {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
+    RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true',
+    RELEASE_PUBLISHER_HISTORY_FILE: path.join(root, 'history.json')};
+  const runner = testCommandRunner({failOnIncludes: 'meelok_restore=PASS'});
+  const result = await executePlan(root, {...selectGameChecks(root), appTag: 'restore-failure', dryRun: false,
+    includeStackDeploy: true}, env, {runCommand: runner});
+  assert.equal(result.status, 'EXECUTED');
+  assert.ok(result.completedStepKeys.includes('verify-game-static-delivery'));
+  assert.equal(result.meelokRecoveryRequired, true);
+  assert.equal(result.plan.steps.find(step => step.key === 'restore-meelok-services').recoveryOutcome, 'UNKNOWN');
+  assert.equal(runner.commands.filter(command => decodedScriptTree(command).includes('meelok_restore=PASS')).length, 1);
+  assert.equal(readReleaseHistory(root, 1, env)[0].meelokRecoveryRequired, true);
 });
 
 test('fixture teardown retries transient permission errors without suppressing persistent failures', async () => {
@@ -2788,7 +2841,7 @@ test('game materials cannot schedule environment operations through an assessmen
   }
 });
 
-test('explicit dual-node gate is mandatory, precedes Compose mutation and accepts last', () => {
+test('explicit dual-node gate precedes Compose mutation and accepts before Meelok restore', () => {
   const root = tempProject(sampleXml);
   const env = {RELEASE_PUBLISHER_DISABLE_SSH_RESOLVE: 'true',
     RELEASE_PUBLISHER_DISABLE_DOCKER_CONTEXT_RESOLVE: 'true', RELEASE_PUBLISHER_DISABLE_IDEA_DOCKER_RESOLVE: 'true'};
@@ -2796,8 +2849,9 @@ test('explicit dual-node gate is mandatory, precedes Compose mutation and accept
   const keys = plan.steps.filter(step => !step.recoveryOnly).map(step => step.key);
   assert.ok(keys.indexOf('publish-image') < keys.indexOf('verify-game-standby-candidate'));
   assert.ok(keys.indexOf('verify-game-standby-candidate') < keys.indexOf('update-remote-compose'));
-  assert.equal(keys.at(-1), 'accept-game-standby-candidate');
+  assert.equal(keys.at(-1), 'restore-meelok-services');
   assert.ok(keys.indexOf('final-runtime-check') < keys.indexOf('accept-game-standby-candidate'));
+  assert.ok(keys.indexOf('accept-game-standby-candidate') < keys.indexOf('restore-meelok-services'));
   const commands = plan.steps.filter(step => step.command.includes('game-standby-candidate.cjs'));
   const candidateIds = commands.map(step => {
     const encoded = step.command.match(/\$candidateRequest = '([0-9A-Za-z+/=]+)'/)[1];
@@ -3516,7 +3570,10 @@ test('resource admission precedes expensive work and preserves final cutover saf
   const readOnlyResourceCheck=decodedScriptTree(step.command);
   assert.match(readOnlyResourceCheck,/MemAvailable/);
   assert.match(readOnlyResourceCheck,/game_release_resources=PASS/);
-  assert.doesNotMatch(readOnlyResourceCheck,/meelok|docker|python3/);
+  assert.ok(readOnlyResourceCheck.includes('python3 - resource --root'));
+  const readiness = readOnlyResourceCheck.split('def resource_readiness(root):')[1].split('class Transaction:')[0];
+  assert.match(readiness, /capacity_insufficient_safe_pause_unavailable/);
+  assert.doesNotMatch(readiness, /docker\(['"](?:scale|stack)|\.write_text\(/);
   const deploy=decodedScriptTree(plan.steps.find(s=>s.key==='deploy-stack').command);
   assert.match(deploy,/memory headroom changed before game cutover/);
   assert.ok(deploy.indexOf('python3 - attempt --root')<deploy.indexOf('docker stack deploy'));

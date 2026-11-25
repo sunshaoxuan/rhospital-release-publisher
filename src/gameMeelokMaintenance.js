@@ -54,6 +54,7 @@ function snapshotName(maintenanceId) {
 
 function gameMeelokPauseCommands(composeDir, maintenanceId) {
   return [
+    'set -o pipefail',
     ...gameMeelokReadinessCommands(composeDir),
     'umask 077',
     'mkdir -p .publisher-maintenance',

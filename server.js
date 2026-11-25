@@ -592,11 +592,8 @@ function loadStoredJobs() {
       }
       const job = markInterruptedJob(item, '服务重启时发现任务未结束');
       if (needsMeelokRecovery(job)) {
-        const terminalStatus = job.status;
-        job.status = 'RECOVERING';
-        job.logs.push('RECOVERING: 服务重启后尝试恢复临时暂停的 Meelok 服务');
         jobs.set(job.id, job);
-        void recoverInterruptedMeelok(job, terminalStatus);
+        void recoverInterruptedMeelok(job);
       } else {
         jobs.set(job.id, job);
         appendInterruptedJobHistory(job);
@@ -608,18 +605,14 @@ function loadStoredJobs() {
   }
 }
 
-async function recoverInterruptedMeelok(job, terminalStatus) {
+async function recoverInterruptedMeelok(job) {
   try {
     await restoreMeelokAfterControlledExit(projectRoot, job, process.env, {
-      onProgress(progress) {
-        Object.assign(job, progress, {updatedAt: new Date().toISOString()});
-        persistJobs();
-      }
+      interrupted: true
     });
   } catch (error) {
     job.logs.push(`WARNING: Meelok 重启后恢复未确认，游戏结果保持不变: ${error.message}`);
   }
-  job.status = terminalStatus;
   job.updatedAt = new Date().toISOString();
   appendInterruptedJobHistory(job);
   persistJobs();
@@ -644,12 +637,14 @@ function appendInterruptedJobHistory(job) {
   if (!job || !job.plan) {
     return;
   }
-  appendReleaseHistory(projectRoot, buildHistoryEntry(
+  const entry = buildHistoryEntry(
     job.status === 'RECOVERY_REQUIRED' ? 'RECOVERY_REQUIRED' : 'INTERRUPTED',
     job.plan,
     job.logs || [],
     job.completedStepKeys || []
-  ), process.env);
+  );
+  if (job.meelokRecoveryRequired || needsMeelokRecovery(job)) entry.meelokRecoveryRequired = true;
+  appendReleaseHistory(projectRoot, entry, process.env);
 }
 
 function markInterruptedJob(job, reason) {

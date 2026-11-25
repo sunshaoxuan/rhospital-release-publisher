@@ -12,6 +12,7 @@ const {buildReleaseDiagnostics, addSemanticDiagnosis} = require('./releaseDiagno
 const {GAME_DATABASE, gameDatabasePsqlCommand, gameDatabaseContainerResolutionCommands} = require('./gameProductionDatabase');
 const {bacteriaInventoryBackupCommands, verifyBacteriaInventoryBackupCommands} = require('./bacteriaInventoryBackup');
 const {gameFormalComposeCommands, gameServiceSnapshotCommands} = require('./gameFormalProductionTransition');
+const {gameMeelokReadinessCommands, gameMeelokPauseCommands, gameMeelokRestoreCommands} = require('./gameMeelokMaintenance');
 const {expectedTomcatVersion, tomcatJarCheckScript} = require('./tomcatSecurityCheck');
 const {gameProductionConfigGuardCommands, gameStripeAuthenticationCommands, gameProductionImageConfigCommands} = require('./gameProductionConfigGuard');
 const {resolveGameStartupContract, gameStartupContractCommands} = require('./gameStartupContract');
@@ -226,6 +227,7 @@ function createBoundPlan(projectRoot, request, env = process.env) {
   const remoteImageTarget = resolveRemoteImageTarget(remoteSshTarget, ideaDockerServerResolution);
   const includeStackDeploy = Boolean(request.includeStackDeploy);
   const deploymentTransactionId = includeStackDeploy ? crypto.randomUUID() : '';
+  const maintainMeelok = includeStackDeploy && remoteImageTarget.host === PRIMARY;
   if (request.requireStandbyCandidate !== undefined && typeof request.requireStandbyCandidate !== 'boolean') {
     throw new Error('requireStandbyCandidate必须是布尔值');
   }
@@ -340,15 +342,25 @@ function createBoundPlan(projectRoot, request, env = process.env) {
       actionType: 'local-check',
       executable: true
     }),
+    ...(maintainMeelok ? [releaseStep({
+      key: 'game-meelok-readiness',
+      title: '核验同机 Meelok 维护条件',
+      summary: '只读核验五项服务状态和遗留维护标记',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(gameMeelokReadinessCommands(remoteComposeDir))),
+      validation: '五项服务符合就绪条件且无未恢复的维护标记',
+      actionType: 'remote-check', executable: true, timeoutSeconds: 60
+    })] : []),
     ...(includeStackDeploy&&!offlineCutover ? [releaseStep({
       key:'validate-game-release-resources',title:'校验游戏切换资源准入',
-      summary: '耗时构建前只读确认现有可用内存达到2GiB',
-      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand([
+      summary: '构建前只读核验当前资源和切换前可用的维护条件',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(maintainMeelok ? [
+        deploymentTransaction.transactionCommand('resource', remoteComposeDir)
+      ] : [
         `available_kb=$(awk '/^MemAvailable:/ {print $2}' /proc/meminfo)`,
         '[ "$available_kb" -ge 2097152 ] || { echo "ERROR: insufficient game cutover memory: ${available_kb}kB"; exit 1; }',
         'echo "game_release_resources=PASS availableKiB=$available_kb"'
       ])),
-      validation:'必须输出 game_release_resources=PASS；最终切换仍再次核2GiB，容量不足时提前阻断',
+      validation:'资源准入必须通过；最终切换仍再次核验 2 GiB 实际可用内存',
       actionType:'remote-check',executable:true,timeoutSeconds:60
     })] : []),
     releaseStep({
@@ -684,6 +696,15 @@ function createBoundPlan(projectRoot, request, env = process.env) {
       actionType: 'production',
       productionAction: true,
       executable: true
+    }));
+    if (maintainMeelok) steps.push(releaseStep({
+      key: 'pause-meelok-services',
+      title: '停止同机 Meelok 服务',
+      summary: '绑定游戏备份，记录 Meelok 原副本与镜像，逐项确认停机',
+      command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+        gameMeelokPauseCommands(remoteComposeDir, deploymentTransactionId))),
+      validation: '五项服务全部停机且可用内存达到 2 GiB 后才继续游戏切换',
+      actionType: 'production', productionAction: true, executable: true, timeoutSeconds: 1200
     }));
     if (codegraph) {
       steps.push(releaseStep({
@@ -1063,6 +1084,15 @@ function createBoundPlan(projectRoot, request, env = process.env) {
     });
     steps.splice(steps.findIndex(step => step.recoveryOnly), 0, acceptanceStep);
   }
+  if (maintainMeelok) steps.splice(steps.findIndex(step => step.recoveryOnly), 0, releaseStep({
+    key: 'restore-meelok-services',
+    title: '恢复同机 Meelok 服务',
+    summary: '游戏最终验收通过后，用本次快照按依赖顺序恢复五项服务',
+    command: remoteSshCommand(remoteImageTarget, remoteBashScriptCommand(
+      gameMeelokRestoreCommands(remoteComposeDir, gameServiceName(config.stackName, config.containerName), deploymentTransactionId))),
+    validation: '游戏单副本健康稳定且内存达标，Meelok 原副本逐项恢复并通过就绪检查',
+    actionType: 'production', productionAction: true, executable: true, timeoutSeconds: 2400
+  }));
   for(const unit of pluginMetadata?.units||[])if(steps.some(step=>step.key===unit.id))throw new Error('Plugin cannot replace a core step: '+unit.id);
   assertReleaseImpactPlanCoverage(releaseImpactAssessment, steps, includeStackDeploy,pluginMetadata?.units.map(unit=>unit.id)||[]);
 
@@ -1077,6 +1107,7 @@ function createBoundPlan(projectRoot, request, env = process.env) {
       remoteSshTarget,
       remoteComposeDir,
       deploymentTransactionId: includeStackDeploy && !offlineCutover ? deploymentTransactionId : '',
+      ...(maintainMeelok ? {meelokRecoveryProtocol: 1} : {}),
       sshResolution,
       dockerContextResolution,
       ideaDockerServerResolution,
@@ -1594,13 +1625,9 @@ function releaseStep({
     recoveryOnly,
     timeoutSeconds,
     rehearsal,
-    notificationOnly: isMeelokNotificationStep(key),
+    notificationOnly: false,
     status: 'pending'
   };
-}
-
-function isMeelokNotificationStep(key) {
-  return ['game-meelok-readiness', 'pause-meelok-services', 'restore-meelok-services'].includes(key);
 }
 
 async function executePlan(projectRoot, request, env = process.env, options = {}) {
@@ -1645,6 +1672,11 @@ async function restoreMeelokAfterControlledExit(projectRoot, result, env, option
   const pause = result.plan.steps.find(step => step.key === 'pause-meelok-services');
   const restore = result.plan.steps.find(step => step.key === 'restore-meelok-services');
   if (!pause || !restore || pause.status === 'pending' || restore.status === 'done' || restore.recoveryOutcome === 'UNKNOWN') return;
+  if (result.status === 'RECOVERY_REQUIRED' || options.interrupted) {
+    result.logs.push('WARNING: 游戏运行状态需要复核，保留 Meelok 维护快照，等待确认后恢复');
+    markMeelokRecoveryUnknown(result);
+    return;
+  }
   if(result.plan.config?.meelokRecoveryProtocol!==1) {
     result.logs.push('WARNING: legacy Meelok recovery process outcome is unknown; operator reconciliation required; no command replay');
     markMeelokRecoveryUnknown(result);
@@ -1883,13 +1915,13 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
           }, signal, step.timeoutSeconds, runCommand);
           if(['validate-game-source-impact','validate-forum-source'].includes(step.key))runtimePlan.config.pluginValidation=pluginPrefixReport(pluginOutput+'\n'+(returnedOutput||''),plan.releaseTarget,plan);
         } catch (error) {
-          assertNotCancelled();
-          if (!isMeelokNotificationStep(step.key) || error.name === 'CancellationError') throw error;
-          if(step.key==='restore-meelok-services') {
-            maintenanceUnresolved=true;
-            pushStepLog(step.key,'meelok_recovery_outcome=UNKNOWN; preserve assets; do not replay');
+          if (step.key !== 'restore-meelok-services') {
+            assertNotCancelled();
+            throw error;
           }
-          pushStepLog(step.key, `WARNING: Meelok 通知步骤未完成，游戏发版继续；状态请查原始输出: ${error.message}`);
+          maintenanceUnresolved = true;
+          pushStepLog(step.key, 'meelok_recovery_outcome=UNKNOWN; preserve assets; do not replay');
+          pushStepLog(step.key, `WARNING: Meelok 恢复未确认，游戏验收结果已保留: ${error.message}`);
         } finally {
           if (capturedCommitOutput.trim()) {
             pushStepLog(step.key, capturedCommitOutput.trim());
@@ -1918,7 +1950,7 @@ async function executePlanSteps(projectRoot, request, env = process.env, options
             updateStep(step.key, 'running');
           }, signal, step.timeoutSeconds);
         }
-        if (step.key !== 'accept-game-standby-candidate') assertNotCancelled();
+        if (step.key !== 'accept-game-standby-candidate' && step.key !== 'restore-meelok-services') assertNotCancelled();
         if (step.cutoverCommit) {
           cutoverCommitted = true;
           cutoverCommittedAt = new Date().toISOString();
