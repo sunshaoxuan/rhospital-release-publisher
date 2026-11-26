@@ -85,23 +85,6 @@ def healthy_identity(service, baseline_image):
     return rows[0]['id']
 
 
-def resource_readiness(root):
-    available = next(int(line.split()[1]) for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith('MemAvailable:'))
-    print('game_release_resources=OBSERVED availableKiB=' + str(available))
-    if available >= 2097152:
-        return {'result': 'PASS', 'availableKiB': available, 'capacity': 'already_available'}
-    require(not (root / '.meelok-release-pause').exists() and not (root / '.meelok-release-pause').is_symlink(), 'capacity_insufficient_foreign_maintenance_marker')
-    readiness = {}
-    for name in MEELOK_SERVICES:
-        replicas = docker('service', 'inspect', '--format', '{{.Spec.Mode.Replicated.Replicas}}', name)
-        ids = docker('ps', '-q', '--filter', 'label=com.docker.swarm.service.name=' + name).split()
-        require(replicas == '1' and len(ids) == 1, 'capacity_insufficient_safe_pause_unavailable')
-        health = docker('inspect', '--format', MEELOK_HEALTH_FORMAT, ids[0])
-        require(health == 'healthy' or (health == 'none' and name in MEELOK_NO_HEALTHCHECK_SERVICES), 'capacity_insufficient_safe_pause_unavailable')
-        readiness[name] = 'MONITORED_HEALTHY' if health == 'healthy' else 'PROCESS_RUNNING_NO_HEALTHCHECK'
-    return {'result': 'PASS', 'availableKiB': available, 'capacity': 'requires_owned_pause_and_final_recheck', 'maintenanceReadiness': readiness}
-
-
 class Transaction:
     def __init__(self, root, backup, service, transaction, image):
         self.root, self.backup = Path(root), Path(backup)
@@ -194,16 +177,12 @@ class Transaction:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('action', choices=['resource', 'prepare', 'attempt', 'compensate'])
+    parser.add_argument('action', choices=['prepare', 'attempt', 'compensate'])
     for name in ['root', 'backup', 'service', 'transaction', 'image', 'candidate']:
         parser.add_argument('--' + name)
     a = parser.parse_args()
     require(os.name == 'posix' and os.geteuid() == 0, 'unsupported_executor')
     require(a.root == '/opt/1panel/docker/compose/hospital-stack', 'unapproved_configuration_root')
-    if a.action == 'resource':
-        result = resource_readiness(Path(a.root))
-        print('game_release_resources=PASS ' + json.dumps(result, sort_keys=True))
-        return
     require(re.fullmatch(r'/opt/1panel/backup/game-release-[A-Za-z0-9_-]+', a.backup or '') and a.service == 'hospital_stack_hospital-backend', 'unapproved_transaction_scope')
     lock = Path(a.root) / '.publisher-game-config.lock'
     fd_stat, path_stat = os.fstat(9), lock.lstat()

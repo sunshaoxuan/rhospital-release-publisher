@@ -26,7 +26,12 @@
     "test/localCheckPolicy.test.js",
     "test/localCheckLeaves.test.js",
     "test/bacteriaAuthoritativeBudget.test.js",
-    "test/gameReleasePreflight.test.js"
+    "test/gameReleasePreflight.test.js",
+    "src/gameMaintenanceHealth.js",
+    "src/gameMeelokMaintenance.js",
+    "src/meelokRecoverySupervisor.js",
+    "test/gameMeelokMaintenance.test.js",
+    "test/meelokRecoverySupervisor.test.js"
   ],
   "checks": [
     "publisher-plugin",

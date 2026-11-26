@@ -109,51 +109,8 @@ try:
     reject(t.compensate,'transaction_binding_changed')
 finally:shutil.rmtree(work)
 `));
-test('resource admission rejects low memory plus foreign marker early, but never manipulates marker',()=>run(fixture+String.raw`
+test('game compensation requires a healthy baseline',()=>run(fixture+String.raw`
 try:
-    marker=root/'.meelok-release-pause';marker.write_text('foreign owner')
-    with patch.object(Path,'read_text',return_value='MemAvailable: 1976780 kB\n'):
-        reject(lambda:resource_readiness(root),'capacity_insufficient_foreign_maintenance_marker')
-    assert not calls and marker.read_text()=='foreign owner'
-    with patch.object(Path,'read_text',return_value='MemAvailable: 2097152 kB\n'):
-        assert resource_readiness(root)['capacity']=='already_available'
-    marker.unlink()
-    with patch.object(Path,'read_text',return_value='MemAvailable: 1976780 kB\n'):
-        assert resource_readiness(root)['capacity']=='requires_owned_pause_and_final_recheck'
-    assert all('update' not in args and 'scale' not in args for args in calls)
-finally:shutil.rmtree(work)
-`));
-test('maintenance admission distinguishes no-check roles from monitored, bad or unknown health',()=>run(fixture+String.raw`
-try:
-    selected={'service':None,'health':'healthy','current':None}
-    def probe(*args):
-        if args[0]=='ps':selected['current']=args[-1].split('=')[-1]
-        if args[0]=='inspect':
-            assert args[2]==MEELOK_HEALTH_FORMAT
-            return selected['health'] if selected['current']==selected['service'] else 'healthy'
-        return fake_docker(*args)
-    with patch.dict(globals(),{'docker':probe}), patch.object(Path,'read_text',return_value='MemAvailable: 1976780 kB\n'):
-        for service in MEELOK_SERVICES:
-            selected.update(service=service,health='healthy')
-            assert resource_readiness(root)['maintenanceReadiness'][service]=='MONITORED_HEALTHY'
-            selected['health']='none'
-            if service in MEELOK_NO_HEALTHCHECK_SERVICES:
-                assert resource_readiness(root)['maintenanceReadiness'][service]=='PROCESS_RUNNING_NO_HEALTHCHECK'
-            else:reject(lambda:resource_readiness(root),'capacity_insufficient_safe_pause_unavailable')
-            for health in ['unhealthy','starting','unknown','stopped','','null']:
-                selected['health']=health
-                reject(lambda:resource_readiness(root),'capacity_insufficient_safe_pause_unavailable')
-    assert not any('update' in args or 'scale' in args for args in calls)
-finally:shutil.rmtree(work)
-`));
-test('maintenance inspect errors never turn into no-check readiness or weaken the game baseline',()=>run(fixture+String.raw`
-try:
-    def unavailable(*args):
-        if args[0]=='inspect':raise subprocess.CalledProcessError(1,['docker','inspect'])
-        return fake_docker(*args)
-    with patch.dict(globals(),{'docker':unavailable}), patch.object(Path,'read_text',return_value='MemAvailable: 1976780 kB\n'):
-        try:resource_readiness(root);assert False
-        except subprocess.CalledProcessError:pass
     for health in [None,'none','unknown','starting','unhealthy']:
         container['health']=health
         reject(lambda:healthy_identity(t.service,'sha256:old'),'baseline_container_changed_or_unhealthy')
@@ -185,21 +142,9 @@ test('submission protocol rejects missing, conflicting, wrong identity and unkno
   for(const output of ['',line('ATTEMPTED')+'\n'+line('NOT_SUBMITTED_RESTORED'),line('UNKNOWN'),line('ATTEMPTED')+'\ngame_deploy_transaction=UNKNOWN reason=lost',line('ATTEMPTED').replace(id,'different')])assert.equal(transactionOutcome(output,id),'UNKNOWN');
   assert.match(lockCommands().join('\n'),/flock -n 9/);
   assert.match(transactionCommand('attempt','/root','service','hospital-backend:new',id),/python3 - attempt --root/);
+  assert.throws(()=>transactionCommand('resource','/root'),/Unknown configuration transaction action/);
 });
 test('transaction regression binds the exact helper source under test',t=>{
   t.diagnostic('transaction_helper_sha256='+require('node:crypto').createHash('sha256').update(script).digest('hex'));
   assert.match(script,/submission_not_observed/);
-});
-test('all generated maintenance probes use one role-aware missing-field-safe health contract',()=>{
-  const {HEALTH_FORMAT,NO_HEALTHCHECK_SERVICES,readyPattern}=require('../src/gameMaintenanceHealth');
-  const {gameMeelokStatusCommands,gameMeelokReadinessCommands,gameMeelokRestoreCommands}=require('../src/gameMeelokMaintenance');
-  assert.deepEqual(NO_HEALTHCHECK_SERVICES,['meelok_worker','meelok_object_storage']);
-  assert.match(HEALTH_FORMAT,/index \.State "Health"/);assert.match(HEALTH_FORMAT,/index \.Config "Healthcheck"/);
-  assert.doesNotMatch(HEALTH_FORMAT,/\.State\.Health|Env|Output|Log/);
-  assert.ok(script.includes('MEELOK_HEALTH_FORMAT = '+JSON.stringify(HEALTH_FORMAT)));
-  for(const commands of [gameMeelokStatusCommands('.'),gameMeelokReadinessCommands('.'),gameMeelokRestoreCommands('.','game','01234567-89ab-cdef-0123-456789abcdef')]){
-    const text=commands.join('\n');assert.ok(text.includes(HEALTH_FORMAT));
-    assert.doesNotMatch(text,/\*:none|\*:health=none/);
-  }
-  assert.equal(readyPattern(),'*:healthy|meelok_worker:none|meelok_object_storage:none');
 });

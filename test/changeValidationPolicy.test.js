@@ -63,7 +63,7 @@ test('selection unions are deduplicated and every executable test is owned',()=>
 test('public-only changes select console consumers without rerunning backend safety or business suites',()=>{
  for(const file of ['public/app.js','public/index.html','public/styles.css','src/releaseConsoleView.js']){
   const plan=planChanges('publisher',[file,file]);assert.deepEqual(plan.checks.map(check=>check.key),['publisher-console']);
-  assert.deepEqual(plan.checks[0].tests,['test/releaseConsole.test.js']);
+  assert(plan.checks[0].tests.includes('test/releaseConsole.test.js'));
  }
  const backend=planChanges('publisher',['test/releasePublisherCore.test.js']).checks[0];
  assert.equal(backend.key,'publisher-plan');assert(!backend.inputs.includes('public/app.js'));
@@ -81,4 +81,10 @@ test('formal Source integration has its own unchanged consumer scope',()=>{
  assert.deepEqual(keys(['src/releasePlanSources.js']),checks.map(check=>check.key));
  assert.deepEqual(keys(['test/releasePlanSources.test.js']),['publisher-plan']);
  for(const check of checks)assert(check.inputs.includes('src/releasePlanSources.js'));
+});
+
+test('retirement preserves the game transaction and publisher interruption checks',()=>{
+ assert.deepEqual(keys(['test/gameDeploymentTransaction.test.js']),['publisher-recovery']);
+ assert.deepEqual(keys(['test/releaseJobStore.test.js']),['publisher-console']);
+ assert.deepEqual(keys(['scripts/game-deployment-transaction.py']),['publisher-console','publisher-recovery','publisher-plan','publisher-source']);
 });

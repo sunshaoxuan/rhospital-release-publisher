@@ -11,7 +11,6 @@ const {
   readReleaseConfig,
   createPlan,
   executePlan,
-  restoreMeelokAfterControlledExit,
   diagnoseHistoryEntry,
   updateHistoryDiagnostics,
   appendReleaseHistory,
@@ -37,7 +36,6 @@ const {
 } = require('./src/releasePublisherCore');
 const {
   isActiveJobStatus,
-  needsMeelokRecovery,
   publisherActivity,
   selectPersistedJobs
 } = require('./src/releaseJobStore');
@@ -483,8 +481,7 @@ async function runExecutionJobInIsolatedWorktree(job, body, controller, createdA
           logs: [sourceSetupLog].concat(progress.logs || []),
           updatedAt: new Date().toISOString()
         });
-        if (progress.currentStepKey === 'pause-meelok-services') persistJobs();
-        else schedulePersistJobs();
+        schedulePersistJobs();
       }
     });
     Object.assign(job, {
@@ -591,31 +588,13 @@ function loadStoredJobs() {
         continue;
       }
       const job = markInterruptedJob(item, '服务重启时发现任务未结束');
-      if (needsMeelokRecovery(job)) {
-        jobs.set(job.id, job);
-        void recoverInterruptedMeelok(job);
-      } else {
-        jobs.set(job.id, job);
-        appendInterruptedJobHistory(job);
-      }
+      jobs.set(job.id, job);
+      appendInterruptedJobHistory(job);
     }
     persistJobs();
   } catch (error) {
     console.error(`Job store load failed: ${error.message}`);
   }
-}
-
-async function recoverInterruptedMeelok(job) {
-  try {
-    await restoreMeelokAfterControlledExit(projectRoot, job, process.env, {
-      interrupted: true
-    });
-  } catch (error) {
-    job.logs.push(`WARNING: Meelok 重启后恢复未确认，游戏结果保持不变: ${error.message}`);
-  }
-  job.updatedAt = new Date().toISOString();
-  appendInterruptedJobHistory(job);
-  persistJobs();
 }
 
 function interruptRunningJobs(reason) {
@@ -643,7 +622,6 @@ function appendInterruptedJobHistory(job) {
     job.logs || [],
     job.completedStepKeys || []
   );
-  if (job.meelokRecoveryRequired || needsMeelokRecovery(job)) entry.meelokRecoveryRequired = true;
   appendReleaseHistory(projectRoot, entry, process.env);
 }
 

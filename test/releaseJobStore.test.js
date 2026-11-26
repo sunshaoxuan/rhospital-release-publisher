@@ -7,7 +7,6 @@ const vm = require('node:vm');
 const {
   compactPersistedJob,
   isActiveJobStatus,
-  needsMeelokRecovery,
   publisherActivity,
   selectPersistedJobs
 } = require('../src/releaseJobStore');
@@ -27,7 +26,13 @@ test('candidate activity includes game/forum active states and terminal-job clea
 
 test('active endpoint reports cleanup occupancy and preserves the existing job field', () => {
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.match(server, /sendJson\(res, 200, publisherActivity\(jobs.values\(\), jobControllers.size\)\)/);
+  const start = server.indexOf("    if (pathname === '/api/jobs/active'");
+  const end = server.indexOf("    if (pathname.startsWith('/api/jobs/')", start);
+  const context = {pathname: '/api/jobs/active', req: {method: 'GET'}, res: {}, requestUrl: new URL('http://localhost/api/jobs/active'),
+    publisherActivity, jobs: new Map(), jobControllers: new Map([['cleanup', {}]]), sendJson: (_response, status, body) => ({status, body})};
+  const result = vm.runInNewContext(`(() => {${server.slice(start, end)}})()`, context);
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.body, {busy: true, job: null});
 });
 
 test('persists only running and cancelling jobs', () => {
@@ -92,41 +97,20 @@ test('server recovers only active stored jobs and records an interruption once',
   assert.match(server, /appendInterruptedJobHistory\(job\);/);
 });
 
-test('interrupted game jobs restore Meelok only after the pause boundary was entered', () => {
-  const job = {plan: {releaseTarget: 'game', steps: [
-    {key: 'pause-meelok-services', status: 'pending'},
-    {key: 'restore-meelok-services', status: 'pending'}
-  ]}};
-  assert.equal(needsMeelokRecovery(job), false);
-  job.plan.steps[0].status = 'running';
-  assert.equal(needsMeelokRecovery(job), true);
-  job.plan.steps[0].status = 'done';
-  assert.equal(needsMeelokRecovery(job), true);
-  job.plan.steps[1].status = 'done';
-  assert.equal(needsMeelokRecovery(job), false);
-  job.plan.releaseTarget = 'forum';
-  job.plan.steps[1].status = 'pending';
-  assert.equal(needsMeelokRecovery(job), false);
-});
-
-test('publisher restart Meelok restoration never overwrites the game interruption outcome', async () => {
+test('publisher startup records an interrupted historical job without replaying its saved commands', () => {
   const server = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  const source = server.slice(server.indexOf('async function recoverInterruptedMeelok('),
-    server.indexOf('function interruptRunningJobs('));
-  for (const failure of [false, true]) {
-    for (const status of ['INTERRUPTED', 'RECOVERY_REQUIRED']) {
-      const history = [];
-      const context = vm.createContext({projectRoot: 'fixture', process: {env: {}},
-        restoreMeelokAfterControlledExit: async (root, job, env, options) => {
-          options.onProgress({status: 'RECOVERING'});
-          if (failure) throw new Error('Meelok unavailable fixture');
-        }, persistJobs() {}, appendInterruptedJobHistory(job) { history.push(job.status); }});
-      vm.runInContext(source, context);
-      const job = {status: 'RECOVERING', logs: []};
-      await context.recoverInterruptedMeelok(job, status);
-      assert.equal(job.status, status);
-      assert.deepEqual(history, [status]);
-      if (failure) assert.match(job.logs.join('\n'), /WARNING: Meelok/);
-    }
-  }
+  const source = server.slice(server.indexOf('function loadStoredJobs('), server.indexOf('function interruptRunningJobs('));
+  const historicalJob = {id: 'fixture', status: 'RUNNING', plan: {releaseTarget: 'game', steps: [
+    {key: 'pause-meelok-services', status: 'done'},
+    {key: 'restore-meelok-services', status: 'pending', command: 'saved operation'}
+  ]}};
+  const jobs = new Map();
+  const history = [];
+  const context = {JSON, jobs, jobStorePath: 'fixture', fs: {existsSync: () => true, readFileSync: () => JSON.stringify([historicalJob])},
+    isActiveJobStatus, markInterruptedJob: job => ({...job, status: 'INTERRUPTED'}),
+    appendInterruptedJobHistory: job => history.push(job), persistJobs() {}};
+  vm.runInNewContext(`${source}\nloadStoredJobs();`, context);
+  const expected = {...historicalJob, status: 'INTERRUPTED'};
+  assert.deepEqual(jobs.get(historicalJob.id), expected);
+  assert.deepEqual(history, [expected]);
 });

@@ -7,13 +7,6 @@ function isActiveJobStatus(status) {
   return ACTIVE_JOB_STATUSES.has(String(status || ''));
 }
 
-function needsMeelokRecovery(job) {
-  if (job?.plan?.releaseTarget !== 'game') return false;
-  const pause = job.plan.steps?.find(step => step.key === 'pause-meelok-services');
-  const restore = job.plan.steps?.find(step => step.key === 'restore-meelok-services');
-  return Boolean(pause && restore && pause.status !== 'pending' && restore.status !== 'done');
-}
-
 function publisherActivity(items, controllerCount = 0) {
   const job = Array.from(items || []).find(item => isActiveJobStatus(item.status)) || null;
   return {job, busy: Boolean(job) || controllerCount > 0};
@@ -55,7 +48,6 @@ function compactLogs(logs, limit) {
 module.exports = {
   compactPersistedJob,
   isActiveJobStatus,
-  needsMeelokRecovery,
   publisherActivity,
   selectPersistedJobs
 };

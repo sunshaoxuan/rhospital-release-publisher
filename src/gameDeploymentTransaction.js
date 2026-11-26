@@ -1,6 +1,5 @@
 const fs=require('node:fs');
 const path=require('node:path');
-const {pythonPrelude}=require('./gameMaintenanceHealth');
 const quote=value=>`'${String(value).replace(/'/g, `'\\''`)}'`;
 function lockCommands(){return [
   'umask 077',
@@ -10,11 +9,11 @@ function lockCommands(){return [
   'exec 9>>"$transaction_lock"',
   'flock -n 9 || { echo "ERROR: publisher configuration transaction is busy"; exit 1; }'
 ];}
-function transactionSource(){return pythonPrelude()+fs.readFileSync(path.resolve(__dirname,'../scripts/game-deployment-transaction.py'),'utf8');}
+function transactionSource(){return fs.readFileSync(path.resolve(__dirname,'../scripts/game-deployment-transaction.py'),'utf8');}
 function transactionCommand(action,root,service,image,id){
-  if(!['resource','prepare','attempt','compensate'].includes(action))throw Error('Unknown configuration transaction action');
+  if(!['prepare','attempt','compensate'].includes(action))throw Error('Unknown configuration transaction action');
   const source=Buffer.from(transactionSource()).toString('base64');
-  const args=action==='resource'?'':` --backup "$backup_dir" --service ${quote(service)} --transaction ${quote(id)} --image ${quote(image)}${action==='prepare'?' --candidate "$compose_candidate"':''}`;
+  const args=` --backup "$backup_dir" --service ${quote(service)} --transaction ${quote(id)} --image ${quote(image)}${action==='prepare'?' --candidate "$compose_candidate"':''}`;
   return `printf %s "${source}" | base64 -d | python3 - ${action} --root ${quote(root)}${args}`;
 }
 function transactionOutcome(output,id){
